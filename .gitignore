@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.local
+world.json.bak
+
+# Working notes and local editor config. Kept on disk, kept out of the repo.
+claude-notes/
+.claude/

@@ -1,0 +1,173 @@
+{
+  "version": 10,
+  "createdAt": 1787253280338,
+  "updatedAt": 1787267860985,
+  "worldSeed": "16pfytbu",
+  "localSlot": "A",
+  "partnerJoined": false,
+  "characters": {
+    "A": {
+      "name": "Robin",
+      "pronouns": {
+        "subject": "they",
+        "object": "them",
+        "possessive": "their"
+      },
+      "look": {
+        "skin": "#ffab82",
+        "hair": "#e09a4e",
+        "shirt": "#7aa74a",
+        "shirtDetail": "#171b2c",
+        "hairStyle": 0,
+        "eyeStyle": 0,
+        "shirtStyle": 0
+      },
+      "starter": "wispen"
+    },
+    "B": {
+      "name": "Sage",
+      "pronouns": {
+        "subject": "they",
+        "object": "them",
+        "possessive": "their"
+      },
+      "look": {
+        "skin": "#a9663f",
+        "hair": "#2a2530",
+        "shirt": "#4f8fba",
+        "shirtDetail": "#eae178",
+        "hairStyle": 2,
+        "eyeStyle": 3,
+        "shirtStyle": 1
+      },
+      "starter": "obera"
+    }
+  },
+  "party": [
+    {
+      "uid": "mt23o0g2-c-7y3jk",
+      "speciesId": "wispen",
+      "level": 2,
+      "xp": 18,
+      "genes": {
+        "hp": 5,
+        "str": 3,
+        "def": 5,
+        "res": 6,
+        "mag": 6,
+        "spd": 6
+      },
+      "moves": [
+        "tithe",
+        "hex",
+        "leaf-flick",
+        "blood-pact"
+      ],
+      "secondaryAbility": "moss-heart",
+      "breedCount": 2,
+      "hp": 16,
+      "owner": "A",
+      "nickname": "Oberon Child"
+    },
+    {
+      "uid": "mt1wgh1u-2-3vn3m",
+      "speciesId": "obera",
+      "level": 5,
+      "xp": 0,
+      "genes": {
+        "hp": 7,
+        "str": 5,
+        "def": 7,
+        "res": 5,
+        "mag": 4,
+        "spd": 4
+      },
+      "moves": [
+        "brace-up",
+        "crush",
+        "leaf-flick",
+        "tithe"
+      ],
+      "secondaryAbility": "moss-heart",
+      "breedCount": 0,
+      "hp": 30,
+      "owner": "B"
+    },
+    {
+      "uid": "mt23nqzv-b-50u2k",
+      "speciesId": "wispen",
+      "level": 2,
+      "xp": 18,
+      "genes": {
+        "hp": 5,
+        "str": 3,
+        "def": 5,
+        "res": 6,
+        "mag": 7,
+        "spd": 6
+      },
+      "moves": [
+        "tithe",
+        "hex",
+        "moonbeam",
+        "blood-pact"
+      ],
+      "secondaryAbility": "swift",
+      "breedCount": 1,
+      "hp": 16,
+      "owner": "A"
+    },
+    {
+      "uid": "mt1wgh1u-1-8ros9",
+      "speciesId": "wispen",
+      "level": 5,
+      "xp": 0,
+      "genes": {
+        "hp": 4,
+        "str": 3,
+        "def": 4,
+        "res": 6,
+        "mag": 8,
+        "spd": 7
+      },
+      "moves": [
+        "crush",
+        "hex",
+        "moonbeam",
+        "blood-pact"
+      ],
+      "secondaryAbility": "swift",
+      "breedCount": 0,
+      "hp": 22,
+      "owner": "A"
+    }
+  ],
+  "box": [],
+  "bag": {
+    "snare": 8,
+    "skee-berry": 3
+  },
+  "money": 300,
+  "story": {
+    "chapter": 0,
+    "flags": {
+      "beat:npc1": true
+    }
+  },
+  "quests": {},
+  "pos": {
+    "map": "demo",
+    "x": 117,
+    "y": 238
+  },
+  "special": {
+    "form": 0,
+    "careXp": 5,
+    "hunger": 74.06666666666757,
+    "clean": 80.04166666666553,
+    "happy": 77.05416666666656,
+    "hibernating": false,
+    "lastCalc": 1787267620338
+  },
+  "aetus": 300
+}

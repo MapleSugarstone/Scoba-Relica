@@ -1,0 +1,1211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#2a3049" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Relica" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
+  <title>Scoba Relica</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: #2a3049;
+      touch-action: none;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      font-family: ui-rounded, "Segoe UI", system-ui, sans-serif;
+      color: #f3f2c0;
+      /* Hard-edged glyphs: no greyscale or subpixel blending anywhere. */
+      -webkit-font-smoothing: none;
+      -moz-osx-font-smoothing: grayscale;
+      font-smooth: never;
+      text-rendering: geometricPrecision;
+    }
+    #game {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      image-rendering: pixelated;
+    }
+    #ui {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+    }
+    #ui > * { pointer-events: auto; }
+
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      /* safe: a screen taller than the viewport pins to the top instead of
+         centering its overflow out of scroll range. */
+      justify-content: safe center;
+      gap: 14px;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      background: #2a3049;
+      overflow-y: auto;
+    }
+    /* A battle draws its own scene on the canvas, so the screen over it is
+       only the readouts: it lets the stage through and pins them to the
+       edges rather than centring them over the fight. */
+    .screen.stage {
+      background: transparent;
+      justify-content: flex-end;
+      pointer-events: none;
+    }
+    /* The readouts ride under their Scobas rather than sitting in a bar. */
+    .bplates { position: absolute; inset: 0; z-index: 2; }
+    /* Compounded with .bcard, which is defined later and would otherwise win
+       on source order at equal specificity. */
+    .bcard.bplate {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: auto;
+      padding: 5px 8px;
+      gap: 2px;
+      min-width: 104px;
+      transform-origin: top left;
+    }
+    .bcard.bplate .nm { font-size: 12px; }
+    .bcard.bplate .nm .lv { font-size: 10px; }
+    .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 10px; }
+    .bcard.bplate .own { font-size: 9px; }
+    .bcard.bplate .bbar { height: 13px; }
+    /*
+     * A Mote's readout. Three of these stand behind the two Scobas, so it
+     * carries only what a Mote has to say: its name, its two bars, and any
+     * marks it has picked up. No owner line and no level, since a Mote is
+     * always its summoner's level and is nobody's to swap.
+     */
+    .bcard.bmote.bplate {
+      --fill: #2f3450;
+      min-width: 0;
+      padding: 4px 7px;
+      gap: 2px;
+    }
+    .bcard.bmote .nm { font-size: 11px; white-space: nowrap; }
+    .bcard.bmote .bbar { height: 10px; }
+    /* The badge is drawn art at 41x17 and is never scaled, here least of all:
+       shrinking it for a small card is exactly what would put its outline
+       across pixel edges while the Scoba beside it kept a hard one. It sets the
+       card's width instead. A second type wraps rather than widening it. */
+    .bcard.bmote .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }
+    /* On a narrow screen the slots are only a thumb apart, so the readouts
+       shrink to clear each other and the log rather than burying the Scobas
+       they belong to. */
+    @media (max-width: 560px) {
+      .bcard.bplate {
+        min-width: 76px;
+        padding: 3px 5px;
+        gap: 1px;
+      }
+      .bcard.bplate .nm { font-size: 10px; gap: 3px; }
+      .bcard.bplate .nm .lv { font-size: 8px; }
+      .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 8px; }
+      .bcard.bplate .own { font-size: 8px; letter-spacing: 0; }
+      .bcard.bplate .bbar { height: 10px; }
+      .bcard.bmote.bplate { padding: 3px 5px; }
+      .bcard.bmote .nm { font-size: 9px; }
+      .bcard.bmote .bbar { height: 8px; }
+    }
+
+    /* Catches clicks on the field itself while a move is being aimed. */
+    .baim { position: absolute; inset: 0; z-index: 1; }
+    .screen.stage > * { pointer-events: auto; }
+    /*
+     * The two overlay layers span the whole screen and, being positioned,
+     * paint above the buttons below them. Left clickable they swallow every
+     * press, so they are switched off here and only the parts that need a
+     * pointer are switched back on. These beat the blanket rule above on
+     * specificity as well as order.
+     */
+    .screen.stage > .bplates,
+    .screen.stage > .baim { pointer-events: none; }
+    .screen.stage .bcard.bplate { pointer-events: auto; }
+    .screen.stage > .baim.on { pointer-events: auto; cursor: crosshair; }
+    /* The log and the buttons sit above both layers. */
+    .screen.stage > .bbottom { position: relative; z-index: 3; }
+    .bbottom {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+    .screen h1 { font-size: clamp(28px, 9vw, 52px); letter-spacing: 2px; text-shadow: 3px 3px 0 #171b2c; }
+    .screen h2 { font-size: 20px; }
+    .screen .sub { color: #9aa0c3; font-size: 14px; }
+
+
+    /*
+     * Every panel and button is one shape: a 3 px outline with stepped corners
+     * over a flat fill. It is built from four axis-aligned rectangles per
+     * layer (fill first, so it paints over the outline's middle) because a
+     * border-radius corner is a curve the browser has to antialias, and a
+     * rectangle edge never is. The steps run 4, 2, 1, 1, 0 px in from the
+     * corner, which reads as a radius without ever softening a pixel.
+     */
+    .card, button.big, button.act, button.starter, button.thumb, .pill, .swatch,
+    #bagBtn, #bagMenu button, #actBtn, #dialog, .bcard, .blog, .mgbar, .dollWrap, #toast,
+    .list .item, #stick, #stickKnob, .card input[type="text"],
+    label.custom input[type="color"] {
+      --ink: #171b2c;
+      --fill: #363d5e;
+      border: 0;
+      border-radius: 0;
+      background:
+        linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
+        linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+        linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
+        linear-gradient(var(--fill) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
+        linear-gradient(var(--ink) 0 0) 0 4px / 100% calc(100% - 8px) no-repeat,
+        linear-gradient(var(--ink) 0 0) 4px 0 / calc(100% - 8px) 100% no-repeat,
+        linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
+        linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
+    }
+    /* Selection reads as a second frame rather than a soft glow. */
+    .sel { outline: 3px solid #f3f2c0; outline-offset: -3px; }
+
+    button.big {
+      font: inherit;
+      font-size: 18px;
+      padding: 12px 28px;
+      min-width: 220px;
+      --fill: #5c4e92;
+      color: #f3f2c0;
+      cursor: pointer;
+    }
+    button.big:active { --fill: #473b74; }
+    button.big:disabled { opacity: 0.45; }
+    button.big.primary { --fill: #7aa74a; }
+    button.big.primary:active { --fill: #5f843a; }
+
+    .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
+    .card {
+      --fill: #363d5e;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+      max-width: 420px;
+      width: min(100%, 420px);
+    }
+    .card label { font-size: 13px; color: #9aa0c3; align-self: flex-start; }
+    .card input[type="text"] {
+      font: inherit;
+      font-size: 16px;
+      width: 100%;
+      padding: 8px 10px;
+      --fill: #2a3049;
+      color: #f3f2c0;
+    }
+    .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+    .swatch {
+      width: 34px; height: 34px;
+      cursor: pointer;
+      padding: 0;
+    }
+    .pill {
+      font: inherit; font-size: 14px;
+      padding: 7px 14px;
+      --fill: #2a3049;
+      color: #f3f2c0;
+      cursor: pointer;
+    }
+    .pill.sel { --fill: #7aa74a; }
+
+    /* The home-screen nudge. Quieter fill than a .card that holds the screen's
+       actual work, so it reads as an aside under the title buttons. */
+    .card.install { --fill: #2f3450; gap: 8px; margin-top: 6px; }
+    .card.install strong { font-size: 15px; }
+    .card.install .dim { align-self: center; text-align: center; line-height: 1.5; }
+    .card.install .steps {
+      display: flex; align-items: center; justify-content: center;
+      flex-wrap: wrap; gap: 6px;
+      font-size: 13px; color: #f3f2c0;
+    }
+    .card.install .steps svg {
+      width: 16px; height: 16px;
+      fill: currentColor;
+      display: block;
+    }
+
+    /* Starter picker */
+    .starters {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(98px, 1fr));
+      gap: 8px;
+      width: min(100%, 420px);
+    }
+    button.starter {
+      font: inherit;
+      color: #f3f2c0;
+      --fill: #363d5e;
+      padding: 6px 4px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+    button.starter.taken { opacity: 0.4; cursor: default; }
+    button.starter .stage {
+      height: 68px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+    }
+    button.starter .nm { font-size: 13px; }
+    canvas.critter { image-rendering: pixelated; display: block; }
+    .tbadges { display: flex; gap: 3px; justify-content: center; }
+    /* Type badges: drawn art, never scaled, so their outline stays 3 px. */
+    .tico {
+      image-rendering: pixelated;
+      display: inline-block;
+      width: 41px;
+      height: 17px;
+      vertical-align: middle;
+    }
+    .ticos { display: inline-flex; gap: 3px; align-items: center; vertical-align: middle; }
+    .tbadge {
+      font-size: 11px;
+      font-weight: 700;
+      color: #171b2c;
+      padding: 1px 9px;
+    }
+    .card .dim { color: #9aa0c3; font-size: 13px; align-self: flex-start; }
+    .flip { display: block; line-height: 0; transform: scaleX(-1); }
+
+    /* Character creator */
+    .dollWrap {
+      --fill: #ded9ee;
+      padding: 8px 18px 4px;
+    }
+    canvas.doll {
+      display: block;
+      image-rendering: pixelated;
+      width: 177px;
+      height: 208.5px;
+    }
+    .thumbs { display: flex; gap: 8px; flex-wrap: wrap; align-self: flex-start; }
+    button.thumb {
+      padding: 5px;
+      line-height: 0;
+      --fill: #ded9ee;
+      cursor: pointer;
+    }
+    button.thumb canvas { image-rendering: pixelated; display: block; }
+    .pill.chan { display: inline-flex; align-items: center; gap: 7px; }
+    .pill.chan i {
+      display: block;
+      width: 14px; height: 14px;
+      border: 2px solid #171b2c;
+    }
+    label.custom {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      align-self: flex-start;
+      font-size: 13px;
+      color: #9aa0c3;
+      cursor: pointer;
+    }
+    label.custom input[type="color"] {
+      width: 42px; height: 32px;
+      padding: 0;
+      --fill: #2a3049;
+      cursor: pointer;
+    }
+
+    #hud { position: absolute; inset: 0; display: none; }
+    #hud.on { display: block; }
+    #bag {
+      position: absolute;
+      top: max(10px, env(safe-area-inset-top));
+      right: max(10px, env(safe-area-inset-right));
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    #bagBtn {
+      width: 46px; height: 46px;
+      padding: 7px;
+      --fill: #363d5e;
+      color: #f3f2c0;
+      display: block;
+    }
+    /* Rects only, and crisp edges on them, so the bag never softens a pixel
+       the way the rest of the interface never does. */
+    #bagBtn svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+    #bagBtn.on { --fill: #7aa74a; }
+    #bagMenu {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      /* Taller than the screen on a short phone, so it carries its own scroll
+         rather than pushing the last door off the bottom. */
+      max-height: calc(100vh - 90px);
+      overflow-y: auto;
+    }
+    #bagMenu[hidden] { display: none; }
+    .code {
+      font: inherit; font-size: 22px;
+      letter-spacing: 0.22em;
+      color: #eae178;
+      padding: 6px 4px;
+      flex: 1;
+    }
+    #bagMenu button {
+      font: inherit; font-size: 14px;
+      letter-spacing: 0.08em;
+      padding: 9px 14px;
+      min-width: 132px;
+      text-align: center;
+      --fill: #363d5e;
+      color: #f3f2c0;
+    }
+    #actBtn {
+      position: absolute;
+      bottom: max(26px, env(safe-area-inset-bottom));
+      right: max(22px, env(safe-area-inset-right));
+      width: 74px; height: 74px;
+      --fill: #7aa74a;
+      color: #f3f2c0;
+      font: inherit; font-size: 17px;
+      display: none;
+    }
+    body.touch #actBtn { display: block; }
+    #stick {
+      position: absolute;
+      width: 110px; height: 110px;
+      --ink: #f3f2c0;
+      --fill: #2a3049;
+      opacity: 0.55;
+      display: none;
+      pointer-events: none;
+    }
+    #stickKnob {
+      position: absolute;
+      width: 44px; height: 44px;
+      --ink: #f3f2c0;
+      --fill: #9aa0c3;
+      left: 33px; top: 33px;
+    }
+
+    #dialog {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: max(20px, env(safe-area-inset-bottom));
+      width: min(94vw, 560px);
+      --ink: #5c4e92;
+      --fill: #171b2c;
+      padding: 14px 16px;
+      font-size: 16px;
+      line-height: 1.45;
+      display: none;
+    }
+    #dialog .who { color: #eae178; font-size: 13px; margin-bottom: 4px; }
+    #dialog .next { color: #9aa0c3; font-size: 12px; text-align: right; margin-top: 6px; }
+
+    /* Your Scobas on the left, the enemy's on the right, with the two sides
+       breaking onto their own lines before a card ever has to shrink. */
+    .bfield {
+      display: flex;
+      gap: 10px 26px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: center;
+      width: 100%;
+      max-width: 94vw;
+    }
+    .bt-side { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .bfield .allies { justify-content: flex-end; }
+    .bfield .foes { justify-content: flex-start; }
+    .bcard {
+      --fill: #363d5e;
+      position: relative;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: center;
+      min-width: 132px;
+    }
+    .bcard.target { outline: 3px solid #eae178; outline-offset: -3px; cursor: pointer; }
+    /* Whose turn it is to pick, so two players never lose track of the order. */
+    .bcard.acting { outline: 3px solid #7c9df0; outline-offset: -3px; }
+    .bcard .own { font-size: 11px; color: #9aa0c3; letter-spacing: 1px; text-transform: uppercase; }
+    .bcard.empty { --fill: #2f3450; justify-content: center; min-height: 62px; }
+    .bcard.empty .sub { color: #9aa0c3; font-size: 12px; }
+    .bcard canvas { image-rendering: pixelated; }
+    .bcard .nm { font-size: 14px; display: flex; gap: 6px; align-items: baseline; }
+    .bcard .nm .lv { color: #9aa0c3; font-size: 12px; }
+    /* Too short for stepped corners: a square 2 px frame stays just as sharp. */
+    .bbar { position: relative; width: 100%; height: 14px; border: 2px solid #171b2c; background: #2a3049; overflow: hidden; }
+    .bbar i { display: block; height: 100%; background: #7aa74a; }
+    /* What the bar just lost or gained, sitting past the fill or over it. */
+    .bbar b { position: absolute; top: 0; bottom: 0; background: #f2e3b0; }
+    /* What the move under the pointer would spend, dimmed off the fill's end. */
+    .bbar u { position: absolute; top: 0; bottom: 0; background: #46507e; }
+    .bbar.mp i { background: #7c9df0; }
+    .bbar.mp b { background: #d3e2ff; }
+    .bnum { font-size: 11px; color: #9aa0c3; align-self: flex-end; }
+    .bnum:empty { display: none; }
+    /* A bar with its number beside it: the bar says what it is, so the number
+       is the reading and not a caption. */
+    .brow { display: flex; align-items: center; gap: 5px; width: 100%; }
+    .brow .bbar { flex: 1; }
+    .bpct { font-size: 11px; color: #9aa0c3; min-width: 3.2em; text-align: right; }
+    /*
+     * One line at a time, saying what is happening right now rather than
+     * keeping a history. It holds its box whether or not it has anything to
+     * say, so the buttons under it never move.
+     */
+    .blog {
+      width: min(94vw, 560px);
+      min-height: 2.6em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8px 14px;
+      font-size: 15px;
+      line-height: 1.3;
+      visibility: hidden;
+    }
+    .blog.on {
+      visibility: visible;
+      --ink: #5c4e92;
+      --fill: #171b2c;
+    }
+    .blog.ev-win { color: #eae178; }
+    .blog.ev-faint { color: #e58a8a; }
+    .blog.ev-heal { color: #7aa74a; }
+    .blog.ev-status { color: #e7a03c; }
+    .blog.ev-field { color: #eae178; }
+    /*
+     * Statuses a Scoba is carrying, under its bars: drawn sigils, never scaled,
+     * the same rule the type badges keep. They sit ghosted, because what the
+     * row is for is knowing at a glance that something is on a Scoba; the one
+     * under the pointer comes up to full and opens a window saying what it is.
+     */
+    .bcard .marks {
+      /* Hung under the card rather than sitting in it: out of flow, so the
+         panel keeps one shape whatever a Scoba has picked up. */
+      position: absolute;
+      top: calc(100% + 3px);
+      left: 0;
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px;
+      /* Filling from the card's left edge and wrapping at its right, so the
+         row reads in the order the marks landed. */
+      justify-content: flex-start;
+    }
+    .bcard .mark {
+      position: relative;
+      display: block;
+      line-height: 0;
+      opacity: 0.55;
+    }
+    .bcard .mark:hover, .bcard .mark:focus-within { opacity: 1; }
+    .bcard .mark .sig {
+      image-rendering: pixelated;
+      display: block;
+      width: 27px;
+      height: 26px;
+    }
+    /* A status with no sigil drawn yet, so it can still be hovered. */
+    .bcard .mark .sig.txt {
+      font-size: 11px;
+      line-height: 26px;
+      text-align: center;
+      text-transform: uppercase;
+      color: #171b2c;
+      background: #9aa0c3;
+    }
+    /* Stacks, in the corner of the sigil rather than beside it. */
+    .bcard .mark .sx {
+      position: absolute;
+      right: -1px;
+      bottom: -2px;
+      font-size: 10px;
+      line-height: 1;
+      padding: 0 2px;
+      color: #f3f2c0;
+      background: #171b2c;
+    }
+    /*
+     * The window over a sigil. It hangs off the mark, so it travels with the
+     * readout, and `--nudge` is what the script shifts it by when the mark it
+     * belongs to is out at the edge of the screen.
+     */
+    .bcard .mark .sigtip {
+      --ink: #5c4e92;
+      --fill: #171b2c;
+      --nudge: 0px;
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 4px);
+      transform: translateX(-50%) translateX(var(--nudge));
+      z-index: 5;
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+      width: 168px;
+      padding: 6px 9px;
+      line-height: 1.25;
+      text-align: left;
+      pointer-events: none;
+      /* Slightly through: it covers a card while it is open, and what is under
+         it should still be readable as being there. */
+      opacity: 0.93;
+      background:
+        linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
+        linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+        linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
+        linear-gradient(var(--fill) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
+        linear-gradient(var(--ink) 0 0) 0 4px / 100% calc(100% - 8px) no-repeat,
+        linear-gradient(var(--ink) 0 0) 4px 0 / calc(100% - 8px) 100% no-repeat,
+        linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
+        linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
+    }
+    .bcard .mark:hover .sigtip, .bcard .mark:focus-within .sigtip { display: flex; }
+    .bcard .mark .sigtip strong { font-size: 12px; color: #eae178; }
+    .bcard .mark .sigtip span { font-size: 11px; }
+    .bcard .mark .sigtip .dim { color: #9aa0c3; }
+
+    /*
+     * The Scoba browser: search down the left, faces in the middle, the scroll
+     * column and whose box it is down the right, and the party or a Select
+     * along the bottom. One column on a phone, in the order the thing is used.
+     */
+    .browser {
+      display: grid;
+      gap: 8px;
+      width: min(100%, 740px);
+      grid-template-columns: 178px minmax(0, 1fr) 66px;
+      grid-template-areas:
+        "search grid side"
+        "info   foot side";
+    }
+    .bxSearch { grid-area: search; }
+    .bxGridPanel { grid-area: grid; padding: 6px; }
+    .bxSide { grid-area: side; display: flex; flex-direction: column; gap: 6px; }
+    .bxInfo { grid-area: info; }
+    .bxFoot { grid-area: foot; display: flex; }
+    .bxPanel {
+      border: 3px solid #171b2c;
+      background: #363d5e;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+    .bxGrid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      align-content: start;
+      height: 300px;
+      overflow-y: auto;
+      background: #2a3049;
+      padding: 6px;
+      /* The column on the right is the scrollbar; the browser's own is noise. */
+      scrollbar-width: none;
+    }
+    .bxGrid::-webkit-scrollbar { width: 0; height: 0; }
+    .bxCell {
+      font: inherit;
+      border: 3px solid #171b2c;
+      background: #46507e;
+      height: 84px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+    }
+    .bxCell.sel { outline: 3px solid #f3f2c0; outline-offset: -3px; }
+    .bxCell:disabled { cursor: default; }
+    .bxFace { display: flex; align-items: flex-end; justify-content: center; }
+    .bxFace canvas { image-rendering: pixelated; display: block; }
+    .bxEmpty { grid-column: 1 / -1; color: #9aa0c3; font-size: 13px; padding: 10px 4px; }
+
+    /* Search panel. */
+    .bxName {
+      font: inherit;
+      font-size: 15px;
+      width: 100%;
+      padding: 6px 8px;
+      border: 3px solid #171b2c;
+      background: #2a3049;
+      color: #f3f2c0;
+      text-align: center;
+    }
+    .bxTypes { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+    .bxChip {
+      border: 3px solid #171b2c;
+      background: #2a3049;
+      padding: 0;
+      line-height: 0;
+      cursor: pointer;
+      opacity: 0.55;
+    }
+    .bxChip.sel { opacity: 1; outline: 3px solid #f3f2c0; outline-offset: -3px; }
+    .bxStat { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .bxStatName { width: 30px; color: #f3f2c0; }
+    .bxStatNum { width: 26px; text-align: right; color: #9aa0c3; }
+    .setBar { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+    .setBarName { width: 62px; color: #f3f2c0; }
+    .setBarNum { width: 42px; text-align: right; color: #9aa0c3; }
+    .bxStat input[type="range"], .setBar input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      flex: 1;
+      min-width: 0;
+      height: 12px;
+      background: #2a3049;
+      border: 3px solid #171b2c;
+    }
+    .bxStat input[type="range"]::-webkit-slider-thumb,
+    .setBar input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px; height: 18px;
+      background: #f3f2c0;
+      border: 3px solid #171b2c;
+    }
+    .bxStat input[type="range"]::-moz-range-thumb,
+    .setBar input[type="range"]::-moz-range-thumb {
+      width: 13px; height: 18px;
+      background: #f3f2c0;
+      border: 3px solid #171b2c;
+      border-radius: 0;
+    }
+    .bxWide {
+      font: inherit;
+      font-size: 14px;
+      padding: 7px 10px;
+      border: 3px solid #171b2c;
+      background: #5c4e92;
+      color: #f3f2c0;
+      cursor: pointer;
+      width: 100%;
+    }
+    .bxWide:disabled { background: #3f4a66; color: #6b7196; cursor: default; }
+
+    /* Readout under the search panel. */
+    .bxRead { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 110px; justify-content: center; }
+    .bxReadName { font-size: 14px; color: #f3f2c0; }
+
+    /* Scroll column, with whose box it is above it. */
+    .bxOwner { display: flex; flex-direction: column; gap: 3px; }
+    .bxOwnerBtn {
+      font: inherit;
+      font-size: 11px;
+      padding: 5px 2px;
+      border: 3px solid #171b2c;
+      background: #2a3049;
+      color: #9aa0c3;
+      cursor: pointer;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .bxOwnerBtn.sel { background: #7aa74a; color: #171b2c; }
+    .bxArrow {
+      font: inherit;
+      font-size: 15px;
+      padding: 6px 0;
+      border: 3px solid #171b2c;
+      background: #46507e;
+      color: #f3f2c0;
+      cursor: pointer;
+    }
+    .bxTrack {
+      flex: 1;
+      min-height: 40px;
+      position: relative;
+      border: 3px solid #171b2c;
+      background: #2a3049;
+      touch-action: none;
+      cursor: pointer;
+    }
+    .bxThumb { position: absolute; left: 2px; right: 2px; top: 0; height: 100%; background: #9aa0c3; }
+    .bxThumb.held { background: #f3f2c0; }
+
+    /* The strip under the grid. */
+    .bxParty { flex: 1; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+    .bxPartyRow { display: flex; align-items: center; gap: 4px; }
+    .bxParty .bxCell { width: 78px; }
+    .bxSwap {
+      font: inherit;
+      font-size: 12px;
+      padding: 2px 4px;
+      border: 3px solid #171b2c;
+      background: #46507e;
+      color: #f3f2c0;
+      cursor: pointer;
+    }
+    .bxOps { display: flex; flex-direction: column; gap: 5px; width: 84px; }
+    .bxPick { flex: 1; align-items: stretch; justify-content: center; }
+
+    /*
+     * The card behind Info: face and numbers across the top, then a button per
+     * passive and per move, and a line saying what the pressed one does.
+     */
+    .bxCard {
+      width: min(100%, 620px);
+      border: 3px solid #171b2c;
+      background: #363d5e;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .bxCardHead { display: flex; gap: 12px; align-items: stretch; }
+    .bxPortrait {
+      width: 100px;
+      min-height: 100px;
+      border: 3px solid #171b2c;
+      background: #2a3049;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 4px;
+      flex: none;
+    }
+    .bxFacts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
+    .bxFactsTop { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+    .bxWho { min-width: 0; }
+    .bxCardName { font-size: 21px; overflow-wrap: anywhere; }
+    .bxCorner { text-align: right; font-size: 13px; color: #9aa0c3; flex: none; }
+    .bxStatList { display: flex; flex-direction: column; font-size: 14px; color: #f3f2c0; }
+    .bxCardTail { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; }
+    .bxCardWhere { font-size: 13px; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+    .bxCardBack {
+      font: inherit;
+      font-size: 13px;
+      padding: 4px 18px;
+      border: 3px solid #171b2c;
+      background: #46507e;
+      color: #f3f2c0;
+      cursor: pointer;
+      flex: none;
+    }
+
+    .bxSlots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .bxSlot {
+      font: inherit;
+      font-size: 15px;
+      padding: 8px 10px;
+      border: 3px solid #171b2c;
+      background: #46507e;
+      color: #f3f2c0;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+    }
+    .bxSlot.sel { background: #5c4e92; outline: 3px solid #f3f2c0; outline-offset: -3px; }
+    .bxSlot.typed { color: #171b2c; }
+    .bxSlot.typed .bxSlotCost { color: #171b2c; opacity: 0.72; }
+    /* The outline is what marks a coloured slot, since its fill is spoken for. */
+    .bxSlot.typed.sel { outline: 3px solid #f3f2c0; outline-offset: -3px; }
+    .bxSlotName { overflow-wrap: anywhere; }
+    .bxSlotCost { font-size: 12px; color: #9aa0c3; }
+    .bxSlot.sel .bxSlotCost { color: #d3cff0; }
+    .bxNote {
+      border: 3px solid #171b2c;
+      background: #2a3049;
+      padding: 8px 10px;
+      min-height: 62px;
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .bxNote .dim { color: #9aa0c3; font-size: 12px; }
+    .bxNoteHead { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+
+    @media (max-width: 620px) {
+      .bxCardHead { flex-direction: column; align-items: center; }
+      .bxPortrait { width: 100%; }
+      .bxSlots { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    @media (max-width: 760px) {
+      .browser {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "side" "grid" "info" "foot" "search";
+      }
+      .bxSide { flex-direction: row; align-items: stretch; }
+      .bxOwner { flex-direction: row; flex: 1; }
+      .bxOwnerBtn { flex: 1; font-size: 13px; }
+      .bxArrow, .bxTrack { display: none; }
+      .bxSide:not(:has(.bxOwner)) { display: none; }
+      .bxGrid { height: 46vh; }
+      .bxRead { min-height: 0; }
+    }
+
+    /* The Extra window: what each Scoba has, and what its moves really do. */
+    .xlist {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: min(94vw, 620px);
+      max-height: 62vh;
+      overflow-y: auto;
+    }
+    .xscoba { align-items: stretch; gap: 6px; text-align: left; }
+    .xscoba .nm { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+    .xstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #c9c4ee; }
+    .xpass { display: flex; gap: 6px; font-size: 12px; color: #9aa0c3; }
+    .xpass strong { color: #eae178; }
+    .xinfo { font-size: 13px; line-height: 1.5; display: flex; flex-direction: column; gap: 2px; }
+    .xinfo:empty { display: none; }
+    .xhead { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+    .xinfo .dim { color: #9aa0c3; font-size: 12px; }
+    .xinfo .good { color: #7aa74a; }
+    /*
+     * Damage reads by colour: physical warm, magic cool, true colourless.
+     * Elemental text takes its own type colour inline.
+     */
+    .dmg { font-weight: bold; }
+    .dmg.physical { color: #e7a03c; }
+    .dmg.magic { color: #7c9df0; }
+    .dmg.true { color: #c8cbe0; }
+
+    /* Action rows stack so the small ones sit under the main row. */
+    .bacts {
+      position: relative;
+      /* Set from the viewport in `ui/battle.ts`: `vw` is read before the root
+         zoom and would come out at half the screen on a phone. */
+      width: var(--bw, 100%);
+      height: 100%;
+      display: grid;
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      /* Rows pack to the bottom, so a page with two of them ends where a page
+         with three does and only ever grows upward into open floor. */
+      align-content: end;
+    }
+    /*
+     * The step back to the other character hangs off the top right corner,
+     * out of flow: slotting it into a row shuffled everything beside it every
+     * time the second picker's turn came round.
+     */
+    button.act.stepback {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      right: 0;
+      /* Out of flow, so the full-height every other button takes would be
+         measured against the whole block rather than against its own label. */
+      height: auto;
+    }
+    /* Compounded with .small, which is defined later and would otherwise win
+       on source order at equal specificity. */
+    button.act.small.tiny {
+      padding: 4px 10px;
+      min-width: 66px;
+      min-height: 30px;
+      font-size: 13px;
+    }
+    .bactions.bconfirm { color: #eae178; }
+    /*
+     * The secondary row: the pages and the way out, kept small so switching
+     * between them never resizes the row of actions above.
+     */
+    /*
+     * The two rows of the main page are laid out rather than flowed: three
+     * across and two down, whatever the screen is. Wrapping made the block
+     * change shape between one screen and the next, and between one page of
+     * the row and the next.
+     */
+    /* Every button is one cell of the grid it sits in: nothing resizes between
+       one page and the next, and a long label wraps inside its cell rather
+       than pushing its neighbours about. */
+    .bactions > button.act { min-width: 0; width: 100%; }
+    button.act.small { gap: 0; }
+    .bactions.bminor > button.act { min-width: 76px; }
+
+    /*
+     * Four cells, always. A Scoba with two moves shows two dead slots rather
+     * than a board half the size, and the cells are a fixed size so nothing
+     * shifts when the labels change length.
+     */
+    /* The four move slots take the top two of the block's three rows. */
+    .bgrid {
+      display: grid;
+      grid-row: span 2;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-rows: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      width: 100%;
+    }
+    .bgrid > button.act { width: 100%; }
+    button.act.slot-empty { --fill: #262b42; color: #6e7496; opacity: 1; }
+    button.act.slot-empty:disabled { opacity: 1; }
+
+    /*
+     * The bottom block holds one height for every page, with the banner
+     * pinned to its top and the buttons to its bottom, so moving between
+     * pages never shifts either of them.
+     */
+    /*
+     * The block keeps one height for every page, so the scene laid out above
+     * it never shifts between them. The buttons sit at the top of it and the
+     * banner is taken out of flow over the same spot: the two are never up at
+     * once, since a round that is playing has no buttons to press, and leaving
+     * the banner a reserved band of its own only pushed the buttons a row's
+     * worth away from the cast.
+     */
+    /*
+     * The block is exactly three rows of buttons tall, and its height is set
+     * from the viewport rather than from what is in it, so every page fills the
+     * same box. Moving between them shifts neither the buttons nor the scene
+     * laid out above, and a row of targets is a row of targets whether there
+     * are two of them or nine.
+     */
+    .bbottom { justify-content: flex-end; padding-top: 8px; }
+    .bbottom > .blog,
+    .bacts > .aimline {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+    /* The prompt floats just clear of the block, over open floor: the three
+       rows are all buttons, and a header row of its own would have cost one. */
+    .bacts > .aimline { top: -22px; }
+
+    .bactions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+    .aimline { color: #eae178; font-size: 14px; letter-spacing: 1px; }
+    button.act {
+      font: inherit;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      padding: 6px 10px;
+      min-width: 0;
+      min-height: 0;
+      height: 100%;
+      font-size: 17px;
+      line-height: 1.15;
+      text-align: center;
+      overflow-wrap: anywhere;
+      --fill: #5c4e92;
+      color: #f3f2c0;
+      cursor: pointer;
+    }
+    button.act:active { --fill: #473b74; }
+    button.act:disabled { opacity: 0.4; }
+    button.act .sub { font-size: 13px; color: #c9c4ee; }
+    /* Steady widths: the labels change but the row must not. */
+    .bactions > button.act { min-width: 104px; }
+    .bgrid > button.act .sub { min-height: 1.2em; }
+    button.act.alt { --fill: #3f4a66; }
+    /* A move button is coloured by what the move is. */
+    button.act.typed { color: #171b2c; }
+    button.act.typed .sub { color: #171b2c; opacity: 0.72; }
+
+    .mgbar { position: relative; width: min(88vw, 420px); height: 26px; --ink: #5c4e92; --fill: #171b2c; }
+    .mgzone { position: absolute; top: 0; bottom: 0; background: #7aa74a55; border-left: 2px solid #7aa74a; border-right: 2px solid #7aa74a; }
+    .mgmark { position: absolute; width: 7px; top: -5px; bottom: -5px; background: #f3f2c0; }
+
+    .meter { width: 100%; }
+    .meter .lbl { display: flex; justify-content: space-between; font-size: 13px; color: #9aa0c3; margin-bottom: 3px; }
+    .meter .bar { height: 12px; border: 2px solid #171b2c; background: #2a3049; overflow: hidden; }
+    .meter .bar i { display: block; height: 100%; background: #7aa74a; }
+    .badge { font-size: 12px; background: #d9553f; padding: 2px 8px; color: #171b2c; }
+    .list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+    .list .item { display: flex; justify-content: space-between; font-size: 15px; --fill: #2a3049; padding: 9px 12px; }
+    .list .item .dim { color: #9aa0c3; font-size: 13px; }
+    .list .item .who { gap: 7px; }
+    /* A box with more in it than fits scrolls inside its own card. */
+    .list.scroll { max-height: 42vh; overflow-y: auto; }
+    /* Roster rows: a face and a name on the left, what you can do on the right. */
+    .who { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .pface { width: 44px; display: flex; justify-content: center; }
+    .pname { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+    .pname .dim { color: #9aa0c3; font-size: 12px; }
+    .pnameLine { display: flex; align-items: center; gap: 6px; }
+    .ops { display: flex; align-items: center; gap: 5px; }
+    .pill.tiny { font-size: 12px; padding: 5px 9px; }
+    .pill:disabled { color: #6b7196; cursor: default; }
+
+    /* Dev-mode editor panel */
+    #devPanel {
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: 300px;
+      background: #1b2033f2;
+      border-left: 3px solid #171b2c;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 13px;
+    }
+    #devPanel .devHead { display: flex; justify-content: space-between; align-items: center; }
+    #devPanel .devTabs { display: flex; flex-wrap: wrap; gap: 4px; }
+    #devPanel .devTabs .pill { font-size: 12px; padding: 5px 9px; }
+    #devPanel .devStatus { color: #9aa0c3; font-size: 11px; line-height: 1.4; }
+    #devPanel .devBody { display: flex; flex-direction: column; gap: 8px; }
+    #devPanel .devHint { color: #9aa0c3; font-size: 11px; line-height: 1.45; }
+    #devPanel .devList { display: flex; flex-direction: column; gap: 3px; max-height: 150px; overflow-y: auto; }
+    #devPanel .devItem {
+      font: inherit; font-size: 12px;
+      text-align: left;
+      color: #f3f2c0;
+      background: #2a3049;
+      border: 2px solid #171b2c;
+      padding: 5px 8px;
+      cursor: pointer;
+    }
+    #devPanel .devItem.sel { border-color: #f3f2c0; }
+    #devPanel .devCard {
+      border: 2px solid #171b2c;
+      background: #232941;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #devPanel .devField { display: flex; flex-direction: column; gap: 3px; }
+    #devPanel .devField label { color: #9aa0c3; font-size: 11px; }
+    #devPanel input[type="text"], #devPanel input[type="number"],
+    #devPanel textarea, #devPanel select {
+      font: inherit; font-size: 13px;
+      color: #f3f2c0;
+      background: #2a3049;
+      border: 2px solid #171b2c;
+      padding: 5px 7px;
+      width: 100%;
+    }
+    #devPanel textarea { resize: vertical; }
+    #devPanel .row { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-start; }
+    #devPanel .row input[type="number"] { width: 64px; }
+    #devPanel .row select { flex: 1; width: auto; min-width: 0; }
+    #devPanel .pill.warn { --fill: #d9553f; }
+    #devPanel .pill:disabled { opacity: 0.4; }
+    #devPanel .palGroup { color: #9aa0c3; font-size: 11px; }
+    #devPanel .tilePal { display: flex; flex-wrap: wrap; gap: 4px; }
+    #devPanel .tileBtn {
+      padding: 0;
+      line-height: 0;
+      background: #2a3049;
+      border: 2px solid #171b2c;
+      cursor: pointer;
+    }
+    #devPanel .tileBtn.sel { border-color: #f3f2c0; }
+    #devPanel .tileBtn canvas { display: block; width: 30px; height: 30px; image-rendering: pixelated; }
+    /* The 3x3 collision grid sits on the tile it belongs to, so a rail is set
+       by clicking the subcells the art draws it in. */
+    #devPanel .maskEdit { position: relative; width: 72px; height: 72px; }
+    #devPanel .maskEdit > canvas, #devPanel .maskBlank {
+      display: block; width: 72px; height: 72px; image-rendering: pixelated;
+    }
+    #devPanel .maskBlank { background: #2a3049; }
+    #devPanel .maskGrid {
+      position: absolute; inset: 0;
+      display: grid;
+      grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+    }
+    #devPanel .maskCell {
+      padding: 0;
+      background: transparent;
+      border: 1px solid #171b2c88;
+      cursor: pointer;
+    }
+    #devPanel .maskCell.on { background: #d9553fcc; }
+    .bcard .nm .shiny, .pnameLine .shiny { color: #d9553f; font-size: 13px; line-height: 1; }
+
+    #devPanel .layerRow { display: flex; gap: 4px; align-items: stretch; }
+    #devPanel .layerRow .devItem { flex: 1; min-width: 0; }
+    #devPanel .layerRow .pill { font-size: 11px; padding: 4px 8px; }
+
+    /*
+     * The cover between one thing and the next. It starts on, so the page is
+     * black from the first paint rather than flashing an empty canvas, and it
+     * eats pointer events while it is up so nothing behind it can be pressed
+     * before it has finished loading.
+     */
+    #fade {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 50;
+    }
+    #fade.on { opacity: 1; }
+    /* Held through the fade, so nothing is pressable until the black is gone. */
+    #fade.busy { pointer-events: auto; }
+
+    #toast {
+      position: absolute;
+      top: max(14px, env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      --ink: #5c4e92;
+      --fill: #171b2c;
+      padding: 8px 18px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.25s;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="ui">
+    <div id="hud">
+      <div id="bag">
+        <button id="bagBtn" aria-label="Menu" aria-expanded="false" aria-controls="bagMenu">
+          <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+            <rect x="5" y="2" width="2" height="3"/><rect x="9" y="2" width="2" height="3"/>
+            <rect x="6" y="1" width="4" height="2"/>
+            <rect x="2" y="5" width="12" height="2"/>
+            <rect x="2" y="7" width="2" height="7"/><rect x="12" y="7" width="2" height="7"/>
+            <rect x="2" y="12" width="12" height="2"/>
+            <rect x="7" y="8" width="2" height="3"/>
+          </svg>
+        </button>
+        <div id="bagMenu" hidden></div>
+      </div>
+      <button id="actBtn">A</button>
+      <div id="stick"><div id="stickKnob"></div></div>
+      <div id="dialog"></div>
+    </div>
+    <div id="toast"></div>
+  </div>
+  <div id="fade" class="on busy"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
