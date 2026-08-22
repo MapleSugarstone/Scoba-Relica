@@ -101,6 +101,7 @@ export class Room {
       // on is between them, and the relay has no use for it.
       // Position over the relay, for the pairs whose networks refused a direct
       // connection. Relayed like anything else and never stored.
+      case "relica":
       case "at":
       case "rtc-offer":
       case "rtc-answer":

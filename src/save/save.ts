@@ -3,6 +3,7 @@ import { MAX_LEVEL, maxHp } from "../sim/scoba";
 import { MOVES, RETIRED_SPECIES, SPECIES, speciesMoves } from "../sim/species";
 import { BASE_GENES } from "../sim/types";
 import type { CareState } from "../sim/care";
+import type { Companionship } from "../sim/companionship";
 import { DEFAULT_LOOK, type Look } from "../engine/recolor";
 
 export type SlotId = "A" | "B";
@@ -51,6 +52,11 @@ export interface SaveData {
    * before there was a relay simply starts at zero.
    */
   careRev?: number;
+  /**
+   * Who the Relica is walking with, and how much time it owes the other one.
+   * Optional: a save written before it could choose simply starts even.
+   */
+  companionship?: Companionship;
   /** EZ mode: the players' own Scobas gain far more from every level. */
   ez?: boolean;
   /** Qualifying wins counted so far, keyed "<mapId>:<cx>,<cy>" per sentinel. */

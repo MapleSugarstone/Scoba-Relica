@@ -265,6 +265,14 @@ function buildGame(save: SaveData): void {
     // the partner is drawn where the interpolation says, not where the last
     // packet happened to land.
     peerAt: () => session?.peerAt(performance.now()) ?? null,
+    // Both clients draw the Relica, so only one of them gets to decide where
+    // it went. Character A decides and tells the other; playing alone, the one
+    // client decides for itself.
+    decidesCompanionship: () => session?.decidesCompanionship ?? true,
+    shareCompanionship: (state) => {
+      writeSave(save);
+      session?.shareCompanionship(state);
+    },
     reportSelf: (state) => session?.reportPosition(performance.now(), state),
     onWildBattle: (wild, at) => {
       ui.toast(`A wild ${SPECIES[wild.speciesId]?.name ?? wild.speciesId} charges at you!`);
@@ -599,6 +607,8 @@ async function boot(): Promise<void> {
       battle: netBattle()?.debug() ?? null,
       pending: pendingPeerBattle,
       lastFromPeer,
+      carrier: positionCarrier,
+      relica: currentSave?.companionship ?? null,
     }),
   };
   // Dev/content hook: read and write the authored world from the console.

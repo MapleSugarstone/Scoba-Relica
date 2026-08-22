@@ -21,6 +21,7 @@ import { buildNpcs, drawBattleMarker, drawNpcMarker, drawReachMarker, updateNpcs
 import { advanceQuest, markTrainerBeaten, markedNpcs, npcAction, reachSteps } from "./quests";
 import type { SaveData, SlotId } from "../save/save";
 import { autosave, partyOf } from "../save/save";
+import { advanceCompanionship, newCompanionship, type Companionship } from "../sim/companionship";
 import { advanceCare } from "../sim/care";
 import { makeWild, type ScobaInstance } from "../sim/scoba";
 import { SPECIAL, SPECIES } from "../sim/species";
@@ -28,6 +29,10 @@ import { rngFrom } from "../sim/rng";
 import type { UI } from "../ui/screens";
 
 export interface OverworldHooks {
+  /** Say who the Relica has gone off with, so the peer draws it in the same place. */
+  shareCompanionship?(state: Companionship): void;
+  /** False when the peer is the one deciding and this client just follows. */
+  decidesCompanionship?(): boolean;
   onWildBattle(wild: ScobaInstance, at: { x: number; y: number }): void;
   onOpenNest(): void;
   onTrainerBattle(npc: NpcDef, result: (won: boolean) => void): void;
@@ -613,9 +618,16 @@ export class Overworld {
   private companions: Companion[] = [];
   /** Paths the two characters have walked, for companions rejoining them. */
   private trails: Record<SlotId, Trail> = { A: new Trail(), B: new Trail() };
-  /** Which character the special Scoba is currently drifting toward. */
+  /**
+   * Where the Relica is sitting between the two characters: 0 is beside the
+   * one you play, 1 is beside the other. It eases rather than jumps, so
+   * changing its mind reads as wandering over rather than teleporting.
+   */
   private lean = 0.3;
-  private leanT = 4;
+  /** How near the two of them have to be for it to count them as together. */
+  private static readonly REUNION_DIST = 90;
+  /** Last computed reachability, for the debug readout. */
+  private lastHere: { A: boolean; B: boolean } = { A: true, B: true };
   private cam = new Camera();
   private saveTimer = 0;
   private careTimer = 0;
@@ -738,12 +750,57 @@ export class Overworld {
     for (const c of this.companions) c.placeNear(this.world.map, crowd);
   }
 
-  /** Where the special Scoba wants to be: between the two characters, leaning
-   * toward whichever one it is watching at the moment. */
+  /**
+   * Where the Relica wants to be: beside whichever character it is currently
+   * keeping company. `lean` eases between the two rather than snapping, so a
+   * change of mind looks like it walking over.
+   */
   private between(): { x: number; y: number } {
     const a = this.player;
     const b = this.partner.actor;
     return { x: a.x + (b.x - a.x) * this.lean, y: a.y + (b.y - a.y) * this.lean };
+  }
+
+  /**
+   * Advance who it is walking with, and ease it over. Only one client decides:
+   * both of them draw the same Relica, so if each picked for itself, each
+   * player would see it beside them.
+   */
+  private updateCompanionship(dt: number): void {
+    const mine = this.save.localSlot;
+    const theirs: SlotId = mine === "A" ? "B" : "A";
+    const state = this.save.companionship ?? newCompanionship(mine);
+
+    if (this.hooks.decidesCompanionship?.() ?? true) {
+      // Being together is a fact about the two characters, not about where the
+      // Relica happens to be standing. Measuring from the Relica meant that
+      // while it was chasing an absent player it drifted out of range of the
+      // present one and counted neither as reachable, so no debt ever built.
+      const them = this.partner.actor;
+      const present: Record<SlotId, boolean> = mine === "A"
+        ? { A: true, B: !them.hidden }
+        : { A: !them.hidden, B: true };
+      const together = !them.hidden &&
+        Math.hypot(this.player.x - them.x, this.player.y - them.y) <= Overworld.REUNION_DIST;
+      // Whoever it is already with stays reachable while they are on this map.
+      // The other only counts once the two of them are actually together,
+      // which is what makes it stay put when they split up.
+      const here = {
+        A: state.with === "A" ? present.A : together && present.A,
+        B: state.with === "B" ? present.B : together && present.B,
+      };
+      this.lastHere = here;
+      const next = advanceCompanionship(state, dt, here);
+      if (next.with !== state.with) this.hooks.shareCompanionship?.(next);
+      this.save.companionship = next;
+    }
+
+    // 0 is the character this player drives, 1 is the other one.
+    const want = (this.save.companionship?.with ?? mine) === mine ? 0 : 1;
+    // Slow on purpose: crossing over should take a few seconds of walking.
+    const rate = 0.35 * dt;
+    this.lean += Math.max(-rate, Math.min(rate, want - this.lean));
+    void theirs;
   }
 
   update(dt: number): void {
@@ -766,11 +823,10 @@ export class Overworld {
       if (this.input.takeInteract()) this.tryInteract();
     }
 
-    this.leanT -= dt;
-    if (this.leanT <= 0) {
-      this.leanT = 5 + Math.random() * 6;
-      this.lean = this.lean < 0.5 ? 0.7 : 0.3;
-    }
+    // It used to drift between the two of them on a timer, which only made
+    // sense while they were always together. Now it picks one and keeps them
+    // company, and pays the other one back later.
+    this.updateCompanionship(dt);
 
     const other: SlotId = this.save.localSlot === "A" ? "B" : "A";
     this.trails[this.save.localSlot].push(this.player.x, this.player.y);
@@ -1302,6 +1358,7 @@ export class Overworld {
         ? { x: this.activeBattle.x, y: this.activeBattle.y, guest: this.activeBattle.guest() }
         : null,
       partner: this.partner.debug(),
+      companionship: { ...(this.save.companionship ?? {}), here: this.lastHere },
       special: this.special.debug(),
       pets: this.pets.map((p) => p.debug()),
       roamers: this.roamers.map((r) => ({

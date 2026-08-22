@@ -7,6 +7,7 @@ import { Relay, type RelayStatus } from "./relay";
 import type { ClientMessage, PushSubscriptionJson, ServerMessage } from "./protocol";
 import type { NetBattle, PendingBattle } from "./battlelink";
 import { LocalTrack, RemoteTrack, type LocalState, type Step } from "./presence";
+import type { Companionship } from "../sim/companionship";
 import {
   PeerLink, DIRECT_INTERVAL_MS, RELAY_INTERVAL_MS, type Carrier,
 } from "./peerlink";
@@ -82,6 +83,20 @@ export class Session {
     if (!this.peer || !this.partnerHere) return;
     const step = this.mine.tick(now, state);
     if (step) this.peer.send(step);
+  }
+
+  /**
+   * Say who the Relica has gone off with. Only character A decides, so only
+   * character A says; B applies what it is told.
+   */
+  shareCompanionship(state: Companionship): void {
+    if (this.save.localSlot !== "A") return;
+    this.relay?.send({ t: "relica", state });
+  }
+
+  /** True when this client is the one deciding where the Relica goes. */
+  get decidesCompanionship(): boolean {
+    return this.save.localSlot === "A" || !this.partnerHere;
   }
 
   /** Where to draw the other player, or null if they have not been heard from. */
@@ -218,6 +233,11 @@ export class Session {
         return;
       case "at":
         this.theirs.push(msg.step, performance.now());
+        return;
+      case "relica":
+        // Only A decides, so this is the answer rather than a suggestion.
+        this.save.companionship = msg.state;
+        this.hooks.onSaveChanged();
         return;
       case "rtc-offer":
       case "rtc-answer":

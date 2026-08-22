@@ -5,6 +5,7 @@ import type { ScobaInstance } from "../sim/scoba";
 import type { CareState } from "../sim/care";
 import type { BattleState, Choice, OwnerId } from "../sim/battle";
 import type { Step } from "./presence";
+import type { Companionship } from "../sim/companionship";
 
 /** Two players share a campaign under one room code. */
 export interface RoomInfo {
@@ -58,6 +59,12 @@ export type ClientMessage =
   | { t: "rtc-ice"; candidate: RtcCandidate }
   /** Where this player is, when there is no direct connection to carry it. */
   | { t: "at"; step: Step }
+  /**
+   * Who the Relica has gone off with. Both clients draw it, so they have to
+   * agree, or each player sees it walking beside themselves. Character A
+   * decides and says so; it changes in stints, so this is rare.
+   */
+  | { t: "relica"; state: Companionship }
   | { t: "bye" };
 
 /** The parts of an ICE candidate worth putting on the wire. */
@@ -96,6 +103,7 @@ export type ServerMessage =
   | { t: "rtc-answer"; sdp: string }
   | { t: "rtc-ice"; candidate: RtcCandidate }
   | { t: "at"; step: Step }
+  | { t: "relica"; state: Companionship }
   | { t: "error"; reason: string };
 
 export interface Transport {
