@@ -756,6 +756,17 @@ export class Overworld {
     this.buildPets();
   }
 
+  /**
+   * Call when a character's look changes underneath the scene. The other
+   * player's arrives over the relay, at whatever point they connect, and the
+   * partner walking around here was built from whatever the save held then.
+   */
+  refreshLooks(): void {
+    const other: SlotId = this.save.localSlot === "A" ? "B" : "A";
+    this.player.skin.sprite = worldSprite(this.art.doll, this.save.characters[this.save.localSlot].look);
+    this.partner.actor.skin.sprite = worldSprite(this.art.doll, this.save.characters[other].look);
+  }
+
   /** Stands every companion on a spot that has been checked for walls. */
   private placeCompanions(): void {
     const crowd = [this.player, ...this.companions.map((c) => c.actor)];

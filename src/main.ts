@@ -3,6 +3,7 @@ import { Renderer, holdUiScale } from "./engine/renderer";
 import { startLoop } from "./engine/loop";
 import { Input } from "./engine/input";
 import { Overworld } from "./game/overworld";
+import { sanitizeDollLook } from "./engine/paperdoll";
 import {
   UI, titleScreen, newGameFlow, joinGameFlow, makeCharacterFlow, buildJoinedSave,
   connectScreen, indexScreen, questScreen,
@@ -71,8 +72,8 @@ function openLobby(code: string, mine: "A" | "B"): void {
   lobbyScreen({
     screen: (build) => ui.screen(build),
     toast: (text) => ui.toast(text),
-    makeCharacter: (slot, takenStarter, onNamed, onDone) =>
-      makeCharacterFlow(ui, art, slot, takenStarter, onNamed, onDone),
+    makeCharacter: (slot, turn, onNamed, onDone) =>
+      makeCharacterFlow(ui, art, slot, turn, onNamed, onDone),
     onCancel: showTitle,
     onStart: (lobby, worldSeed, seats) => {
       const mineProfile = seats[mine].character;
@@ -136,6 +137,9 @@ function showTitle(): void {
     onImport: async () => {
       const s = await importSave();
       if (s) {
+        // A save file is somebody else's typing as far as this is concerned,
+        // and a look now carries an encoded bitmap per layer.
+        for (const c of Object.values(s.characters)) c.look = sanitizeDollLook(c.look);
         writeSave(s);
         startGame(s);
       } else {
@@ -179,6 +183,9 @@ function openSession(save: SaveData): void {
     onSaveChanged: () => writeSave(save),
     liveBattle: () => netBattle(),
     onCarrier: (carrier) => { positionCarrier = carrier; },
+    // Their character came over the wire, and it may be one they painted since
+    // this save last heard about them.
+    onPeerLook: () => scene?.refreshLooks(),
     onTraffic: (kind) => {
       lastFromPeer.push(kind);
       if (lastFromPeer.length > 25) lastFromPeer.shift();

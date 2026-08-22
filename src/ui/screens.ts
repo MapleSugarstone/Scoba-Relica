@@ -16,13 +16,17 @@ import {
   SHIRT_URLS,
   TORSO_BOX,
   drawPaperdoll,
+  sanitizeDollLook,
 } from "../engine/paperdoll";
+import { hasPaint, type PaintSet, type PaintSlot } from "../engine/paint";
+import { PAINT_MENU, SLOT_INFO, paintScreen } from "./paintscreen";
 import { sfx } from "../engine/sfx";
 import { newCareState, advanceCare, feed, wash, careLevel, type CareState } from "../sim/care";
 import { makeWild, moveCost, statsAt, maxHp } from "../sim/scoba";
 import { critterPortrait } from "../game/critters";
 import { typeIcons } from "./typeicon";
 import { ABILITIES, MOVES, SPECIAL, SPECIES, STARTER_IDS, rosterSpecies } from "../sim/species";
+import type { StarterTurn } from "../net/lobby";
 import { rngFrom } from "../sim/rng";
 import {
   PRONOUN_PRESETS,
@@ -397,162 +401,213 @@ function customizeScreen(
   note: string | null,
   onDone: (def: CharacterDef) => void,
 ): void {
-  const d: CharacterDef = { name: def.name, pronouns: { ...def.pronouns }, look: { ...def.look }, starter: def.starter };
+  const d: CharacterDef = {
+    name: def.name,
+    pronouns: { ...def.pronouns },
+    look: { ...def.look, ...(def.look.paint ? { paint: { ...def.look.paint } } : {}) },
+    starter: def.starter,
+  };
   let channel = 0;
+  // Painting a layer takes over the screen, so coming back rebuilds this one.
+  // Everything it shows lives in `d`, which outlives the rebuild; only where
+  // the page had been scrolled to has to be carried over by hand.
+  let scrolled = 0;
 
-  ui.screen((s) => {
-    s.appendChild(el("h2", undefined, heading));
-    if (note) s.appendChild(el("div", "sub", note));
+  const openPainter = (target: PaintSlot): void => {
+    paintScreen({ screen: (build) => ui.screen(build) }, art.doll, d.look, target, (layer) => {
+      const paint: PaintSet = { ...d.look.paint };
+      if (layer) paint[target] = layer;
+      else delete paint[target];
+      d.look.paint = Object.keys(paint).length > 0 ? paint : undefined;
+      render();
+    });
+  };
 
-    const stage = el("div", "dollWrap");
-    const preview = el("canvas", "doll") as HTMLCanvasElement;
-    preview.width = DOLL_W;
-    preview.height = DOLL_H;
-    stage.appendChild(preview);
-    s.appendChild(stage);
+  const render = (): void => {
+    const root = ui.screen((s) => {
+      s.appendChild(el("h2", undefined, heading));
+      if (note) s.appendChild(el("div", "sub", note));
 
-    const idCard = el("div", "card");
-    idCard.appendChild(el("label", undefined, "Name"));
-    const name = el("input") as HTMLInputElement;
-    name.type = "text";
-    name.maxLength = 12;
-    name.value = d.name;
-    idCard.appendChild(name);
+      const stage = el("div", "dollWrap");
+      const preview = el("canvas", "doll") as HTMLCanvasElement;
+      preview.width = DOLL_W;
+      preview.height = DOLL_H;
+      stage.appendChild(preview);
+      s.appendChild(stage);
 
-    idCard.appendChild(el("label", undefined, "Pronouns"));
-    const pronRow = el("div", "row");
-    const renderProns = (): void => {
-      pronRow.innerHTML = "";
-      PRONOUN_PRESETS.forEach((p) => {
-        const sel = d.pronouns.subject === p.subject;
-        const b = el("button", `pill${sel ? " sel" : ""}`, `${p.subject}/${p.object}`);
-        b.addEventListener("click", () => {
-          sfx.tap();
-          d.pronouns = { ...p };
-          renderProns();
-        });
-        pronRow.appendChild(b);
-      });
-    };
-    renderProns();
-    idCard.appendChild(pronRow);
-    s.appendChild(idCard);
+      const idCard = el("div", "card");
+      idCard.appendChild(el("label", undefined, "Name"));
+      const name = el("input") as HTMLInputElement;
+      name.type = "text";
+      name.maxLength = 12;
+      name.value = d.name;
+      name.addEventListener("input", () => { d.name = name.value; });
+      idCard.appendChild(name);
 
-    // Parts: one thumbnail row per layer, rebuilt whenever a color changes so
-    // the options always show the colors currently picked.
-    const partsCard = el("div", "card");
-    const partRows: (() => void)[] = [];
-    for (const part of PARTS) {
-      partsCard.appendChild(el("label", undefined, part.label));
-      const row = el("div", "thumbs");
-      partsCard.appendChild(row);
-      const render = (): void => {
-        row.innerHTML = "";
-        const options = part.none ? [-1] : [];
-        for (let i = 0; i < part.count; i++) options.push(i);
-        for (const i of options) {
-          const b = el("button", `thumb${d.look[part.key] === i ? " sel" : ""}`);
-          const look: Look = { ...d.look };
-          look[part.key] = i;
-          b.appendChild(partThumb(art, look, part.box));
+      idCard.appendChild(el("label", undefined, "Pronouns"));
+      const pronRow = el("div", "row");
+      const renderProns = (): void => {
+        pronRow.innerHTML = "";
+        PRONOUN_PRESETS.forEach((p) => {
+          const sel = d.pronouns.subject === p.subject;
+          const b = el("button", `pill${sel ? " sel" : ""}`, `${p.subject}/${p.object}`);
           b.addEventListener("click", () => {
             sfx.tap();
-            d.look[part.key] = i;
+            d.pronouns = { ...p };
+            renderProns();
+          });
+          pronRow.appendChild(b);
+        });
+      };
+      renderProns();
+      idCard.appendChild(pronRow);
+      s.appendChild(idCard);
+
+      // Parts: one thumbnail row per layer, rebuilt whenever a color changes so
+      // the options always show the colors currently picked.
+      const partsCard = el("div", "card");
+      const partRows: (() => void)[] = [];
+      for (const part of PARTS) {
+        partsCard.appendChild(el("label", undefined, part.label));
+        // Hand-drawn eyes replace the stock pair outright, so a row of options
+        // that nothing on the doll would show would be a lie.
+        if (part.key === "eyeStyle" && hasPaint(d.look.paint, "eyes")) {
+          partsCard.appendChild(el("div", "dim", "Custom eyes are on."));
+          continue;
+        }
+        const row = el("div", "thumbs");
+        partsCard.appendChild(row);
+        const renderRow = (): void => {
+          row.innerHTML = "";
+          const options = part.none ? [-1] : [];
+          for (let i = 0; i < part.count; i++) options.push(i);
+          for (const i of options) {
+            const b = el("button", `thumb${d.look[part.key] === i ? " sel" : ""}`);
+            const look: Look = { ...d.look };
+            look[part.key] = i;
+            b.appendChild(partThumb(art, look, part.box));
+            b.addEventListener("click", () => {
+              sfx.tap();
+              d.look[part.key] = i;
+              redrawArt();
+            });
+            row.appendChild(b);
+          }
+        };
+        partRows.push(renderRow);
+      }
+      s.appendChild(partsCard);
+
+      const artCard = el("div", "card");
+      artCard.appendChild(el("label", undefined, "Custom art"));
+      const artRow = el("div", "row");
+      for (const target of PAINT_MENU) {
+        const b = el("button", `pill${hasPaint(d.look.paint, target) ? " sel" : ""}`,
+          SLOT_INFO[target].label);
+        b.addEventListener("click", () => {
+          sfx.tap();
+          scrolled = root.scrollTop;
+          openPainter(target);
+        });
+        artRow.appendChild(b);
+      }
+      artCard.appendChild(artRow);
+      artCard.appendChild(el("div", "dim", "Draw your own pixels on any of these."));
+      s.appendChild(artCard);
+
+      // Colors: a channel picker, that channel's swatches, and a free color well.
+      const colorCard = el("div", "card");
+      let dots: HTMLElement[] = [];
+      let swatches: { el: HTMLElement; color: string }[] = [];
+
+      const syncColors = (): void => {
+        CHANNELS.forEach((c, i) => {
+          dots[i]!.style.background = d.look[c.key];
+        });
+        const cur = d.look[CHANNELS[channel]!.key].toLowerCase();
+        for (const sw of swatches) sw.el.classList.toggle("sel", sw.color.toLowerCase() === cur);
+      };
+
+      const redrawArt = (): void => {
+        const ctx = preview.getContext("2d")!;
+        ctx.clearRect(0, 0, DOLL_W, DOLL_H);
+        drawPaperdoll(ctx, art.doll, d.look);
+        for (const render of partRows) render();
+        syncColors();
+      };
+
+      const renderColors = (): void => {
+        colorCard.innerHTML = "";
+        dots = [];
+        swatches = [];
+        colorCard.appendChild(el("label", undefined, "Colors"));
+
+        const tabs = el("div", "row");
+        CHANNELS.forEach((c, i) => {
+          const b = el("button", `pill chan${i === channel ? " sel" : ""}`);
+          const dot = el("i");
+          dot.style.background = d.look[c.key];
+          b.appendChild(dot);
+          b.appendChild(el("span", undefined, c.label));
+          b.addEventListener("click", () => {
+            sfx.tap();
+            channel = i;
+            renderColors();
+            syncColors();
+          });
+          dots.push(dot);
+          tabs.appendChild(b);
+        });
+        colorCard.appendChild(tabs);
+
+        const ch = CHANNELS[channel]!;
+        const grid = el("div", "swatches");
+        for (const color of ch.colors) {
+          const b = el("button", "swatch");
+          b.style.setProperty("--fill", color);
+          b.addEventListener("click", () => {
+            sfx.tap();
+            d.look[ch.key] = color;
             redrawArt();
           });
-          row.appendChild(b);
+          swatches.push({ el: b, color });
+          grid.appendChild(b);
         }
-      };
-      partRows.push(render);
-    }
-    s.appendChild(partsCard);
+        colorCard.appendChild(grid);
 
-    // Colors: a channel picker, that channel's swatches, and a free color well.
-    const colorCard = el("div", "card");
-    let dots: HTMLElement[] = [];
-    let swatches: { el: HTMLElement; color: string }[] = [];
-
-    const syncColors = (): void => {
-      CHANNELS.forEach((c, i) => {
-        dots[i]!.style.background = d.look[c.key];
-      });
-      const cur = d.look[CHANNELS[channel]!.key].toLowerCase();
-      for (const sw of swatches) sw.el.classList.toggle("sel", sw.color.toLowerCase() === cur);
-    };
-
-    const redrawArt = (): void => {
-      const ctx = preview.getContext("2d")!;
-      ctx.clearRect(0, 0, DOLL_W, DOLL_H);
-      drawPaperdoll(ctx, art.doll, d.look);
-      for (const render of partRows) render();
-      syncColors();
-    };
-
-    const renderColors = (): void => {
-      colorCard.innerHTML = "";
-      dots = [];
-      swatches = [];
-      colorCard.appendChild(el("label", undefined, "Colors"));
-
-      const tabs = el("div", "row");
-      CHANNELS.forEach((c, i) => {
-        const b = el("button", `pill chan${i === channel ? " sel" : ""}`);
-        const dot = el("i");
-        dot.style.background = d.look[c.key];
-        b.appendChild(dot);
-        b.appendChild(el("span", undefined, c.label));
-        b.addEventListener("click", () => {
-          sfx.tap();
-          channel = i;
-          renderColors();
-          syncColors();
-        });
-        dots.push(dot);
-        tabs.appendChild(b);
-      });
-      colorCard.appendChild(tabs);
-
-      const ch = CHANNELS[channel]!;
-      const grid = el("div", "swatches");
-      for (const color of ch.colors) {
-        const b = el("button", "swatch");
-        b.style.setProperty("--fill", color);
-        b.addEventListener("click", () => {
-          sfx.tap();
-          d.look[ch.key] = color;
+        const custom = el("label", "custom");
+        const well = el("input") as HTMLInputElement;
+        well.type = "color";
+        well.value = d.look[ch.key];
+        // Dragging in the OS picker fires input continuously, so this handler
+        // must not rebuild the card the well lives in.
+        well.addEventListener("input", () => {
+          d.look[ch.key] = well.value;
           redrawArt();
         });
-        swatches.push({ el: b, color });
-        grid.appendChild(b);
-      }
-      colorCard.appendChild(grid);
+        custom.appendChild(well);
+        custom.appendChild(el("span", undefined, `Custom ${ch.label.toLowerCase()}`));
+        colorCard.appendChild(custom);
+      };
 
-      const custom = el("label", "custom");
-      const well = el("input") as HTMLInputElement;
-      well.type = "color";
-      well.value = d.look[ch.key];
-      // Dragging in the OS picker fires input continuously, so this handler
-      // must not rebuild the card the well lives in.
-      well.addEventListener("input", () => {
-        d.look[ch.key] = well.value;
-        redrawArt();
-      });
-      custom.appendChild(well);
-      custom.appendChild(el("span", undefined, `Custom ${ch.label.toLowerCase()}`));
-      colorCard.appendChild(custom);
-    };
+      renderColors();
+      redrawArt();
+      s.appendChild(colorCard);
 
-    renderColors();
-    redrawArt();
-    s.appendChild(colorCard);
+      s.appendChild(
+        bigBtn("Next", () => {
+          d.name = name.value.trim() || DEFAULTS[slot].name;
+          onDone(d);
+        }, true),
+      );
+    });
+    // Reading the height forces the layout the scroll would otherwise be
+    // clamped against, so a return from the painter lands where it left.
+    void root.scrollHeight;
+    root.scrollTop = scrolled;
+  };
 
-    s.appendChild(
-      bigBtn("Next", () => {
-        d.name = name.value.trim() || DEFAULTS[slot].name;
-        onDone(d);
-      }, true),
-    );
-  });
+  render();
 }
 
 /** A badge per type, so a two-type Scoba wears both. */
@@ -571,25 +626,39 @@ function starterScreen(
   taken: { id: string; by: string } | null,
   onPick: (speciesId: string) => void,
   /**
-   * Read fresh while the screen is up, for setting up together: the other
-   * player may take one while you are still looking, and it greys out under
-   * you rather than being refused after you commit.
+   * Setting up together, where character A picks first, so B arrives here
+   * before their turn. They can read about all five while they wait; the
+   * button only comes alive once A's choice has landed.
    */
-  liveTaken?: () => string | null,
+  gate?: () => StarterTurn,
 ): void {
   let chosen: string | null = null;
+  let locked = taken;
+  let myTurn = true;
+  let waitingOn: string | null = null;
+  let theyLeft = false;
+
+  const readGate = (): void => {
+    if (!gate) return;
+    const t = gate();
+    myTurn = t.yours;
+    waitingOn = t.who;
+    theyLeft = !t.here;
+    if (t.taken) locked = { id: t.taken, by: t.who ?? "The other player" };
+  };
+  readGate();
+
   ui.screen((s) => {
-    s.appendChild(el("h2", undefined, `${who.name}, pick a Scoba.`));
-    s.appendChild(el("div", "sub", taken
-      ? `${taken.by} took ${SPECIES[taken.id]!.name}. Everyone else is fair game.`
-      : "One for each primary type. Your partner picks from the rest."));
+    const heading = el("h2");
+    const sub = el("div", "sub");
+    s.appendChild(heading);
+    s.appendChild(sub);
 
     const grid = el("div", "starters");
     const detail = el("div", "card");
     const confirm = bigBtn("Choose", () => {
-      if (chosen) onPick(chosen);
+      if (chosen && myTurn) onPick(chosen);
     }, true);
-    confirm.disabled = true;
 
     const renderDetail = (): void => {
       detail.innerHTML = "";
@@ -614,12 +683,9 @@ function starterScreen(
 
     const renderGrid = (): void => {
       grid.innerHTML = "";
-      // Asked fresh on each redraw, so one taken while this screen is up greys
-      // out under the pointer rather than being refused after a commit.
-      const liveId = liveTaken?.() ?? null;
       for (const id of STARTER_IDS) {
         const sp = SPECIES[id]!;
-        const isTaken = taken?.id === id || liveId === id;
+        const isTaken = locked?.id === id;
         const b = el("button", `starter${chosen === id ? " sel" : ""}${isTaken ? " taken" : ""}`);
         b.disabled = isTaken;
         const stage = el("div", "stage");
@@ -631,40 +697,64 @@ function starterScreen(
         b.addEventListener("click", () => {
           sfx.tap();
           chosen = id;
-          confirm.disabled = false;
-          confirm.textContent = `Choose ${sp.name}`;
           renderGrid();
           renderDetail();
+          renderState();
         });
         grid.appendChild(b);
       }
     };
 
+    /** Heading, note and button, all of which change when their turn ends. */
+    const renderState = (): void => {
+      const them = waitingOn ?? "the other player";
+      heading.textContent = myTurn
+        ? `${who.name}, pick a Scoba.`
+        : `${who.name}, hold on a moment.`;
+      sub.textContent = !myTurn
+        ? `You are picking second, so ${them} chooses first.` + (theyLeft
+          ? " They have dropped out for a moment."
+          : " Have a look at the lot while you wait.")
+        : locked
+          ? `${locked.by} took ${SPECIES[locked.id]!.name}. Everyone else is fair game.`
+          : "One for each primary type. Your partner picks from the rest.";
+      confirm.disabled = !myTurn || !chosen;
+      confirm.textContent = !myTurn
+        ? `Waiting for ${them}...`
+        : chosen
+          ? `Choose ${SPECIES[chosen]!.name}`
+          : "Choose";
+    };
+
     renderGrid();
     renderDetail();
+    renderState();
     s.appendChild(grid);
     s.appendChild(detail);
     s.appendChild(confirm);
 
-    if (liveTaken) {
-      // The other player choosing is not something this screen is told about,
-      // so while it is up it keeps looking.
+    if (gate && !myTurn) {
+      // Nothing tells this screen that the other player has chosen, so while
+      // it is waiting it keeps looking.
       const watch = window.setInterval(() => {
         if (!grid.isConnected) {
           clearInterval(watch);
           return;
         }
-        const now = liveTaken();
-        if (now && chosen === now) {
-          // They got there first. Drop the pick rather than let two players
-          // walk into the world with the same Scoba.
-          chosen = null;
-          confirm.disabled = true;
-          confirm.textContent = "Pick one";
-          ui.toast(`${SPECIES[now]?.name ?? now} was taken. Pick another.`);
-        }
+        const was = myTurn;
+        readGate();
+        if (locked && chosen === locked.id) chosen = null;
         renderGrid();
-      }, 500);
+        renderDetail();
+        renderState();
+        if (myTurn && !was) {
+          clearInterval(watch);
+          sfx.confirm();
+          ui.toast(locked
+            ? `${locked.by} took ${SPECIES[locked.id]!.name}. Your turn.`
+            : "Your turn.");
+        }
+      }, 400);
     }
   });
 }
@@ -687,22 +777,19 @@ export function makeCharacterFlow(
   ui: UI,
   art: Art,
   slot: SlotId,
-  takenStarter: () => string | null,
+  turn: () => StarterTurn,
   onNamed: (p: { name: string; look: unknown; starter: string }) => void,
   onDone: (p: { name: string; look: unknown; starter: string }) => void,
 ): void {
   customizeScreen(ui, art, slot, DEFAULTS[slot], `Your character (${slot})`, null, (def) => {
     onNamed({ name: def.name, look: def.look, starter: "" });
-    const already = takenStarter();
-    starterScreen(
-      ui, art, def,
-      already ? { id: already, by: "The other player" } : null,
-      (starter) => {
-        def.starter = starter;
-        onDone({ name: def.name, look: def.look, starter });
-      },
-      takenStarter,
-    );
+    // Both make their character at once, because nothing about that clashes.
+    // Only the Scoba is taken in turn, and the screen holds the second player
+    // there until the first has chosen.
+    starterScreen(ui, art, def, null, (starter) => {
+      def.starter = starter;
+      onDone({ name: def.name, look: def.look, starter });
+    }, turn);
   });
 }
 
@@ -823,7 +910,7 @@ export function joinGameFlow(
         const theirs: CharacterDef = {
           ...DEFAULTS.A,
           name: res.adventure.host.name,
-          look: res.adventure.host.look as CharacterDef["look"],
+          look: sanitizeDollLook(res.adventure.host.look),
           starter: res.adventure.host.starter,
         };
         customizeScreen(ui, art, "B", DEFAULTS.B, "Your character (B)", null, (mine) => {
@@ -860,7 +947,8 @@ export function buildJoinedSave(
   const asDef = (p: { name: string; look: unknown; starter: string }, slot: SlotId): CharacterDef => ({
     ...DEFAULTS[slot],
     name: p.name,
-    look: p.look as CharacterDef["look"],
+    // One of these two came off the wire, and neither knows which.
+    look: sanitizeDollLook(p.look),
     starter: p.starter,
   });
   const save = buildSave(mine, asDef(mineProfile, mine), asDef(theirProfile, other));

@@ -13,6 +13,7 @@ import {
 } from "./peerlink";
 import type { BattleState, OwnerId } from "../sim/battle";
 import type { ScobaInstance } from "../sim/scoba";
+import { sanitizeDollLook } from "../engine/paperdoll";
 
 export interface SessionHooks {
   /** Care or flags changed underneath the game and the save needs writing. */
@@ -32,6 +33,8 @@ export interface SessionHooks {
   liveBattle(): NetBattle | null;
   /** How position updates are travelling, for the diagnostics readout. */
   onCarrier?(carrier: Carrier): void;
+  /** The other player redrew themselves; anything showing them has to redraw. */
+  onPeerLook?(): void;
 }
 
 /**
@@ -308,9 +311,12 @@ export class Session {
         if (msg.slot !== this.save.localSlot) {
           const them = this.save.characters[msg.slot];
           them.name = msg.character.name;
-          them.look = msg.character.look as typeof them.look;
+          // Read rather than trusted: a look now carries hand-painted layers,
+          // and this one was encoded by somebody else's client.
+          them.look = sanitizeDollLook(msg.character.look);
           them.starter = msg.character.starter;
           this.hooks.onSaveChanged();
+          this.hooks.onPeerLook?.();
         }
         return;
       case "relica":

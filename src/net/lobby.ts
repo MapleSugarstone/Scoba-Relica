@@ -34,6 +34,41 @@ export interface LobbyHooks {
   onError(reason: string): void;
 }
 
+/** Whose turn it is to pick a Scoba, and what has already gone. */
+export interface StarterTurn {
+  /** False while the first picker is still deciding. */
+  yours: boolean;
+  /** What the first picker took, and so what is locked out for the second. */
+  taken: string | null;
+  /** The other player's name, once they have typed one. */
+  who: string | null;
+  /** They are connected right now. */
+  here: boolean;
+}
+
+/**
+ * Character A picks first and B picks from the rest.
+ *
+ * Both choosing at once means one of them settling on a Scoba and having it
+ * taken out from under them a moment later, which is a worse thing to sit
+ * through than a wait.
+ */
+export function mayPick(state: LobbyState, slot: SlotId): boolean {
+  // A name is announced as soon as it is typed, with the starter still empty,
+  // so having a character is not the same as having chosen.
+  return slot === "A" || Boolean(state.A.character?.starter);
+}
+
+export function starterTurn(state: LobbyState, mine: SlotId): StarterTurn {
+  const seat = state[mine === "A" ? "B" : "A"];
+  return {
+    yours: mayPick(state, mine),
+    taken: seat.character?.starter || null,
+    who: seat.character?.name || null,
+    here: seat.here,
+  };
+}
+
 const empty = (): LobbySeat => ({ character: null, ready: false, here: false });
 
 export class Lobby {
@@ -79,10 +114,9 @@ export class Lobby {
     this.maybeStart();
   }
 
-  /** The Scoba the other player has taken, if they have taken one. */
-  takenStarter(): string | null {
-    const other = this.mine === "A" ? "B" : "A";
-    return this.state[other].character?.starter ?? null;
+  /** Whether this player may choose yet, and what the other one took. */
+  starterTurn(): StarterTurn {
+    return starterTurn(this.state, this.mine);
   }
 
   private announce(): void {

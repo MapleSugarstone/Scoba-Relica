@@ -341,6 +341,22 @@
       width: 177px;
       height: 208.5px;
     }
+    /* The painter. The doll is the canvas, shown as wide as the screen allows,
+       since a 118 px character is worked on a pixel at a time. It caps at three
+       screen pixels per art pixel, which is where a fingertip stops missing. */
+    .dollWrap.paintWrap { width: min(100%, 366px); padding: 6px; }
+    canvas.paintStage {
+      display: block;
+      image-rendering: pixelated;
+      width: 100%;
+      height: auto;
+      /* A drag on the doll is a stroke, never a scroll of the screen under it. */
+      touch-action: none;
+      cursor: crosshair;
+    }
+    /* Thirty-two of them, so they sit four rows deep instead of eight. */
+    .swatch.small { width: 26px; height: 26px; }
+
     .thumbs { display: flex; gap: 8px; flex-wrap: wrap; align-self: flex-start; }
     button.thumb {
       padding: 5px;

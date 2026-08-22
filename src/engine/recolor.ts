@@ -3,7 +3,9 @@
 // on its own peach: red on the base shirt is the shirt color, red on a shirt
 // overlay is the detail color, red on hair is the hair color. Black is line art
 // everywhere and is never swapped. Replacement art must keep one flat color per
-// region.
+// region. On top of that a player may paint their own pixels; see `paint.ts`.
+import { sanitizePaintSet, type PaintSet } from "./paint";
+
 export interface Look {
   skin: string;
   hair: string;
@@ -13,6 +15,12 @@ export interface Look {
   hairStyle: number;
   eyeStyle: number;
   shirtStyle: number;
+  /**
+   * Anything the player painted by hand, per layer. Absent on every look made
+   * before there was a painter, which is why it stays optional rather than
+   * costing a save migration.
+   */
+  paint?: PaintSet;
 }
 
 export type RGB = [number, number, number];
@@ -56,6 +64,39 @@ export const DEFAULT_LOOK: Look = {
   eyeStyle: 0,
   shirtStyle: 0,
 };
+
+const HEX = /^#[0-9a-f]{6}$/;
+
+/**
+ * A look from somewhere unchecked: the other player's profile, or an imported
+ * save. Everything that fails to read is replaced from the default rather than
+ * refused, so a stranger with a corrupted hat still turns up wearing a face.
+ */
+export function sanitizeLook(value: unknown, w: number, h: number): Look {
+  const src = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const color = (key: keyof Look, fallback: string): string => {
+    const v = src[key];
+    return typeof v === "string" && HEX.test(v.toLowerCase()) ? v.toLowerCase() : fallback;
+  };
+  // A part index is wrapped into its catalog when it is drawn, so any whole
+  // number is safe here; only a negative one has a meaning, and it is "off".
+  const part = (key: keyof Look, fallback: number): number => {
+    const v = src[key];
+    return typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : fallback;
+  };
+  const paint = sanitizePaintSet(src["paint"], w, h);
+  const look: Look = {
+    skin: color("skin", DEFAULT_LOOK.skin),
+    hair: color("hair", DEFAULT_LOOK.hair),
+    shirt: color("shirt", DEFAULT_LOOK.shirt),
+    shirtDetail: color("shirtDetail", DEFAULT_LOOK.shirtDetail),
+    hairStyle: part("hairStyle", DEFAULT_LOOK.hairStyle),
+    eyeStyle: part("eyeStyle", DEFAULT_LOOK.eyeStyle),
+    shirtStyle: part("shirtStyle", DEFAULT_LOOK.shirtStyle),
+  };
+  if (paint) look.paint = paint;
+  return look;
+}
 
 export function hexToRgb(c: string): RGB {
   return [
