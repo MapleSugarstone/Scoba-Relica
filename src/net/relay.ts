@@ -143,7 +143,13 @@ export class Relay implements Transport {
     });
 
     ws.addEventListener("close", () => {
-      if (this.ws === ws) this.ws = null;
+      // Only the socket we are actually using is worth reacting to. A
+      // superseded one closing is the expected end of its life, and treating it
+      // as a disconnection reconnects on top of the live socket, which the room
+      // then evicts, whose close reconnects again: a loop that only appears
+      // once the room lets a returning player take their slot back.
+      if (this.ws !== ws) return;
+      this.ws = null;
       this.hooks.onStatus("offline");
       this.retry();
     });

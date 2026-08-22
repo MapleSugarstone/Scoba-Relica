@@ -54,6 +54,12 @@ export class Actor {
    * appearing whole, so a Scoba never pops into being under your nose.
    */
   fade = 1;
+  /**
+   * Kept out of the scene entirely rather than faded out. The other player
+   * standing on a different map is not somewhere dim, they are somewhere else,
+   * and leaving a ghost where they were last seen reads as a bug.
+   */
+  hidden = false;
   private fadeRate = 0;
   /**
    * Points of light this one has shed. They live in world space, so they stay
@@ -153,6 +159,7 @@ export class Actor {
   }
 
   draw(ctx: CanvasRenderingContext2D, camX: number, camY: number): void {
+    if (this.hidden) return;
     const sx = this.x - camX;
     const sy = this.y - camY;
     // No walk cycles: one static sprite, motion reads through the hop and

@@ -23,7 +23,8 @@ import { Session } from "./net/session";
 import type { BattleNet, PendingBattle } from "./net/battlelink";
 import { relayUrl } from "./net/relay";
 import { disableReminders, enableReminders, reminderState } from "./net/push";
-import type { ReminderControl } from "./ui/screens";
+import type { DiagnosticsControl, ReminderControl } from "./ui/screens";
+import { collectDiagnostics, diagnosticsText } from "./net/diagnostics";
 import {
   clearStampedGrowth,
   loadSave,
@@ -54,6 +55,8 @@ let relayStatus: { status: string; partnerHere: boolean } = { status: "offline",
 let pendingPeerBattle: PendingBattle | null = null;
 /** The last message kind seen from the peer, for diagnosing a stuck co-op fight. */
 let lastFromPeer: string[] = [];
+/** How position updates are travelling, for the diagnostics readout. */
+let positionCarrier = "none";
 let art: Art;
 
 function showTitle(): void {
@@ -116,6 +119,7 @@ function openSession(save: SaveData): void {
   session = new Session(save, {
     onSaveChanged: () => writeSave(save),
     liveBattle: () => netBattle(),
+    onCarrier: (carrier) => { positionCarrier = carrier; },
     onTraffic: (kind) => {
       lastFromPeer.push(kind);
       if (lastFromPeer.length > 25) lastFromPeer.shift();
@@ -153,7 +157,12 @@ function openSession(save: SaveData): void {
       relayStatus = { status, partnerHere };
       if (status === "live" && partnerHere) scene?.refreshCompanions();
     },
-    onError: (reason) => ui.toast(`Relay: ${reason}`),
+    onError: (reason) => {
+      // Recorded as well as shown: a toast is gone in two seconds and these
+      // are exactly what you want to read after the fact.
+      lastFromPeer.push(`error: ${reason}`);
+      ui.toast(`Relay: ${reason}`);
+    },
   });
   session.start();
 }
@@ -163,6 +172,19 @@ function openSession(save: SaveData): void {
  * wakes a phone, so a room code is as much a prerequisite as permission is,
  * and the notes say which of the two is missing rather than failing quietly.
  */
+/** The Settings readout. Everything it needs is async, so it reads on demand. */
+function diagnosticsControl(save: SaveData): DiagnosticsControl {
+  return {
+    read: () => collectDiagnostics({
+      status: relayStatus.status,
+      partnerHere: relayStatus.partnerHere,
+      carrier: positionCarrier,
+      ...(save.room ? { room: save.room } : {}),
+    }),
+    asText: (lines) => diagnosticsText(lines as { label: string; value: string; ok: boolean }[]),
+  };
+}
+
 function reminderControl(save: SaveData): ReminderControl {
   return {
     async read() {
@@ -239,6 +261,11 @@ function buildGame(save: SaveData): void {
   };
 
   scene = new Overworld(art, save, content, input, ui, {
+    // The other player, when someone is playing them. Sampled every frame so
+    // the partner is drawn where the interpolation says, not where the last
+    // packet happened to land.
+    peerAt: () => session?.peerAt(performance.now()) ?? null,
+    reportSelf: (state) => session?.reportPosition(performance.now(), state),
     onWildBattle: (wild, at) => {
       ui.toast(`A wild ${SPECIES[wild.speciesId]?.name ?? wild.speciesId} charges at you!`);
       // Running into one is what puts it in the index.
@@ -375,6 +402,7 @@ function hangBagDoors(): void {
     }) },
     { label: "SETTINGS", open: withSave((save) => settingsScreen(ui, save, {
       onBack: back,
+      diagnostics: diagnosticsControl(save),
       onEzChange: () => {
         writeSave(save);
         ui.toast(save.ez

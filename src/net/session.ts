@@ -6,6 +6,10 @@ import type { SaveData } from "../save/save";
 import { Relay, type RelayStatus } from "./relay";
 import type { ClientMessage, PushSubscriptionJson, ServerMessage } from "./protocol";
 import type { NetBattle, PendingBattle } from "./battlelink";
+import { LocalTrack, RemoteTrack, type LocalState, type Step } from "./presence";
+import {
+  PeerLink, DIRECT_INTERVAL_MS, RELAY_INTERVAL_MS, type Carrier,
+} from "./peerlink";
 import type { BattleState, OwnerId } from "../sim/battle";
 import type { ScobaInstance } from "../sim/scoba";
 
@@ -25,12 +29,19 @@ export interface SessionHooks {
   onBattleAdopted(battleId: string, state: BattleState): void;
   /** The running fight, if there is one, so peer messages can reach it. */
   liveBattle(): NetBattle | null;
+  /** How position updates are travelling, for the diagnostics readout. */
+  onCarrier?(carrier: Carrier): void;
 }
 
 export class Session {
   private relay: Relay | null = null;
   private status: RelayStatus = "offline";
   private partnerHere = false;
+  private peer: PeerLink | null = null;
+  /** What we send, and how often, which depends on what is carrying it. */
+  private mine = new LocalTrack(RELAY_INTERVAL_MS);
+  /** What the other player sent, smoothed into something worth drawing. */
+  readonly theirs = new RemoteTrack();
 
   constructor(private save: SaveData, private hooks: SessionHooks) {}
 
@@ -54,10 +65,60 @@ export class Session {
   }
 
   stop(): void {
+    this.peer?.close();
+    this.peer = null;
+    this.theirs.reset();
     this.relay?.close();
     this.relay = null;
     this.status = "offline";
     this.partnerHere = false;
+  }
+
+  /**
+   * Report where this player is. Called every frame; the track decides whether
+   * anything is worth sending, and the peer link decides how it travels.
+   */
+  reportPosition(now: number, state: LocalState): void {
+    if (!this.peer || !this.partnerHere) return;
+    const step = this.mine.tick(now, state);
+    if (step) this.peer.send(step);
+  }
+
+  /** Where to draw the other player, or null if they have not been heard from. */
+  peerAt(now: number) {
+    return this.theirs.sample(now);
+  }
+
+  get carrier(): Carrier {
+    return this.peer?.carrier ?? "none";
+  }
+
+  /**
+   * Stood up once both players are in the room, and only then: a peer
+   * connection needs someone on the other end to negotiate with.
+   */
+  private openPeerLink(): void {
+    if (this.peer || !this.partnerHere) return;
+    // Character A offers, B answers. Fixed by slot so the two of them cannot
+    // both offer and collide.
+    this.peer = new PeerLink(this.save.localSlot === "A", {
+      signal: (msg) => this.relay?.send(msg),
+      viaRelay: (step) => this.relay?.send({ t: "at", step }),
+      onStep: (step) => this.theirs.push(step, performance.now()),
+      onCarrier: (carrier) => {
+        // A direct connection costs nothing per message, so it is worth being
+        // chatty on; the relay is billed and is not.
+        this.mine.setInterval(carrier === "direct" ? DIRECT_INTERVAL_MS : RELAY_INTERVAL_MS);
+        this.hooks.onCarrier?.(carrier);
+      },
+    });
+    this.peer.start();
+  }
+
+  private closePeerLink(): void {
+    this.peer?.close();
+    this.peer = null;
+    this.theirs.reset();
   }
 
   /**
@@ -125,11 +186,15 @@ export class Session {
     switch (msg.t) {
       case "hello-ok":
         this.partnerHere = otherSlotHeld(msg.room.slotTaken, this.save.localSlot);
+        if (this.partnerHere) this.openPeerLink();
         if (msg.care) this.adoptCare(msg.care.state, msg.care.rev);
         this.hooks.onStatus(this.status, this.partnerHere);
         return;
-      case "peer":
+      case "peer": {
+        const was = this.partnerHere;
         this.partnerHere = otherSlotHeld(msg.room.slotTaken, this.save.localSlot);
+        if (this.partnerHere && !was) this.openPeerLink();
+        if (!this.partnerHere && was) this.closePeerLink();
         // Once the other character has been seen, the save stays in two-player
         // shape even offline: their half of the story is real either way.
         if (this.partnerHere && !this.save.partnerJoined) {
@@ -138,6 +203,7 @@ export class Session {
         }
         this.hooks.onStatus(this.status, this.partnerHere);
         return;
+      }
       case "care-state":
         this.adoptCare(msg.state, msg.rev);
         return;
@@ -149,6 +215,14 @@ export class Session {
         return;
       case "error":
         this.hooks.onError(msg.reason);
+        return;
+      case "at":
+        this.theirs.push(msg.step, performance.now());
+        return;
+      case "rtc-offer":
+      case "rtc-answer":
+      case "rtc-ice":
+        void this.peer?.handleSignal(msg);
         return;
       case "battle-open":
         this.hooks.onBattleOpened({ battleId: msg.battleId, host: msg.host, at: msg.at });

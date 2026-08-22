@@ -33,10 +33,22 @@ npx wrangler deploy     # once you have a Cloudflare account
 
 With the relay running locally, open the game with `?relay=ws://localhost:8787`
 to point it there; the setting is remembered until you clear it with `?relay=`.
-Inside `worker/`, `node test/relay.test.mjs` and `node test/reminders.test.mjs`
-run against a `wrangler dev` you already have going; `node test/push.test.mjs`
-needs nothing running, since it checks the push encryption against the worked
-example in RFC 8291.
+Inside `worker/`, `npm run smoke` checks the deployed relay is up and has its
+reminder keys, which takes a few seconds and is the first thing to run when a
+phone says something is wrong. `node test/relay.test.mjs` is the thorough suite
+and runs against either a local `wrangler dev` or the deployed relay with
+`RELAY=https://... node test/relay.test.mjs`. `node test/reminders.test.mjs`
+needs a local `wrangler dev`, since it stands up a stand-in push service on
+localhost that a deployed worker could not reach. `npm test` checks the push
+encryption against the worked example in RFC 8291 and needs nothing running.
+
+## Diagnostics
+
+Settings has a Diagnostics panel listing whether the game is installed, whether
+the save is safe from eviction, which build is running, the worker and relay
+state, and whether reminders could be delivered. Anything that will stop a
+feature working is marked. It exists because iOS cannot be inspected without a
+Mac, so a tester there can screenshot one panel instead of guessing.
 
 ### Care reminders
 

@@ -57,7 +57,7 @@ function open(room) {
         onTimeout(resolve, reject);
       }, ms);
     });
-  return {
+  const self = {
     ws,
     ready: new Promise((resolve, reject) => {
       ws.addEventListener("open", resolve, { once: true });
@@ -68,7 +68,19 @@ function open(room) {
     /** Null if nothing arrives, which is how "the peer must not hear this" is checked. */
     silent: (ms = 400) => take(ms, (resolve) => resolve(null)),
     close: () => ws.close(),
+    /**
+     * Swallow whatever is waiting. Slot churn produces perfectly correct
+     * presence messages that a later assertion is not expecting, so the test
+     * resynchronises rather than pretending they should not happen.
+     */
+    async drain(ms = 400) {
+      for (;;) {
+        const m = await take(ms, (resolve) => resolve(null));
+        if (m === null) return;
+      }
+    },
   };
+  return self;
 }
 
 const care = (hunger, lastCalc) => ({
@@ -97,7 +109,7 @@ async function main() {
   const room = Array.from({ length: 6 }, () =>
     CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join("");
   console.log(`\nhandshake (room ${room})`);
-  const a = open(room);
+  let a = open(room);
   await a.ready;
   a.send({ t: "hello", room, slot: "A", saveRev: 1 });
   const helloA = await a.next();
@@ -124,12 +136,27 @@ async function main() {
   check("B hears its own arrival as presence", peerForB.t === "peer", JSON.stringify(peerForB));
 
   console.log("\nslot arbitration");
-  const intruder = open(room);
-  await intruder.ready;
-  intruder.send({ t: "hello", room, slot: "A", saveRev: 1 });
-  const refused = await intruder.next();
-  check("a second claim on slot A is refused", refused.t === "error", JSON.stringify(refused));
-  intruder.close();
+  // A reconnecting player takes their own slot back rather than being locked
+  // out of it by the socket they left behind. Refusing them meant a reload, a
+  // backgrounded app, or a dropped connection kept them out of their own room
+  // until the ghost timed out.
+  const rejoin = open(room);
+  await rejoin.ready;
+  rejoin.send({ t: "hello", room, slot: "A", saveRev: 1 });
+  const retaken = await rejoin.next();
+  check("a returning player takes their slot back", retaken.t === "hello-ok", JSON.stringify(retaken));
+  rejoin.close();
+  await new Promise((r) => setTimeout(r, 500));
+
+  // Put the original connection back in charge for the rest of the run.
+  a = open(room);
+  await a.ready;
+  a.send({ t: "hello", room, slot: "A", saveRev: 1 });
+  await a.next();
+  // The slot changing hands three times told B about it three times, all of it
+  // correct and none of it what the next assertions are waiting for.
+  await a.drain();
+  await b.drain();
 
   const rude = open(room);
   await rude.ready;
@@ -163,6 +190,32 @@ async function main() {
   const flags = await b.next();
   check("flags reach the peer", flags.t === "story-flags" && flags.flags.metSage === true,
     JSON.stringify(flags));
+
+  console.log("\nmovement fallback");
+  // Position normally goes peer to peer and never touches the relay at all.
+  // This is the path for pairs whose networks refuse a direct connection.
+  const stepMsg = { seq: 7, x: 120, y: 64, dir: -1, moving: true, map: "home" };
+  a.send({ t: "at", room, step: stepMsg });
+  const moved = await b.next();
+  check("a position reaches the peer", moved.t === "at" && moved.step.x === 120,
+    JSON.stringify(moved));
+  check("it arrives unchanged", moved.step.seq === 7 && moved.step.dir === -1 && moved.step.map === "home",
+    JSON.stringify(moved.step));
+  const echoed = await a.silent();
+  check("the sender is not sent its own position back", echoed === null, JSON.stringify(echoed));
+
+  // Signalling is relayed too, and never interpreted.
+  a.send({ t: "rtc-offer", sdp: "v=0 offer" });
+  const offered = await b.next();
+  check("an offer reaches the peer", offered.t === "rtc-offer" && offered.sdp === "v=0 offer",
+    JSON.stringify(offered));
+  b.send({ t: "rtc-answer", sdp: "v=0 answer" });
+  const answered = await a.next();
+  check("an answer comes back", answered.t === "rtc-answer", JSON.stringify(answered));
+  a.send({ t: "rtc-ice", candidate: { candidate: "candidate:1 1 udp", sdpMid: "0", sdpMLineIndex: 0 } });
+  const iced = await b.next();
+  check("a candidate reaches the peer", iced.t === "rtc-ice" && iced.candidate.sdpMid === "0",
+    JSON.stringify(iced));
 
   console.log("\nbattle relay");
   a.send({ t: "battle-choice", battleId: "bt1", turn: 3, choice: { kind: "move", index: 2 } });
@@ -201,11 +254,11 @@ async function main() {
   const b2 = open(room);
   await b2.ready;
   b2.send({ t: "hello", room, slot: "B", saveRev: 1 });
-  const rejoin = await b2.next();
-  check("B can reclaim its slot after leaving", rejoin.t === "hello-ok", JSON.stringify(rejoin));
+  const backIn = await b2.next();
+  check("B can reclaim its slot after leaving", backIn.t === "hello-ok", JSON.stringify(backIn));
   check("the room hands back the care state it kept",
-    rejoin.care !== undefined && rejoin.care.state.hunger === 90 && rejoin.care.rev === 2,
-    JSON.stringify(rejoin.care));
+    backIn.care !== undefined && backIn.care.state.hunger === 90 && backIn.care.rev === 2,
+    JSON.stringify(backIn.care));
 
   a.close();
   b2.close();

@@ -4,6 +4,7 @@
 import type { ScobaInstance } from "../sim/scoba";
 import type { CareState } from "../sim/care";
 import type { BattleState, Choice, OwnerId } from "../sim/battle";
+import type { Step } from "./presence";
 
 /** Two players share a campaign under one room code. */
 export interface RoomInfo {
@@ -46,7 +47,25 @@ export type ClientMessage =
    */
   | { t: "push-subscribe"; room: string; sub: PushSubscriptionJson }
   | { t: "push-unsubscribe"; room: string }
+  /**
+   * Setting up a direct connection between the two players. Only the handshake
+   * comes through here; once it is up, position updates go peer to peer and
+   * never touch the relay. Character A always makes the offer, so the two of
+   * them cannot offer at each other at once.
+   */
+  | { t: "rtc-offer"; sdp: string }
+  | { t: "rtc-answer"; sdp: string }
+  | { t: "rtc-ice"; candidate: RtcCandidate }
+  /** Where this player is, when there is no direct connection to carry it. */
+  | { t: "at"; step: Step }
   | { t: "bye" };
+
+/** The parts of an ICE candidate worth putting on the wire. */
+export interface RtcCandidate {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+}
 
 /** `PushSubscription.toJSON()`, which is what the browser hands us. */
 export interface PushSubscriptionJson {
@@ -73,6 +92,10 @@ export type ServerMessage =
   | { t: "battle-choice"; battleId: string; turn: number; choice: Choice }
   | { t: "battle-send-in"; battleId: string; turn: number; slot: 0 | 1; benchIndex: number }
   | { t: "peer-illegal"; battleId: string; reason: string }
+  | { t: "rtc-offer"; sdp: string }
+  | { t: "rtc-answer"; sdp: string }
+  | { t: "rtc-ice"; candidate: RtcCandidate }
+  | { t: "at"; step: Step }
   | { t: "error"; reason: string };
 
 export interface Transport {

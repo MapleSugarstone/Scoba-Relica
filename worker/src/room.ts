@@ -97,6 +97,14 @@ export class Room {
         }));
       case "battle-hash":
         return this.compareHash(ws, mine, msg.battleId, msg.turn, msg.hash);
+      // Signalling is relayed and never inspected: what the two of them agree
+      // on is between them, and the relay has no use for it.
+      // Position over the relay, for the pairs whose networks refused a direct
+      // connection. Relayed like anything else and never stored.
+      case "at":
+      case "rtc-offer":
+      case "rtc-answer":
+      case "rtc-ice":
       case "battle-open":
       case "battle-join":
       case "battle-sync":
@@ -142,8 +150,23 @@ export class Room {
 
   private async hello(ws: WebSocket, msg: Extract<ClientMessage, { t: "hello" }>): Promise<void> {
     if (msg.slot !== "A" && msg.slot !== "B") return this.fail(ws, "slot must be A or B");
-    const taken = this.sockets().some((w) => w !== ws && this.slotOf(w) === msg.slot);
-    if (taken) return this.fail(ws, `slot ${msg.slot} is already held`);
+
+    // The newest claim wins, rather than the slot being defended against its
+    // own owner. A player can only be in one place, so a socket still holding
+    // their slot is a ghost: a reload, a backgrounded app, or a network flap
+    // that closed one end without the other noticing. Refusing them locked the
+    // player out of their own room until the old socket timed out.
+    for (const other of this.sockets()) {
+      if (other === ws || this.slotOf(other) !== msg.slot) continue;
+      // Its slot goes first, so its closing does not announce a departure that
+      // has already been superseded by the arrival below.
+      other.serializeAttachment(null);
+      try {
+        other.close(4000, "replaced by a newer connection");
+      } catch {
+        // Already gone, which is the outcome we wanted.
+      }
+    }
 
     ws.serializeAttachment({ slot: msg.slot } satisfies Attachment);
     const care = await this.state.storage.get<Revised<CareState>>("care");

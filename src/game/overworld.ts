@@ -31,6 +31,14 @@ export interface OverworldHooks {
   onWildBattle(wild: ScobaInstance, at: { x: number; y: number }): void;
   onOpenNest(): void;
   onTrainerBattle(npc: NpcDef, result: (won: boolean) => void): void;
+  /**
+   * Where the other player is, when someone is playing them. Null means nobody
+   * is on the other end and the partner goes back to following, which is what
+   * single-machine play has always been.
+   */
+  peerAt?(): { x: number; y: number; dir: 1 | -1; moving: boolean; map: string } | null;
+  /** Tell the peer where this player is. Called every frame; it decides what to send. */
+  reportSelf?(state: { x: number; y: number; dir: 1 | -1; moving: boolean; map: string }): void;
 }
 
 /**
@@ -768,9 +776,23 @@ export class Overworld {
     this.trails[this.save.localSlot].push(this.player.x, this.player.y);
     this.trails[other].push(this.partner.actor.x, this.partner.actor.y);
 
+    // Say where we are before anything else moves, so what the peer receives is
+    // this frame's position rather than last frame's.
+    this.hooks.reportSelf?.({
+      x: Math.round(this.player.x), y: Math.round(this.player.y),
+      dir: this.player.dir, moving: this.player.moving, map: this.mapId,
+    });
+    const driven = this.applyPeerPosition();
+
     const crowd = [this.player, ...this.companions.map((c) => c.actor)];
     this.freeStuckCompanions(crowd);
-    for (const c of this.companions) c.update(dt, this.world.map, crowd);
+    for (const c of this.companions) {
+      // A partner someone else is walking does not get followed by its own AI:
+      // the two would fight over the same actor and it would jitter between
+      // where the peer put it and where the leash wants it.
+      if (driven && c === this.partner) continue;
+      c.update(dt, this.world.map, crowd);
+    }
     this.recoverLostCompanions(crowd);
     this.updateRoamers(dt, dialog);
     updateNpcs(this.npcs, dt, this.world.map, dialog);
@@ -1089,6 +1111,32 @@ export class Overworld {
 
   activeBattleAt(): { x: number; y: number } | null {
     return this.activeBattle ? { x: this.activeBattle.x, y: this.activeBattle.y } : null;
+  }
+
+  /**
+   * Put the partner where the other player has walked them. Returns whether
+   * anyone is actually driving, so their follow AI can be left switched off.
+   *
+   * A peer on another map is not drawn at all rather than left standing at the
+   * last place we saw them, which would be a ghost of someone who has gone.
+   */
+  private applyPeerPosition(): boolean {
+    const at = this.hooks.peerAt?.() ?? null;
+    if (!at) {
+      this.partner.actor.hidden = false;
+      return false;
+    }
+    if (at.map !== this.mapId) {
+      this.partner.actor.hidden = true;
+      return true;
+    }
+    this.partner.actor.hidden = false;
+    const a = this.partner.actor;
+    a.x = at.x;
+    a.y = at.y;
+    a.dir = at.dir;
+    a.moving = at.moving;
+    return true;
   }
 
   /** Where a character is standing: the one you drive, or the one you follow. */

@@ -993,10 +993,22 @@ function levelBar(label: string, value: number, onChange: (v: number) => void): 
   return row;
 }
 
+/** Supplied by main so this file stays clear of the relay and push code. */
+export interface DiagnosticsControl {
+  read(): Promise<{ label: string; value: string; ok: boolean }[]>;
+  asText(lines: { label: string; value: string }[]): string;
+}
+
 export function settingsScreen(
   ui: UI,
   save: SaveData,
-  cb: { onBack: () => void; onExport: () => void; onQuit: () => void; onEzChange: () => void },
+  cb: {
+    onBack: () => void;
+    onExport: () => void;
+    onQuit: () => void;
+    onEzChange: () => void;
+    diagnostics?: DiagnosticsControl;
+  },
 ): void {
   ui.screen((s) => {
     s.appendChild(el("h2", undefined, "Settings"));
@@ -1040,6 +1052,55 @@ export function settingsScreen(
     saveRow.appendChild(exportB);
     saveCard.appendChild(saveRow);
     s.appendChild(saveCard);
+
+    if (cb.diagnostics) {
+      const control = cb.diagnostics;
+      const diag = el("div", "card diag");
+      diag.appendChild(el("strong", undefined, "Diagnostics"));
+      diag.appendChild(el("div", "dim",
+        "If something is not working, screenshot this and send it over."));
+      const rows = el("div", "diagRows");
+      rows.appendChild(el("div", "dim", "Reading..."));
+      diag.appendChild(rows);
+
+      const copyRow = el("div", "row");
+      const copyB = el("button", "pill", "Copy as text");
+      copyRow.appendChild(copyB);
+      const refreshB = el("button", "pill", "Refresh");
+      copyRow.appendChild(refreshB);
+      diag.appendChild(copyRow);
+
+      let latest: { label: string; value: string; ok: boolean }[] = [];
+      const fill = (): void => {
+        void control.read().then((lines) => {
+          if (!diag.isConnected) return;
+          latest = lines;
+          rows.innerHTML = "";
+          for (const line of lines) {
+            const row = el("div", `diagRow${line.ok ? "" : " bad"}`);
+            row.appendChild(el("span", "diagName", line.label));
+            row.appendChild(el("span", "diagVal", line.value));
+            rows.appendChild(row);
+          }
+        });
+      };
+      copyB.addEventListener("click", () => {
+        sfx.tap();
+        const text = control.asText(latest);
+        // Clipboard access is refused often enough on phones that the fallback
+        // matters: the text goes on screen to be selected by hand instead.
+        void navigator.clipboard?.writeText(text).then(
+          () => ui.toast("Copied."),
+          () => ui.toast("Could not copy. Screenshot it instead."),
+        );
+      });
+      refreshB.addEventListener("click", () => {
+        sfx.tap();
+        fill();
+      });
+      s.appendChild(diag);
+      fill();
+    }
 
     s.appendChild(bigBtn("Back", cb.onBack, true));
     const quit = el("button", "big", "Quit to Title");
