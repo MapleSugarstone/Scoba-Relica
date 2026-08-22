@@ -34,6 +34,13 @@ export interface SessionHooks {
   onCarrier?(carrier: Carrier): void;
 }
 
+/**
+ * How long the other player's last position is kept after they drop. Long
+ * enough to ride out a phone changing tower or a tab being backgrounded, short
+ * enough that somebody who has really gone stops standing there.
+ */
+const FORGET_PEER_MS = 10000;
+
 export class Session {
   private relay: Relay | null = null;
   private status: RelayStatus = "offline";
@@ -68,6 +75,8 @@ export class Session {
   stop(): void {
     this.peer?.close();
     this.peer = null;
+    if (this.forgetTimer !== null) clearTimeout(this.forgetTimer);
+    this.forgetTimer = null;
     this.theirs.reset();
     this.relay?.close();
     this.relay = null;
@@ -132,6 +141,12 @@ export class Session {
    */
   private openPeerLink(): void {
     if (this.peer || !this.partnerHere) return;
+    // They are back before we forgot them, so their last position stands and
+    // the character carries on from where it was rather than jumping.
+    if (this.forgetTimer !== null) {
+      clearTimeout(this.forgetTimer);
+      this.forgetTimer = null;
+    }
     // Character A offers, B answers. Fixed by slot so the two of them cannot
     // both offer and collide.
     this.peer = new PeerLink(this.save.localSlot === "A", {
@@ -148,10 +163,20 @@ export class Session {
     this.peer.start();
   }
 
+  /**
+   * The direct connection goes straight away, but where they were is kept for
+   * a moment. A brief drop is common on a phone, and forgetting them instantly
+   * hands the character back to its follow AI, which then drags it toward this
+   * player while their real position pulls the other way.
+   */
   private closePeerLink(): void {
     this.peer?.close();
     this.peer = null;
-    this.theirs.reset();
+    if (this.forgetTimer !== null) clearTimeout(this.forgetTimer);
+    this.forgetTimer = window.setTimeout(() => {
+      this.forgetTimer = null;
+      this.theirs.reset();
+    }, FORGET_PEER_MS);
   }
 
   /**
@@ -213,6 +238,7 @@ export class Session {
   }
 
   private awaitingSync: string | null = null;
+  private forgetTimer: number | null = null;
   /** What the relay says it speaks, or 0 before it has said. */
   private relayProtocol = 0;
 

@@ -590,6 +590,10 @@ class Companion {
       state: this.crumb >= 0 ? "trail" : this.path.length > 0 ? "route"
         : !this.following ? "idle" : this.reactT > 0 ? "noticing" : "following",
       pathLen: this.path.length,
+      // Whether it reads as walking, which is what runs the bounce. A remote
+      // character with this stuck false slides about with its legs frozen.
+      moving: this.actor.moving,
+      gait: Number(this.actor.gaitPhase().toFixed(2)),
     };
   }
 }
@@ -626,6 +630,8 @@ export class Overworld {
   private lean = 0.3;
   /** How near the two of them have to be for it to count them as together. */
   private static readonly REUNION_DIST = 90;
+  /** True while the other player is walking the partner, not this client. */
+  private peerDriven = false;
   /** Last computed reachability, for the debug readout. */
   private lastHere: { A: boolean; B: boolean } = { A: true, B: true };
   private cam = new Camera();
@@ -838,7 +844,8 @@ export class Overworld {
       x: Math.round(this.player.x), y: Math.round(this.player.y),
       dir: this.player.dir, moving: this.player.moving, map: this.mapId,
     });
-    const driven = this.applyPeerPosition();
+    const driven = this.applyPeerPosition(dt);
+    this.peerDriven = driven;
 
     const crowd = [this.player, ...this.companions.map((c) => c.actor)];
     this.freeStuckCompanions(crowd);
@@ -1010,6 +1017,11 @@ export class Overworld {
    */
   private freeStuckCompanions(crowd: Actor[]): void {
     for (const c of this.companions) {
+      // Never shove a character somebody else is walking. Their client decides
+      // where they are, and standing in a corner reads as stuck here: we would
+      // teleport them clear, their next update would put them back, and the two
+      // of us would do that sixty times a second.
+      if (this.peerDriven && c === this.partner) continue;
       if (!blocked(this.world.map, c.actor.x, c.actor.y, c.actor.radius)) continue;
       c.placeNear(this.world.map, crowd);
     }
@@ -1027,6 +1039,11 @@ export class Overworld {
       y < this.view.y - margin || y > this.view.y + this.view.h + margin;
     const edge = Math.max(this.view.w, this.view.h) / 2 + 24;
     for (const c of this.companions) {
+      // The other player being off this screen is not them getting lost, it is
+      // them walking somewhere else, which is the entire point of two people
+      // moving separately. Snapping them back onto our trail fought their own
+      // position every frame and flung them about.
+      if (this.peerDriven && c === this.partner) continue;
       if (c.trailing()) continue; // already walking its way back
       if (c.away() < c.leash + 40) continue; // just clipped by the edge, not lost
       if (hidden(c.actor.x, c.actor.y)) c.snapToTrail(this.world.map, crowd, hidden, edge);
@@ -1176,7 +1193,7 @@ export class Overworld {
    * A peer on another map is not drawn at all rather than left standing at the
    * last place we saw them, which would be a ghost of someone who has gone.
    */
-  private applyPeerPosition(): boolean {
+  private applyPeerPosition(dt: number): boolean {
     const at = this.hooks.peerAt?.() ?? null;
     if (!at) {
       this.partner.actor.hidden = false;
@@ -1187,11 +1204,9 @@ export class Overworld {
       return true;
     }
     this.partner.actor.hidden = false;
-    const a = this.partner.actor;
-    a.x = at.x;
-    a.y = at.y;
-    a.dir = at.dir;
-    a.moving = at.moving;
+    // Placed rather than walked, but still animated: the gait has to be
+    // advanced by hand or the character slides with its legs frozen.
+    this.partner.actor.driveTo(dt, at.x, at.y, at.dir);
     return true;
   }
 

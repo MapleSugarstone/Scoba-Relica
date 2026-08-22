@@ -36,7 +36,14 @@ const SNAP_DISTANCE = 96;
 /** How far behind live to render, as a multiple of the observed gap. */
 const DELAY_FACTOR = 1.6;
 const MIN_DELAY_MS = 60;
-const MAX_DELAY_MS = 260;
+/**
+ * Has to comfortably exceed the slowest send interval in use, or the renderer
+ * runs off the end of the buffer between updates: it holds the newest sample,
+ * then snaps when the next lands, which is exactly the stutter this whole
+ * arrangement exists to avoid. It was 260ms while the relay sent every 300ms,
+ * so on the fallback path it was broken by construction.
+ */
+const MAX_DELAY_MS = 700;
 
 /** Enough to cover a couple of dropped packets without hoarding stale ones. */
 const MAX_SAMPLES = 12;
@@ -122,9 +129,22 @@ export class RemoteTrack {
       // A jump this big is a teleport tile, not a walk. Interpolating it would
       // slide the character through whatever is between the two doors.
       if (Math.hypot(b.x - a.x, b.y - a.y) > SNAP_DISTANCE) return placedOf(b);
+      // The neighbours on either side are what bend the line into a walk. Where
+      // there is no neighbour, the end point stands in for it, which leaves the
+      // ends straight rather than curling them.
+      const before = this.samples[i - 2] ?? a;
+      const after = this.samples[i + 1] ?? b;
+      // A teleport either side would drag the curve across the map, so those
+      // stretches stay straight.
+      const wild = Math.hypot(a.x - before.x, a.y - before.y) > SNAP_DISTANCE ||
+        Math.hypot(after.x - b.x, after.y - b.y) > SNAP_DISTANCE ||
+        before.map !== b.map || after.map !== b.map;
+      const at = wild
+        ? { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f }
+        : curvePoint(before, a, b, after, f);
       return {
-        x: a.x + (b.x - a.x) * f,
-        y: a.y + (b.y - a.y) * f,
+        x: at.x,
+        y: at.y,
         dir: f < 0.5 ? a.dir : b.dir,
         moving: b.moving || a.moving,
         map: b.map,
@@ -136,6 +156,55 @@ export class RemoteTrack {
 
 function placedOf(s: Timed): Placed {
   return { x: s.x, y: s.y, dir: s.dir, moving: s.moving, map: s.map };
+}
+
+/**
+ * A point on a curve through four samples, between the middle two.
+ *
+ * Straight lines between the points are a polyline, and at the relay's rate the
+ * corners in it are visible: the character changes direction in a single frame
+ * every time an update lands, which reads as a series of small flinches rather
+ * than a walk. A curve through the same points bends the way somebody walking
+ * a corner does.
+ *
+ * Centripetal parameterisation (the square root of the distances) rather than
+ * uniform, because uniform overshoots on a sharp turn and can throw the
+ * character through the inside of a corner, which is exactly the sort of thing
+ * that puts them in a wall.
+ */
+function curvePoint(
+  p0: { x: number; y: number },
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  p3: { x: number; y: number },
+  u: number,
+): { x: number; y: number } {
+  const knot = (a: { x: number; y: number }, b: { x: number; y: number }, t: number): number =>
+    t + Math.sqrt(Math.hypot(b.x - a.x, b.y - a.y));
+  const t0 = 0;
+  const t1 = knot(p0, p1, t0);
+  const t2 = knot(p1, p2, t1);
+  const t3 = knot(p2, p3, t2);
+  // Repeated points collapse a span to zero. Nothing to curve through, so the
+  // straight line is both correct and safe from dividing by it.
+  if (t1 === t0 || t2 === t1 || t3 === t2) {
+    return { x: p1.x + (p2.x - p1.x) * u, y: p1.y + (p2.y - p1.y) * u };
+  }
+  const t = t1 + (t2 - t1) * u;
+  const mix = (
+    a: { x: number; y: number }, b: { x: number; y: number },
+    ta: number, tb: number,
+  ): { x: number; y: number } => {
+    const k = (tb - t) / (tb - ta);
+    const j = (t - ta) / (tb - ta);
+    return { x: a.x * k + b.x * j, y: a.y * k + b.y * j };
+  };
+  const a1 = mix(p0, p1, t0, t1);
+  const a2 = mix(p1, p2, t1, t2);
+  const a3 = mix(p2, p3, t2, t3);
+  const b1 = mix(a1, a2, t0, t2);
+  const b2 = mix(a2, a3, t1, t3);
+  return mix(b1, b2, t1, t2);
 }
 
 export interface LocalState {
@@ -151,6 +220,15 @@ export interface LocalState {
  * the carrier: a direct connection costs nothing per message and can afford to
  * be chatty, while the relay fallback is billed and should not be.
  */
+/**
+ * Standing perfectly still used to mean saying nothing at all, which is cheap
+ * and wrong: a phone behind carrier NAT has its idle connection closed within
+ * tens of seconds, and the first anyone knew was the other player turning back
+ * into an NPC. A word every few seconds costs almost nothing and keeps the
+ * connection from being tidied away underneath us.
+ */
+const IDLE_HEARTBEAT_MS = 4000;
+
 export class LocalTrack {
   private seq = 0;
   private lastSentAt = -Infinity;
@@ -170,9 +248,12 @@ export class LocalTrack {
       prev.moving !== state.moving ||
       prev.dir !== state.dir ||
       prev.map !== state.map;
-    // Standing still is silence. One update goes out as they stop, and the
-    // peer holds them there until they move again.
-    const due = state.moving && now - this.lastSentAt >= this.intervalMs;
+    const due = state.moving
+      ? now - this.lastSentAt >= this.intervalMs
+      // Standing still still says so occasionally. The peer already knows
+      // where they are; this is to stop the connection going quiet enough to
+      // be closed by something in the middle.
+      : now - this.lastSentAt >= IDLE_HEARTBEAT_MS;
     if (!changed && !due) return null;
 
     this.lastSentAt = now;

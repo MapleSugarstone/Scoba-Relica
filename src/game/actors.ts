@@ -158,6 +158,41 @@ export class Actor {
     return dist;
   }
 
+  /**
+   * Put this actor where somebody else says it is, and keep it looking like it
+   * walked there.
+   *
+   * The position is the far end's business, so none of the usual movement runs.
+   * Everything else in `step` still has to, though, or the character slides
+   * about with its legs frozen: the gait, the depth the scene sorts it by, and
+   * whatever it is shedding as it goes.
+   *
+   * Whether it is walking is taken from how far it actually moved rather than
+   * from what the far end last said, so a connection that goes quiet mid-stride
+   * leaves them standing rather than trudging on the spot forever.
+   */
+  driveTo(dt: number, x: number, y: number, dir: 1 | -1): void {
+    if (this.fade < 1) this.fade = Math.min(1, this.fade + this.fadeRate * dt);
+    if (this.skin.sparkle) {
+      this.sparkCarry = shedSparks(this.sparks, this.x, this.y, this.sparkCarry, dt);
+    }
+    if (this.sparks.length > 0) stepSparks(this.sparks, dt);
+
+    const pace = Math.hypot(x - this.x, y - this.y) / Math.max(dt, 1 / 240);
+    this.x = x;
+    this.y = y;
+    this.dir = dir;
+    this.moving = pace > 1;
+    if (Math.abs(this.y - this.depthY) >= DEPTH_SLACK) this.depthY = this.y;
+    this.hopT += dt * this.motion().rate;
+    this.hopEase += ((this.moving ? 1 : this.idleMix) - this.hopEase) * Math.min(1, dt * 9);
+  }
+
+  /** Where the walk cycle is up to, for tests and the debug readout. */
+  gaitPhase(): number {
+    return this.hopT;
+  }
+
   draw(ctx: CanvasRenderingContext2D, camX: number, camY: number): void {
     if (this.hidden) return;
     const sx = this.x - camX;
