@@ -94,7 +94,13 @@ stop two people playing together, which is why it is not what the gate uses.
 
 Remember that the relay deploys separately from the game. Pushing to `main`
 updates the site through Actions; the relay needs `npx wrangler deploy` from
-`worker/`. If you change a message, both have to go out.
+`worker/`. If you change a message, both have to go out, and the relay should
+go first: a client is happy to talk to an older relay and will say so, while an
+older relay silently refuses messages it has never heard of.
+
+Adding a message counts as a wire change. Forgetting to raise the version once
+already cost an evening: the relay dropped every word the host said, and the
+guest sat on "Knocking..." with nothing to explain why.
 
 ## Diagnostics
 

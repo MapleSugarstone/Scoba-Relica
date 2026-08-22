@@ -11,7 +11,7 @@
 // one slot spent the evening quietly evicting each other. Joining takes B by
 // definition, so the clash cannot be set up in the first place.
 import { Relay } from "./relay";
-import type { CharacterProfile, ServerMessage } from "./protocol";
+import { PROTOCOL_VERSION, type CharacterProfile, type ServerMessage } from "./protocol";
 
 export interface HostAdventure {
   worldSeed: string;
@@ -66,6 +66,14 @@ export function knock(room: string): Promise<JoinResult> {
         // yet and are waiting for somebody, which is what we are.
         if (msg.t === "lobby" && msg.slot === "A") {
           finish({ ok: false, failure: "setting-up" });
+          return;
+        }
+        if (msg.t === "hello-ok" && (msg.protocol ?? 1) !== PROTOCOL_VERSION) {
+          // Knocking on a door the relay will not carry a knock through.
+          finish({
+            ok: false, failure: "refused",
+            reason: `The relay is out of date (version ${msg.protocol ?? 1}, this game needs ${PROTOCOL_VERSION}). It needs redeploying before anyone can connect.`,
+          });
           return;
         }
         if (msg.t === "hello-ok" && !msg.room.slotTaken.A) {

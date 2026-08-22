@@ -111,7 +111,7 @@ async function main() {
   console.log(`\nhandshake (room ${room})`);
   let a = open(room);
   await a.ready;
-  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2, client: "device-a" });
+  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 3, client: "device-a" });
   const helloA = await a.next();
   check("A is greeted", helloA.t === "hello-ok", JSON.stringify(helloA));
   equal("the room reports the code players read out", helloA.room.code, room);
@@ -125,7 +125,7 @@ async function main() {
 
   const b = open(room);
   await b.ready;
-  b.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 2, client: "device-b" });
+  b.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 3, client: "device-b" });
   const helloB = await b.next();
   equal("B sees both slots held", helloB.room.slotTaken, { A: true, B: true });
   const peerForA = await a.next();
@@ -142,7 +142,7 @@ async function main() {
   // until the ghost timed out.
   const rejoin = open(room);
   await rejoin.ready;
-  rejoin.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2, client: "device-a" });
+  rejoin.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 3, client: "device-a" });
   const retaken = await rejoin.next();
   check("a returning player takes their slot back", retaken.t === "hello-ok", JSON.stringify(retaken));
   rejoin.close();
@@ -151,7 +151,7 @@ async function main() {
   // Put the original connection back in charge for the rest of the run.
   a = open(room);
   await a.ready;
-  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2, client: "device-a" });
+  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 3, client: "device-a" });
   await a.next();
   // The slot changing hands three times told B about it three times, all of it
   // correct and none of it what the next assertions are waiting for.
@@ -197,7 +197,7 @@ async function main() {
   // sees a partner and both sit on "connected, waiting" forever.
   const twin = open(room);
   await twin.ready;
-  twin.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2, client: "some-other-device" });
+  twin.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 3, client: "some-other-device" });
   const clash = await twin.next();
   check("a second device on the same character is refused", clash.t === "error", JSON.stringify(clash));
   check("and told what to do about it", /character A/.test(clash.reason ?? ""), clash.reason);
@@ -294,7 +294,7 @@ async function main() {
 
   const b2 = open(room);
   await b2.ready;
-  b2.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 2, client: "device-b" });
+  b2.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 3, client: "device-b" });
   const backIn = await b2.next();
   check("B can reclaim its slot after leaving", backIn.t === "hello-ok", JSON.stringify(backIn));
   check("the room hands back the care state it kept",

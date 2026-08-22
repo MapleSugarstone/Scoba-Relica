@@ -59,12 +59,29 @@ export function lobbyScreen(deps: LobbyScreenDeps, room: string, mine: SlotId): 
       deps.onStart(lobby, worldSeed, lobby.seats);
     },
     onStatus: () => render(lobby.seats),
-    onError: (reason) => deps.toast(reason),
+    onError: (reason) => setProblem(reason),
   });
 
   let statusEl: HTMLElement | null = null;
   let mineEl: HTMLElement | null = null;
   let theirsEl: HTMLElement | null = null;
+  let problemEl: HTMLElement | null = null;
+  /**
+   * Something that stops this working at all, as opposed to something that
+   * just happened. A toast is the wrong home for it: the relay follows an
+   * out-of-date warning with an error for every message it then refuses, and
+   * the last one wins, so the useful sentence is the one that gets buried.
+   */
+  let problem = "";
+
+  const setProblem = (text: string): void => {
+    // Keep the first, which is the one that explains the rest.
+    if (!problem) problem = text;
+    if (problemEl) {
+      problemEl.textContent = problem;
+      problemEl.hidden = false;
+    }
+  };
 
   const render = (state: LobbyState): void => {
     if (!statusEl?.isConnected) return;
@@ -105,6 +122,11 @@ export function lobbyScreen(deps: LobbyScreenDeps, room: string, mine: SlotId): 
       s.appendChild(el("h2", undefined, "Ready"));
       statusEl = el("div", "sub", "Waiting for the other player to finish...");
       s.appendChild(statusEl);
+      problemEl = el("div", "lobbyProblem");
+      problemEl.hidden = true;
+      s.appendChild(problemEl);
+      if (problem) setProblem(problem);
+
       const card = el("div", "card");
       mineEl = el("div", "dim", seatLine("You", lobby.seats[mine]));
       theirsEl = el("div", "dim", seatLine("Them", lobby.seats[other]));
@@ -128,6 +150,11 @@ export function lobbyScreen(deps: LobbyScreenDeps, room: string, mine: SlotId): 
         "Read this out. They pick Join someone's adventure and type it in."));
       s.appendChild(card);
     }
+
+    problemEl = el("div", "lobbyProblem");
+    problemEl.hidden = true;
+    s.appendChild(problemEl);
+    if (problem) setProblem(problem);
 
     const seats = el("div", "card");
     mineEl = el("div", "dim", seatLine("You", lobby.seats[mine]));

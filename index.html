@@ -230,6 +230,19 @@
     }
     .pill.sel { --fill: #7aa74a; }
 
+    /* Something that stops setting up working, said on the screen rather than
+       in a toast: a toast is gone in two seconds and gets overwritten by the
+       errors that follow from the same cause. */
+    .lobbyProblem {
+      max-width: 420px;
+      width: min(100%, 420px);
+      font-size: 13px;
+      line-height: 1.5;
+      color: #e8a0a0;
+      text-align: center;
+    }
+    .lobbyProblem[hidden] { display: none; }
+
     /* The build, on the title screen. Quiet enough to ignore while playing and
        legible enough to read off a screenshot when something has gone wrong. */
     .buildTag {

@@ -8,7 +8,7 @@
 // Nobody has a save yet, so this owns its own connection and hands over to the
 // real session once the game starts.
 import { Relay, type RelayStatus } from "./relay";
-import type { CharacterProfile, ServerMessage } from "./protocol";
+import { PROTOCOL_VERSION, type CharacterProfile, type ServerMessage } from "./protocol";
 import type { SlotId } from "../save/save";
 
 export interface LobbySeat {
@@ -107,6 +107,18 @@ export class Lobby {
 
   private receive(msg: ServerMessage): void {
     switch (msg.t) {
+      case "hello-ok": {
+        // Setting up is exactly when an out-of-date relay bites: it drops every
+        // message the two of you say to each other and both of you sit waiting
+        // on somebody who is talking into a wall.
+        const theirs = msg.protocol ?? 1;
+        if (theirs !== PROTOCOL_VERSION) {
+          this.hooks.onError(
+            `the relay is on version ${theirs} and this game needs ${PROTOCOL_VERSION}. It has not been redeployed, so the two of you cannot hear each other.`,
+          );
+        }
+        return;
+      }
       case "peer": {
         const other = this.mine === "A" ? "B" : "A";
         const wasHere = this.state[other].here;

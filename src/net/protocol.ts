@@ -14,9 +14,16 @@ import type { Companionship } from "../sim/companionship";
  * heard of is.
  *
  * Raise this when you add, remove or change the shape of anything in
- * `ClientMessage` or `ServerMessage`.
+ * `ClientMessage` or `ServerMessage`. Adding counts: a relay that has never
+ * heard of a message drops it on the floor, and the two halves deploy
+ * separately, so the client is regularly newer than the relay. Forgetting to
+ * raise it once already cost an evening of a phone sitting on "Knocking..."
+ * while the relay quietly refused every word the host said.
+ *
+ * 3: lobby, lobby-start, profile
+ * 2: rtc-offer/answer/ice, at, relica, battle-open/join/sync/close
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** Two players share a campaign under one room code. */
 export interface RoomInfo {
