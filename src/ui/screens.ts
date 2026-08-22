@@ -314,13 +314,23 @@ function bigBtn(label: string, onClick: () => void, primary = false): HTMLButton
 
 export function titleScreen(
   ui: UI,
-  opts: { hasSave: boolean; onContinue: () => void; onNew: () => void; onImport: () => void },
+  opts: {
+    hasSave: boolean;
+    onContinue: () => void;
+    onNew: () => void;
+    onJoin: () => void;
+    onImport: () => void;
+  },
 ): void {
   ui.screen((s) => {
     s.appendChild(el("h1", undefined, "Scoba Relica"));
     s.appendChild(el("div", "sub", "A two-player Scoba adventure."));
     if (opts.hasSave) s.appendChild(bigBtn("Continue", opts.onContinue, true));
-    s.appendChild(bigBtn("New Game", opts.onNew, !opts.hasSave));
+    // The two ways in. Which one you pick decides which character you are, so
+    // two people setting up separately can no longer both end up as the same
+    // one and spend the evening unable to see each other.
+    s.appendChild(bigBtn("Start new adventure", opts.onNew, !opts.hasSave));
+    s.appendChild(bigBtn("Join someone's adventure", opts.onJoin));
     s.appendChild(bigBtn("Import Save", opts.onImport));
     // Small and out of the way, but on screen: a tester saying "it broke" is
     // worth much more when they can also say which build broke.
@@ -560,6 +570,12 @@ function starterScreen(
   who: CharacterDef,
   taken: { id: string; by: string } | null,
   onPick: (speciesId: string) => void,
+  /**
+   * Read fresh while the screen is up, for setting up together: the other
+   * player may take one while you are still looking, and it greys out under
+   * you rather than being refused after you commit.
+   */
+  liveTaken?: () => string | null,
 ): void {
   let chosen: string | null = null;
   ui.screen((s) => {
@@ -598,9 +614,12 @@ function starterScreen(
 
     const renderGrid = (): void => {
       grid.innerHTML = "";
+      // Asked fresh on each redraw, so one taken while this screen is up greys
+      // out under the pointer rather than being refused after a commit.
+      const liveId = liveTaken?.() ?? null;
       for (const id of STARTER_IDS) {
         const sp = SPECIES[id]!;
-        const isTaken = taken?.id === id;
+        const isTaken = taken?.id === id || liveId === id;
         const b = el("button", `starter${chosen === id ? " sel" : ""}${isTaken ? " taken" : ""}`);
         b.disabled = isTaken;
         const stage = el("div", "stage");
@@ -626,21 +645,91 @@ function starterScreen(
     s.appendChild(grid);
     s.appendChild(detail);
     s.appendChild(confirm);
+
+    if (liveTaken) {
+      // The other player choosing is not something this screen is told about,
+      // so while it is up it keeps looking.
+      const watch = window.setInterval(() => {
+        if (!grid.isConnected) {
+          clearInterval(watch);
+          return;
+        }
+        const now = liveTaken();
+        if (now && chosen === now) {
+          // They got there first. Drop the pick rather than let two players
+          // walk into the world with the same Scoba.
+          chosen = null;
+          confirm.disabled = true;
+          confirm.textContent = "Pick one";
+          ui.toast(`${SPECIES[now]?.name ?? now} was taken. Pick another.`);
+        }
+        renderGrid();
+      }, 500);
+    }
   });
 }
 
-export function newGameFlow(ui: UI, art: Art, onStart: (save: SaveData) => void): void {
-  ui.screen((s) => {
-    s.appendChild(el("h2", undefined, "Pick your character."));
-    s.appendChild(el("div", "sub", "A friend can join later as the other one."));
-    const row = el("div", "row");
-    for (const slot of ["A", "B"] as SlotId[]) {
-      row.appendChild(bigBtn(`Character ${slot}`, () => pickSlot(slot), slot === "A"));
-    }
-    s.appendChild(row);
+/**
+ * Starting your own adventure. You are character A and you host: the code is
+ * minted here and stays with the save, so a friend can join at any point
+ * without either of you setting anything up again.
+ *
+ * `withFriend` opens a waiting room first and does the character making with
+ * both of you connected, so you walk into the world at the same moment. Alone,
+ * you make both characters yourself as before, and somebody can still join
+ * later; they simply arrive after the beginning.
+ */
+/**
+ * The two steps of making a character, exposed so setting up with somebody can
+ * drive them and report progress between each one.
+ */
+export function makeCharacterFlow(
+  ui: UI,
+  art: Art,
+  slot: SlotId,
+  takenStarter: () => string | null,
+  onNamed: (p: { name: string; look: unknown; starter: string }) => void,
+  onDone: (p: { name: string; look: unknown; starter: string }) => void,
+): void {
+  customizeScreen(ui, art, slot, DEFAULTS[slot], `Your character (${slot})`, null, (def) => {
+    onNamed({ name: def.name, look: def.look, starter: "" });
+    const already = takenStarter();
+    starterScreen(
+      ui, art, def,
+      already ? { id: already, by: "The other player" } : null,
+      (starter) => {
+        def.starter = starter;
+        onDone({ name: def.name, look: def.look, starter });
+      },
+      takenStarter,
+    );
   });
+}
 
-  const pickSlot = (localSlot: SlotId): void => {
+export function newGameFlow(
+  ui: UI,
+  art: Art,
+  onStart: (save: SaveData) => void,
+  opts?: { onWaitForFriend?: (code: string) => void },
+): void {
+  if (opts?.onWaitForFriend) {
+    ui.screen((s) => {
+      s.appendChild(el("h2", undefined, "Who is playing?"));
+      s.appendChild(el("div", "sub", "Two of you share one story, one Relica and one world."));
+      s.appendChild(bigBtn("With a friend", () => {
+        // Together means waiting for them before anyone makes anybody, so the
+        // start of the story happens to both of you at once.
+        opts.onWaitForFriend!(freshRoomCode());
+      }, true));
+      s.appendChild(bigBtn("On my own for now", () => pickSlot("A")));
+      s.appendChild(el("div", "dim",
+        "On your own, you make both characters and a friend can still join later."));
+    });
+    return;
+  }
+  pickSlot("A");
+
+  function pickSlot(localSlot: SlotId): void {
     const other: SlotId = localSlot === "A" ? "B" : "A";
     customizeScreen(ui, art, localSlot, DEFAULTS[localSlot], `Your character (${localSlot})`, null, (localDef) => {
       customizeScreen(
@@ -653,13 +742,140 @@ export function newGameFlow(ui: UI, art: Art, onStart: (save: SaveData) => void)
             localDef.starter = localStarter;
             starterScreen(ui, art, otherDef, { id: localStarter, by: localDef.name }, (otherStarter) => {
               otherDef.starter = otherStarter;
-              onStart(buildSave(localSlot, localDef, otherDef));
+              const save = buildSave(localSlot, localDef, otherDef);
+              // Hosting from the moment it exists, so "Connect" later is just
+              // reading the code out rather than setting anything up.
+              save.room = freshRoomCode();
+              onStart(save);
             });
           });
         },
       );
     });
-  };
+  }
+}
+
+/**
+ * Joining somebody else's adventure. You are character B, and the world you
+ * walk into is theirs: the seed comes over the wire before anything is built,
+ * because a save made with its own seed would be a different map wearing the
+ * same name.
+ */
+export function joinGameFlow(
+  ui: UI,
+  art: Art,
+  deps: {
+    /** Where to go when the host is still setting up and wants you in the lobby. */
+    onLobby?: (room: string) => void;
+    knock: (room: string) => Promise<{
+      ok: boolean;
+      adventure?: { worldSeed: string; host: { name: string; look: unknown; starter: string } };
+      failure?: string;
+      reason?: string;
+    }>;
+    onBack: () => void;
+    onStart: (save: SaveData) => void;
+  },
+): void {
+  ui.screen((s) => {
+    s.appendChild(el("h2", undefined, "Join someone's adventure"));
+    s.appendChild(el("div", "sub", "Ask them for the code on their Connect screen."));
+
+    const card = el("div", "card");
+    const field = el("input") as HTMLInputElement;
+    field.type = "text";
+    field.placeholder = "Their code";
+    field.maxLength = 7;
+    field.autocapitalize = "characters";
+    field.spellcheck = false;
+    card.appendChild(field);
+
+    const note = el("div", "dim", "They need to have the game open.");
+    card.appendChild(note);
+    s.appendChild(card);
+
+    const go = bigBtn("Knock", () => {
+      const code = normalizeRoomCode(field.value);
+      if (!code) {
+        sfx.back();
+        ui.toast("A code is six letters and numbers.");
+        return;
+      }
+      go.disabled = true;
+      note.textContent = "Knocking...";
+      void deps.knock(code).then((res) => {
+        // Their adventure has not started yet: they are sitting in the waiting
+        // room. Join them there and make characters together rather than
+        // arriving into a world that does not exist.
+        if (res.failure === "setting-up" && deps.onLobby) {
+          deps.onLobby(code);
+          return;
+        }
+        if (!res.ok || !res.adventure) {
+          go.disabled = false;
+          note.textContent = res.failure === "nobody-there"
+            ? "Nobody is in that room. Check the code, and that they have the game open."
+            : res.reason ?? "No answer. Check the code and try again.";
+          sfx.back();
+          return;
+        }
+        // Their world, their character. Only ours is still to make.
+        const theirs: CharacterDef = {
+          ...DEFAULTS.A,
+          name: res.adventure.host.name,
+          look: res.adventure.host.look as CharacterDef["look"],
+          starter: res.adventure.host.starter,
+        };
+        customizeScreen(ui, art, "B", DEFAULTS.B, "Your character (B)", null, (mine) => {
+          starterScreen(ui, art, mine, { id: theirs.starter, by: theirs.name }, (starter) => {
+            mine.starter = starter;
+            const save = buildSave("B", mine, theirs);
+            save.worldSeed = res.adventure!.worldSeed;
+            save.room = code;
+            // Bound from the start: there is somebody on the other end, and
+            // the save knows who without anyone typing a code again.
+            save.partnerJoined = true;
+            deps.onStart(save);
+          });
+        });
+      });
+    }, true);
+    s.appendChild(go);
+    s.appendChild(bigBtn("Back", deps.onBack));
+  });
+}
+
+/**
+ * A save for two people who set the adventure up together. Both build one from
+ * the same seed at the same moment, so they start the story side by side.
+ */
+export function buildJoinedSave(
+  mine: SlotId,
+  worldSeed: string,
+  mineProfile: { name: string; look: unknown; starter: string },
+  theirProfile: { name: string; look: unknown; starter: string },
+  room: string,
+): SaveData {
+  const other: SlotId = mine === "A" ? "B" : "A";
+  const asDef = (p: { name: string; look: unknown; starter: string }, slot: SlotId): CharacterDef => ({
+    ...DEFAULTS[slot],
+    name: p.name,
+    look: p.look as CharacterDef["look"],
+    starter: p.starter,
+  });
+  const save = buildSave(mine, asDef(mineProfile, mine), asDef(theirProfile, other));
+  save.worldSeed = worldSeed;
+  save.room = room;
+  // They are already standing next to you; there is nobody to wait for.
+  save.partnerJoined = true;
+  // The starters were rolled against the old seed, so they are rolled again
+  // against the shared one or the two saves would hold different Scobas.
+  const mineScoba = makeWild(mineProfile.starter, 5, rngFrom(`${worldSeed}:starter:${mine}`));
+  mineScoba.owner = mine;
+  const theirScoba = makeWild(theirProfile.starter, 5, rngFrom(`${worldSeed}:starter:${other}`));
+  theirScoba.owner = other;
+  save.party = mine === "A" ? [mineScoba, theirScoba] : [theirScoba, mineScoba];
+  return save;
 }
 
 function buildSave(localSlot: SlotId, localDef: CharacterDef, otherDef: CharacterDef): SaveData {
@@ -904,75 +1120,51 @@ export function connectScreen(
   ui.screen((s) => {
     s.appendChild(el("h2", undefined, "Connect"));
 
-    const link = cb.relay();
     const reading = (room: string | undefined): string => {
       if (!room) return "Two players share one campaign. One hosts, the other joins with the code.";
+      // Read fresh every time. Capturing it once meant the line said
+      // "Connecting." for as long as the screen was open, whatever the
+      // connection was actually doing, which reads as a hang.
+      const link = cb.relay();
       if (link.status === "live") {
         return link.partnerHere
           ? `Room ${room}. The other player is here.`
           : `Room ${room}. Connected, waiting on the other player.`;
       }
-      if (link.status === "connecting") return `Room ${room}. Connecting.`;
+      if (link.status === "connecting") return `Room ${room}. Connecting...`;
       return `Room ${room}. Not connected.`;
     };
     const status = el("div", "sub", reading(save.room));
     s.appendChild(status);
 
-    const card = el("div", "card");
-    card.appendChild(el("strong", undefined, "Host"));
-    const codeRow = el("div", "row");
-    const codeOut = el("div", "code", save.room ?? "------");
-    codeRow.appendChild(codeOut);
-    const hostB = el("button", "pill", save.room ? "New code" : "Host a game");
-    hostB.addEventListener("click", () => {
-      sfx.confirm();
-      save.room = freshRoomCode();
-      codeOut.textContent = save.room;
-      status.textContent = `Room ${save.room}. Connecting.`;
-      cb.onChange();
-    });
-    codeRow.appendChild(hostB);
-    card.appendChild(codeRow);
-    card.appendChild(el("div", "dim", "Read the code out to the other player."));
-    s.appendChild(card);
-
-    const join = el("div", "card");
-    join.appendChild(el("strong", undefined, "Join"));
-    const field = el("input") as HTMLInputElement;
-    field.type = "text";
-    field.placeholder = "Their code";
-    field.maxLength = 7;
-    field.autocapitalize = "characters";
-    field.spellcheck = false;
-    join.appendChild(field);
-    const joinB = el("button", "pill", "Join with this code");
-    joinB.addEventListener("click", () => {
-      const code = normalizeRoomCode(field.value);
-      if (!code) {
-        sfx.back();
-        ui.toast("A code is six letters and numbers.");
+    // Connecting, and the other player arriving, both happen while this screen
+    // is up and neither of them is something the screen asks for, so it keeps
+    // looking rather than waiting to be told. It stops as soon as the screen
+    // is gone.
+    const watch = window.setInterval(() => {
+      if (!status.isConnected) {
+        clearInterval(watch);
         return;
       }
-      sfx.confirm();
-      save.room = code;
-      codeOut.textContent = code;
-      status.textContent = `Room ${code}. Connecting.`;
-      cb.onChange();
-      ui.toast("Joining that room.");
-    });
-    join.appendChild(joinB);
-    s.appendChild(join);
+      const now = reading(save.room);
+      if (status.textContent !== now) status.textContent = now;
+    }, 400);
 
-    if (save.room) {
-      const drop = el("button", "big", "Leave the room");
-      drop.addEventListener("click", () => {
-        sfx.back();
-        save.room = undefined;
-        cb.onChange();
-        connectScreen(ui, save, cb);
-      });
-      s.appendChild(drop);
-    }
+    const partnerName = save.characters[save.localSlot === "A" ? "B" : "A"].name;
+    const host = save.localSlot === "A";
+
+    const card = el("div", "card");
+    card.appendChild(el("strong", undefined, host ? "Your code" : "Their code"));
+    const codeOut = el("div", "code", save.room ?? "------");
+    card.appendChild(codeOut);
+    card.appendChild(el("div", "dim", host
+      ? `Read this out to ${partnerName} so they can join your adventure.`
+      : `You joined ${partnerName}'s adventure with this code.`));
+    s.appendChild(card);
+
+    // No code entry any more. Which adventure this save belongs to was settled
+    // when it was made, and which character you are came with it, so two
+    // players can no longer both pick the same one and never see each other.
     s.appendChild(el("div", "sub",
       "The Relica is shared: whoever feeds or washes it, the other sees it that way too."));
     s.appendChild(bigBtn("Back", cb.onBack, true));

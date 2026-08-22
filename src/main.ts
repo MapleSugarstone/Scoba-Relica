@@ -4,7 +4,8 @@ import { startLoop } from "./engine/loop";
 import { Input } from "./engine/input";
 import { Overworld } from "./game/overworld";
 import {
-  UI, titleScreen, newGameFlow, connectScreen, indexScreen, questScreen,
+  UI, titleScreen, newGameFlow, joinGameFlow, makeCharacterFlow, buildJoinedSave,
+  connectScreen, indexScreen, questScreen,
   relicaScreen, settingsScreen,
 } from "./ui/screens";
 import { battleStage, netBattle, openTrainerBattle, openWildBattle, type ActiveBattle } from "./ui/battle";
@@ -20,6 +21,8 @@ import bundledContent from "./game/content/world.json";
 import type { DevEditor } from "./dev/editor";
 import { registerServiceWorker, requestDurableStorage } from "./pwa";
 import { Session } from "./net/session";
+import { knock } from "./net/joining";
+import { lobbyScreen } from "./ui/lobbyscreen";
 import type { BattleNet, PendingBattle } from "./net/battlelink";
 import { relayUrl } from "./net/relay";
 import { disableReminders, enableReminders, reminderState } from "./net/push";
@@ -59,6 +62,30 @@ let lastFromPeer: string[] = [];
 let positionCarrier = "none";
 let art: Art;
 
+/**
+ * Setting up with somebody before either save exists. Both make their
+ * characters while connected and both walk into the world on the same beat,
+ * which is what an opening scene needs.
+ */
+function openLobby(code: string, mine: "A" | "B"): void {
+  lobbyScreen({
+    screen: (build) => ui.screen(build),
+    toast: (text) => ui.toast(text),
+    makeCharacter: (slot, takenStarter, onNamed, onDone) =>
+      makeCharacterFlow(ui, art, slot, takenStarter, onNamed, onDone),
+    onCancel: showTitle,
+    onStart: (lobby, worldSeed, seats) => {
+      const mineProfile = seats[mine].character;
+      const theirs = seats[mine === "A" ? "B" : "A"].character;
+      if (!mineProfile || !theirs) return;
+      // The lobby's connection has done its job; the session opens its own.
+      lobby.close();
+      const save = buildJoinedSave(mine, worldSeed, mineProfile, theirs, code);
+      startGame(save);
+    },
+  }, code, mine);
+}
+
 function showTitle(): void {
   editor?.close();
   session?.stop();
@@ -73,7 +100,13 @@ function showTitle(): void {
       const s = loadSave();
       if (s) startGame(s);
     },
-    onNew: () => newGameFlow(ui, art, startGame),
+    onNew: () => newGameFlow(ui, art, startGame, { onWaitForFriend: (code) => openLobby(code, "A") }),
+    onJoin: () => joinGameFlow(ui, art, {
+      knock,
+      onBack: showTitle,
+      onStart: startGame,
+      onLobby: (code) => openLobby(code, "B"),
+    }),
     onImport: async () => {
       const s = await importSave();
       if (s) {

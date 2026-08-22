@@ -3,6 +3,7 @@
 // object and the socket carries messages between the two clients holding it.
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage, type Transport } from "./protocol";
 import type { SlotId } from "../save/save";
+import { clientId } from "./clientid";
 
 export type RelayStatus = "offline" | "connecting" | "live";
 
@@ -125,7 +126,7 @@ export class Relay implements Transport {
       // room forgets which socket held which slot when the old one dropped.
       ws.send(JSON.stringify({
         t: "hello", room: this.room, slot: this.slot, saveRev: this.saveRev,
-        protocol: PROTOCOL_VERSION,
+        protocol: PROTOCOL_VERSION, client: clientId(),
       } satisfies ClientMessage));
       const pending = this.outbox;
       this.outbox = [];
@@ -143,7 +144,7 @@ export class Relay implements Transport {
       for (const h of this.handlers) h(msg);
     });
 
-    ws.addEventListener("close", () => {
+    ws.addEventListener("close", (e) => {
       // Only the socket we are actually using is worth reacting to. A
       // superseded one closing is the expected end of its life, and treating it
       // as a disconnection reconnects on top of the live socket, which the room
@@ -152,6 +153,13 @@ export class Relay implements Transport {
       if (this.ws !== ws) return;
       this.ws = null;
       this.hooks.onStatus("offline");
+      // Some refusals will not change by asking again: a version mismatch, or
+      // the other player having picked the same character. Hammering the relay
+      // over them helps nobody and buries the message that says what to do.
+      if (e.code === 4001 || e.code === 4002) {
+        this.shut = true;
+        return;
+      }
       this.retry();
     });
 

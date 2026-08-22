@@ -99,6 +99,24 @@ export class Session {
     return this.save.localSlot === "A" || !this.partnerHere;
   }
 
+  /**
+   * Say who we are and which world this is. Sent whenever the other player
+   * turns up, including to someone still deciding whether to join: that is how
+   * they learn the world seed before they have a save of their own.
+   */
+  private announceProfile(): void {
+    this.relay?.send({
+      t: "profile",
+      slot: this.save.localSlot,
+      character: {
+        name: this.save.characters[this.save.localSlot].name,
+        look: this.save.characters[this.save.localSlot].look,
+        starter: this.save.characters[this.save.localSlot].starter,
+      },
+      worldSeed: this.save.worldSeed,
+    });
+  }
+
   /** Where to draw the other player, or null if they have not been heard from. */
   peerAt(now: number) {
     return this.theirs.sample(now);
@@ -217,14 +235,22 @@ export class Session {
           );
         }
         this.partnerHere = otherSlotHeld(msg.room.slotTaken, this.save.localSlot);
-        if (this.partnerHere) this.openPeerLink();
+        if (this.partnerHere) {
+          this.openPeerLink();
+          this.announceProfile();
+        }
         if (msg.care) this.adoptCare(msg.care.state, msg.care.rev);
         this.hooks.onStatus(this.status, this.partnerHere);
         return;
       case "peer": {
         const was = this.partnerHere;
         this.partnerHere = otherSlotHeld(msg.room.slotTaken, this.save.localSlot);
-        if (this.partnerHere && !was) this.openPeerLink();
+        if (this.partnerHere && !was) {
+          this.openPeerLink();
+          // They have just arrived, so tell them who we are. A guest who has
+          // not made a save yet is listening for exactly this.
+          this.announceProfile();
+        }
         if (!this.partnerHere && was) this.closePeerLink();
         // Once the other character has been seen, the save stays in two-player
         // shape even offline: their half of the story is real either way.
@@ -249,6 +275,17 @@ export class Session {
         return;
       case "at":
         this.theirs.push(msg.step, performance.now());
+        return;
+      case "profile":
+        // Keep the other character looking and sounding like the person
+        // playing them, rather than like the placeholder made at setup.
+        if (msg.slot !== this.save.localSlot) {
+          const them = this.save.characters[msg.slot];
+          them.name = msg.character.name;
+          them.look = msg.character.look as typeof them.look;
+          them.starter = msg.character.starter;
+          this.hooks.onSaveChanged();
+        }
         return;
       case "relica":
         // Only A decides, so this is the answer rather than a suggestion.

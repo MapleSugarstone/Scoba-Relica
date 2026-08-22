@@ -17,6 +17,40 @@ Press F2 in a running game (dev server, or any build with `?dev=1` on the URL) t
 
 Edits live in the browser until you export. To make them permanent, hit Export in the World tab, then **drag the downloaded `world.json` onto `import-world.cmd`** in this folder. It writes the file into `src/game/content/world.json` (keeping a `.bak` of the old one) and prints what it imported. Commit that file and the world ships with the game.
 
+## Two ways to start
+
+A save belongs to one adventure, and which one is settled when it is made.
+"Start new adventure" makes you character A and mints the room code there and
+then, so you are hosting from the moment the save exists. "Join someone's
+adventure" takes their code, fetches their world, and makes you character B.
+
+The join is a handshake before anything is built, because the world seed drives
+the procedural world: a save created with its own seed would put you on a
+different map wearing the same name as your friend's. The knock also brings
+back who you are joining, so their name and their starter are known before you
+pick yours.
+
+The old flow let each player choose A or B for themselves, which meant two
+people setting up separately could both pick A. Two clients claiming one slot
+spent the evening quietly evicting each other, and neither ever saw a partner.
+Which character you are now comes with how you started, so that cannot be set
+up any more, and the relay refuses it as well by telling the two devices apart.
+
+Starting a new adventure asks who is playing. On your own, you make both
+characters and somebody can still join later; they arrive after the beginning.
+With a friend, a waiting room goes up with the code, and neither of you makes
+anybody until they arrive. Then you both make characters at once, each seeing
+what the other has taken, and you walk into the world on the same beat, which
+is what an opening scene needs.
+
+A guest whose host has not started yet is routed into that waiting room rather
+than being told nobody is home: `knock` can tell the difference, because a host
+still setting up answers with a lobby message and one already playing answers
+with a profile.
+
+Connect is a status screen from then on. There is nothing to type into it: it
+shows the code to read out, and whether the other player is currently there.
+
 ## The relay
 
 Two players share one campaign through a small Cloudflare Worker in `worker/`:

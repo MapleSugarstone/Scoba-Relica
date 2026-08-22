@@ -15,6 +15,8 @@ interface Attachment {
   slot: Slot;
   /** The wire version this client speaks, so a mismatched pair is caught. */
   protocol: number;
+  /** Which installation this is, so a reconnect is not mistaken for a clash. */
+  client: string;
 }
 
 interface Revised<T> {
@@ -104,6 +106,9 @@ export class Room {
       // on is between them, and the relay has no use for it.
       // Position over the relay, for the pairs whose networks refused a direct
       // connection. Relayed like anything else and never stored.
+      case "lobby":
+      case "lobby-start":
+      case "profile":
       case "relica":
       case "at":
       case "rtc-offer":
@@ -170,13 +175,28 @@ export class Room {
       return;
     }
 
-    // The newest claim wins, rather than the slot being defended against its
-    // own owner. A player can only be in one place, so a socket still holding
-    // their slot is a ghost: a reload, a backgrounded app, or a network flap
-    // that closed one end without the other noticing. Refusing them locked the
-    // player out of their own room until the old socket timed out.
+    // A slot already held is either the same player coming back or a second
+    // person who picked the same character. Those want opposite answers, and
+    // the client id is what tells them apart.
+    const me = msg.client ?? "";
     for (const other of this.sockets()) {
       if (other === ws || this.slotOf(other) !== msg.slot) continue;
+      const theirClient = this.clientOf(other);
+      if (me && theirClient && theirClient !== me) {
+        // Two devices, one character. Quietly taking the slot from each other
+        // means neither ever sees a partner and both sit on "connected,
+        // waiting" forever, which is a miserable thing to debug from the sofa.
+        this.send(ws, {
+          t: "error",
+          reason: `both players are playing character ${msg.slot}. One of you needs to start a new game as the other character.`,
+        });
+        ws.close(4002, "slot claimed by another player");
+        return;
+      }
+      // The same player returning, so they take their slot back: a reload, a
+      // backgrounded app, or a network flap that closed one end without the
+      // other noticing. Refusing them locked the player out of their own room
+      // until the ghost timed out.
       // Its slot goes first, so its closing does not announce a departure that
       // has already been superseded by the arrival below.
       other.serializeAttachment(null);
@@ -187,7 +207,7 @@ export class Room {
       }
     }
 
-    ws.serializeAttachment({ slot: msg.slot, protocol: mine } satisfies Attachment);
+    ws.serializeAttachment({ slot: msg.slot, protocol: mine, client: me } satisfies Attachment);
     const care = await this.state.storage.get<Revised<CareState>>("care");
     this.send(ws, {
       t: "hello-ok",
@@ -357,6 +377,11 @@ export class Room {
 
   private sockets(): WebSocket[] {
     return this.state.getWebSockets();
+  }
+
+  private clientOf(ws: WebSocket): string {
+    const a = ws.deserializeAttachment() as Attachment | null;
+    return a?.client ?? "";
   }
 
   private protocolOf(ws: WebSocket): number | null {

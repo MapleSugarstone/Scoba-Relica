@@ -25,7 +25,11 @@ export interface RoomInfo {
 }
 
 export type ClientMessage =
-  | { t: "hello"; room: string; slot: "A" | "B"; saveRev: number; protocol?: number }
+  /**
+   * `client` names the installation, not the character. It is what separates a
+   * player reconnecting from two devices that both picked the same character.
+   */
+  | { t: "hello"; room: string; slot: "A" | "B"; saveRev: number; protocol?: number; client?: string }
   | { t: "care-sync"; room: string; state: CareState; rev: number }
   | { t: "story-flags"; room: string; flags: Record<string, boolean>; rev: number }
   /**
@@ -76,7 +80,33 @@ export type ClientMessage =
    * decides and says so; it changes in stints, so this is rare.
    */
   | { t: "relica"; state: Companionship }
+  /**
+   * Who someone is, and which world they are in. Sent by both sides when
+   * they meet. The world seed is the part that matters: it drives the
+   * procedural world, so a player who joined with their own would be
+   * walking around a different map with the same name.
+   */
+  | { t: "profile"; slot: "A" | "B"; character: CharacterProfile; worldSeed: string }
+  /**
+   * Setting up together, before either save exists. `character` is null
+   * until they have made one, and `ready` means they have picked a starter
+   * too. The other side watches this to grey out the Scoba already taken.
+   */
+  | { t: "lobby"; slot: "A" | "B"; character: CharacterProfile | null; ready: boolean }
+  /**
+   * The host saying go. Both build their save from this seed at the same
+   * moment, so they walk into the same world together rather than one of
+   * them arriving to find the other already there.
+   */
+  | { t: "lobby-start"; worldSeed: string }
   | { t: "bye" };
+
+/** The parts of a character the other player needs to draw and name them. */
+export interface CharacterProfile {
+  name: string;
+  look: unknown;
+  starter: string;
+}
 
 /** The parts of an ICE candidate worth putting on the wire. */
 export interface RtcCandidate {
@@ -116,6 +146,9 @@ export type ServerMessage =
   | { t: "rtc-ice"; candidate: RtcCandidate }
   | { t: "at"; step: Step }
   | { t: "relica"; state: Companionship }
+  | { t: "profile"; slot: "A" | "B"; character: CharacterProfile; worldSeed: string }
+  | { t: "lobby"; slot: "A" | "B"; character: CharacterProfile | null; ready: boolean }
+  | { t: "lobby-start"; worldSeed: string }
   | { t: "error"; reason: string };
 
 export interface Transport {

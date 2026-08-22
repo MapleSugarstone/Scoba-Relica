@@ -111,7 +111,7 @@ async function main() {
   console.log(`\nhandshake (room ${room})`);
   let a = open(room);
   await a.ready;
-  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2 });
+  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2, client: "device-a" });
   const helloA = await a.next();
   check("A is greeted", helloA.t === "hello-ok", JSON.stringify(helloA));
   equal("the room reports the code players read out", helloA.room.code, room);
@@ -125,7 +125,7 @@ async function main() {
 
   const b = open(room);
   await b.ready;
-  b.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 2 });
+  b.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 2, client: "device-b" });
   const helloB = await b.next();
   equal("B sees both slots held", helloB.room.slotTaken, { A: true, B: true });
   const peerForA = await a.next();
@@ -142,7 +142,7 @@ async function main() {
   // until the ghost timed out.
   const rejoin = open(room);
   await rejoin.ready;
-  rejoin.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2 });
+  rejoin.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2, client: "device-a" });
   const retaken = await rejoin.next();
   check("a returning player takes their slot back", retaken.t === "hello-ok", JSON.stringify(retaken));
   rejoin.close();
@@ -151,7 +151,7 @@ async function main() {
   // Put the original connection back in charge for the rest of the run.
   a = open(room);
   await a.ready;
-  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2 });
+  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2, client: "device-a" });
   await a.next();
   // The slot changing hands three times told B about it three times, all of it
   // correct and none of it what the next assertions are waiting for.
@@ -191,12 +191,36 @@ async function main() {
   check("flags reach the peer", flags.t === "story-flags" && flags.flags.metSage === true,
     JSON.stringify(flags));
 
+  console.log("\ntwo devices, one character");
+  // What actually happens when two people set up separately: both pick
+  // character A. Quietly swapping the slot between them means neither ever
+  // sees a partner and both sit on "connected, waiting" forever.
+  const twin = open(room);
+  await twin.ready;
+  twin.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2, client: "some-other-device" });
+  const clash = await twin.next();
+  check("a second device on the same character is refused", clash.t === "error", JSON.stringify(clash));
+  check("and told what to do about it", /character A/.test(clash.reason ?? ""), clash.reason);
+  twin.close();
+  await new Promise((r) => setTimeout(r, 400));
+
+  // The player who was already there keeps their slot and their connection.
+  // Checked with a flag rather than a care push, so this does not disturb the
+  // stored care state a later assertion is about.
+  a.send({ t: "story-flags", room, flags: { survivedTheClash: true }, rev: 40 });
+  const stillWorks = await b.next();
+  check("the player already there is undisturbed",
+    stillWorks.t === "story-flags" && stillWorks.flags.survivedTheClash === true,
+    JSON.stringify(stillWorks));
+  await a.drain();
+  await b.drain();
+
   console.log("\nversion gating");
   // Two clients on different wire versions cannot understand each other, so
   // they are told rather than left to fail confusingly later on.
   const older = open(room);
   await older.ready;
-  older.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 1 });
+  older.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 1, client: "device-b" });
   const refused = await older.next();
   check("a client on another version is refused", refused.t === "error", JSON.stringify(refused));
   check("and told which versions are involved", /version/i.test(refused.reason ?? ""), refused.reason);
@@ -270,7 +294,7 @@ async function main() {
 
   const b2 = open(room);
   await b2.ready;
-  b2.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 2 });
+  b2.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 2, client: "device-b" });
   const backIn = await b2.next();
   check("B can reclaim its slot after leaving", backIn.t === "hello-ok", JSON.stringify(backIn));
   check("the room hands back the care state it kept",
