@@ -42,6 +42,26 @@ needs a local `wrangler dev`, since it stands up a stand-in push service on
 localhost that a deployed worker could not reach. `npm test` checks the push
 encryption against the worked example in RFC 8291 and needs nothing running.
 
+## Versions
+
+Two separate numbers, on purpose.
+
+`PROTOCOL_VERSION` in `src/net/protocol.ts` is the wire format. Bump it when you
+add, remove or change a message. Two clients on different wire versions are
+refused a shared room and told why, because one of them would otherwise send
+messages the other has never heard of and fail in confusing ways. The relay
+reports its own too, so a client can say "the relay is out of date" instead of
+watching every new message come back as unknown.
+
+The build shown on the title screen comes from the git commit and moves on
+every push by itself. A trailing `+` means the build had uncommitted changes.
+It is only for saying which build somebody is running: a new sprite should not
+stop two people playing together, which is why it is not what the gate uses.
+
+Remember that the relay deploys separately from the game. Pushing to `main`
+updates the site through Actions; the relay needs `npx wrangler deploy` from
+`worker/`. If you change a message, both have to go out.
+
 ## Diagnostics
 
 Settings has a Diagnostics panel listing whether the game is installed, whether

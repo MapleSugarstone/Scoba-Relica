@@ -1,7 +1,7 @@
 // The client half of the relay. A room is two people who already know each
 // other, so there is no matchmaking and no lobby here: a code names a durable
 // object and the socket carries messages between the two clients holding it.
-import type { ClientMessage, ServerMessage, Transport } from "./protocol";
+import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage, type Transport } from "./protocol";
 import type { SlotId } from "../save/save";
 
 export type RelayStatus = "offline" | "connecting" | "live";
@@ -125,6 +125,7 @@ export class Relay implements Transport {
       // room forgets which socket held which slot when the old one dropped.
       ws.send(JSON.stringify({
         t: "hello", room: this.room, slot: this.slot, saveRev: this.saveRev,
+        protocol: PROTOCOL_VERSION,
       } satisfies ClientMessage));
       const pending = this.outbox;
       this.outbox = [];

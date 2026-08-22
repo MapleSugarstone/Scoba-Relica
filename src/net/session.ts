@@ -4,7 +4,7 @@
 import { advanceCare, type CareState } from "../sim/care";
 import type { SaveData } from "../save/save";
 import { Relay, type RelayStatus } from "./relay";
-import type { ClientMessage, PushSubscriptionJson, ServerMessage } from "./protocol";
+import { PROTOCOL_VERSION, type ClientMessage, type PushSubscriptionJson, type ServerMessage } from "./protocol";
 import type { NetBattle, PendingBattle } from "./battlelink";
 import { LocalTrack, RemoteTrack, type LocalState, type Step } from "./presence";
 import type { Companionship } from "../sim/companionship";
@@ -195,11 +195,27 @@ export class Session {
   }
 
   private awaitingSync: string | null = null;
+  /** What the relay says it speaks, or 0 before it has said. */
+  private relayProtocol = 0;
+
+  /** The relay's wire version, for the diagnostics readout. */
+  get relayVersion(): number {
+    return this.relayProtocol;
+  }
 
   private receive(msg: ServerMessage): void {
     this.hooks.onTraffic?.(msg.t);
     switch (msg.t) {
       case "hello-ok":
+        // An old relay is the likeliest version problem, because it is deployed
+        // separately from the game and is easy to forget. Saying so beats
+        // watching every new message come back as unknown.
+        this.relayProtocol = msg.protocol ?? 1;
+        if (this.relayProtocol !== PROTOCOL_VERSION) {
+          this.hooks.onError(
+            `the relay is on version ${this.relayProtocol} and this game is on ${PROTOCOL_VERSION}. It needs redeploying.`,
+          );
+        }
         this.partnerHere = otherSlotHeld(msg.room.slotTaken, this.save.localSlot);
         if (this.partnerHere) this.openPeerLink();
         if (msg.care) this.adoptCare(msg.care.state, msg.care.rev);

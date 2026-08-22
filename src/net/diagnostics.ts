@@ -97,6 +97,8 @@ export interface RelaySnapshot {
   room?: string;
   /** Whether movement is going peer to peer or falling back through the relay. */
   carrier?: string;
+  /** The wire version the relay reported, or 0 before it has said. */
+  relayVersion?: number;
 }
 
 /**

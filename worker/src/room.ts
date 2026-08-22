@@ -2,8 +2,9 @@
 // it never simulates a battle and never reads a Scoba, so its cost tracks
 // messages sent rather than players playing. See claude-notes/architecture.md.
 import { careAlertText, nextCareAlert, type CareAlert, type CareState } from "../../src/sim/care";
-import type {
-  ClientMessage, PushSubscriptionJson, RoomInfo, ServerMessage,
+import {
+  PROTOCOL_VERSION,
+  type ClientMessage, type PushSubscriptionJson, type RoomInfo, type ServerMessage,
 } from "../../src/net/protocol";
 import { sendPush, type VapidKeys } from "./push";
 
@@ -12,6 +13,8 @@ type Slot = "A" | "B";
 /** Rides on the socket so it survives hibernation, which clears memory. */
 interface Attachment {
   slot: Slot;
+  /** The wire version this client speaks, so a mismatched pair is caught. */
+  protocol: number;
 }
 
 interface Revised<T> {
@@ -152,6 +155,21 @@ export class Room {
   private async hello(ws: WebSocket, msg: Extract<ClientMessage, { t: "hello" }>): Promise<void> {
     if (msg.slot !== "A" && msg.slot !== "B") return this.fail(ws, "slot must be A or B");
 
+    // Checked before anything is taken over. A client that is going to be
+    // refused must not first evict the player already here, or a stale tab
+    // could knock its partner off the moment it reconnected.
+    const mine = msg.protocol ?? 1;
+    const peer = this.sockets().find((w) => w !== ws && this.slotOf(w) !== null);
+    const theirs = peer ? this.protocolOf(peer) : null;
+    if (theirs !== null && theirs !== mine) {
+      this.send(ws, {
+        t: "error",
+        reason: `the other player is on a different version of the game (theirs ${theirs}, yours ${mine}). Both need the same one.`,
+      });
+      ws.close(4001, "version mismatch");
+      return;
+    }
+
     // The newest claim wins, rather than the slot being defended against its
     // own owner. A player can only be in one place, so a socket still holding
     // their slot is a ghost: a reload, a backgrounded app, or a network flap
@@ -169,11 +187,14 @@ export class Room {
       }
     }
 
-    ws.serializeAttachment({ slot: msg.slot } satisfies Attachment);
+    ws.serializeAttachment({ slot: msg.slot, protocol: mine } satisfies Attachment);
     const care = await this.state.storage.get<Revised<CareState>>("care");
     this.send(ws, {
       t: "hello-ok",
       room: this.info(),
+      // Its own version, so a client can tell it is talking to an old relay
+      // rather than wondering why its messages come back as unknown.
+      protocol: PROTOCOL_VERSION,
       ...(care ? { care: { state: care.value, rev: care.rev } } : {}),
     });
     // Both sides get the new picture: the arrival needs it too, since its own
@@ -336,6 +357,11 @@ export class Room {
 
   private sockets(): WebSocket[] {
     return this.state.getWebSockets();
+  }
+
+  private protocolOf(ws: WebSocket): number | null {
+    const a = ws.deserializeAttachment() as Attachment | null;
+    return a ? a.protocol ?? 1 : null;
   }
 
   private slotOf(ws: WebSocket): Slot | null {

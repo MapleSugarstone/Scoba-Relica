@@ -111,7 +111,7 @@ async function main() {
   console.log(`\nhandshake (room ${room})`);
   let a = open(room);
   await a.ready;
-  a.send({ t: "hello", room, slot: "A", saveRev: 1 });
+  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2 });
   const helloA = await a.next();
   check("A is greeted", helloA.t === "hello-ok", JSON.stringify(helloA));
   equal("the room reports the code players read out", helloA.room.code, room);
@@ -125,7 +125,7 @@ async function main() {
 
   const b = open(room);
   await b.ready;
-  b.send({ t: "hello", room, slot: "B", saveRev: 1 });
+  b.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 2 });
   const helloB = await b.next();
   equal("B sees both slots held", helloB.room.slotTaken, { A: true, B: true });
   const peerForA = await a.next();
@@ -142,7 +142,7 @@ async function main() {
   // until the ghost timed out.
   const rejoin = open(room);
   await rejoin.ready;
-  rejoin.send({ t: "hello", room, slot: "A", saveRev: 1 });
+  rejoin.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2 });
   const retaken = await rejoin.next();
   check("a returning player takes their slot back", retaken.t === "hello-ok", JSON.stringify(retaken));
   rejoin.close();
@@ -151,7 +151,7 @@ async function main() {
   // Put the original connection back in charge for the rest of the run.
   a = open(room);
   await a.ready;
-  a.send({ t: "hello", room, slot: "A", saveRev: 1 });
+  a.send({ t: "hello", room, slot: "A", saveRev: 1, protocol: 2 });
   await a.next();
   // The slot changing hands three times told B about it three times, all of it
   // correct and none of it what the next assertions are waiting for.
@@ -190,6 +190,23 @@ async function main() {
   const flags = await b.next();
   check("flags reach the peer", flags.t === "story-flags" && flags.flags.metSage === true,
     JSON.stringify(flags));
+
+  console.log("\nversion gating");
+  // Two clients on different wire versions cannot understand each other, so
+  // they are told rather than left to fail confusingly later on.
+  const older = open(room);
+  await older.ready;
+  older.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 1 });
+  const refused = await older.next();
+  check("a client on another version is refused", refused.t === "error", JSON.stringify(refused));
+  check("and told which versions are involved", /version/i.test(refused.reason ?? ""), refused.reason);
+  older.close();
+  await new Promise((r) => setTimeout(r, 400));
+  await a.drain();
+  await b.drain();
+
+  check("the relay says which wire version it speaks", typeof helloA.protocol === "number",
+    String(helloA.protocol));
 
   console.log("\nmovement fallback");
   // Position normally goes peer to peer and never touches the relay at all.
@@ -253,7 +270,7 @@ async function main() {
 
   const b2 = open(room);
   await b2.ready;
-  b2.send({ t: "hello", room, slot: "B", saveRev: 1 });
+  b2.send({ t: "hello", room, slot: "B", saveRev: 1, protocol: 2 });
   const backIn = await b2.next();
   check("B can reclaim its slot after leaving", backIn.t === "hello-ok", JSON.stringify(backIn));
   check("the room hands back the care state it kept",

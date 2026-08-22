@@ -179,6 +179,7 @@ function diagnosticsControl(save: SaveData): DiagnosticsControl {
       status: relayStatus.status,
       partnerHere: relayStatus.partnerHere,
       carrier: positionCarrier,
+      relayVersion: session?.relayVersion ?? 0,
       ...(save.room ? { room: save.room } : {}),
     }),
     asText: (lines) => diagnosticsText(lines as { label: string; value: string; ok: boolean }[]),

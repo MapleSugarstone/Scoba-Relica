@@ -32,6 +32,8 @@ import {
 } from "../save/save";
 import type { WorldContent } from "../game/content";
 import { questLog } from "../game/quests";
+import { BUILD_VERSION } from "../version";
+import { PROTOCOL_VERSION } from "../net/protocol";
 export { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
 import { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
 import { mountInstallCard } from "./install";
@@ -320,6 +322,9 @@ export function titleScreen(
     if (opts.hasSave) s.appendChild(bigBtn("Continue", opts.onContinue, true));
     s.appendChild(bigBtn("New Game", opts.onNew, !opts.hasSave));
     s.appendChild(bigBtn("Import Save", opts.onImport));
+    // Small and out of the way, but on screen: a tester saying "it broke" is
+    // worth much more when they can also say which build broke.
+    s.appendChild(el("div", "buildTag", `v${PROTOCOL_VERSION} · ${BUILD_VERSION}`));
     // Only once there is a save to lose: a first-time player has nothing to
     // protect yet, and the title screen is their first look at the game.
     if (opts.hasSave) mountInstallCard(s);

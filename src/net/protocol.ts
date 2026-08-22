@@ -7,6 +7,17 @@ import type { BattleState, Choice, OwnerId } from "../sim/battle";
 import type { Step } from "./presence";
 import type { Companionship } from "../sim/companionship";
 
+/**
+ * The wire format's version. Bumped only when the messages themselves change,
+ * which is what actually decides whether two clients can play together. A new
+ * sprite is not a reason to refuse someone; a message the other end has never
+ * heard of is.
+ *
+ * Raise this when you add, remove or change the shape of anything in
+ * `ClientMessage` or `ServerMessage`.
+ */
+export const PROTOCOL_VERSION = 2;
+
 /** Two players share a campaign under one room code. */
 export interface RoomInfo {
   code: string;
@@ -14,7 +25,7 @@ export interface RoomInfo {
 }
 
 export type ClientMessage =
-  | { t: "hello"; room: string; slot: "A" | "B"; saveRev: number }
+  | { t: "hello"; room: string; slot: "A" | "B"; saveRev: number; protocol?: number }
   | { t: "care-sync"; room: string; state: CareState; rev: number }
   | { t: "story-flags"; room: string; flags: Record<string, boolean>; rev: number }
   /**
@@ -81,7 +92,8 @@ export interface PushSubscriptionJson {
 }
 
 export type ServerMessage =
-  | { t: "hello-ok"; room: RoomInfo; care?: { state: CareState; rev: number } }
+  /** `protocol` is the relay's own, so a client can tell it is talking to an old one. */
+  | { t: "hello-ok"; room: RoomInfo; protocol?: number; care?: { state: CareState; rev: number } }
   /**
    * Who is holding which slot, sent unprompted whenever that changes. Without
    * it the player already in a room has no way to learn the other one arrived,
