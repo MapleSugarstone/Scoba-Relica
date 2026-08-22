@@ -354,19 +354,23 @@ function runBattle(
       nm.appendChild(star);
     }
     nm.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
-    nm.appendChild(typeIcons(SPECIES[c.scoba.speciesId]!));
     wrap.appendChild(nm);
+    // Its own row, the same rule a Mote's readout keeps: a badge is 41 px of
+    // drawn art that cannot be shrunk, and inline with the name it sets the
+    // panel's width rather than the name doing it.
+    wrap.appendChild(typeIcons(SPECIES[c.scoba.speciesId]!));
     const max = combatantMaxHp(c);
     const hpBar = bar("");
     const mpBar = bar("mp");
-    // The share to the left of the bar rather than a caption under it: the
-    // bar says what it is, and a number beside it is one line instead of two.
+    // Both bars run the panel's full width, so a length means the same thing on
+    // every readout on the field. The share rides in the footer instead, which
+    // is a line the state already reserves.
+    const state = el("span", "bnum", "");
     const mpNum = el("span", "bpct", "");
-    const mpRow = el("div", "brow");
-    mpRow.append(mpNum, mpBar.node);
-    const state = el("div", "bnum", "");
+    const foot = el("div", "bfoot");
+    foot.append(state, mpNum);
     const marks = el("div", "marks");
-    wrap.append(hpBar.node, mpRow, state, marks);
+    wrap.append(hpBar.node, mpBar.node, foot, marks);
 
     const refresh = (): void => {
       const now = stage.shownOf(ref.side, ref.index);
@@ -732,7 +736,7 @@ function runBattle(
 
     if (menu === "flee") {
       // Walking out ends it for both characters, so it asks first.
-      const yn = el("div", "bactions bthree");
+      const yn = el("div", "bactions");
       yn.appendChild(act("Yes", "Leave the fight", () => pick({ kind: "flee", side: 0, slot })));
       yn.appendChild(act("No", "Stay in", () => {
         menu = "main";
@@ -742,7 +746,6 @@ function runBattle(
     }
 
     if (menu === "items") {
-      wrap.classList.add("bthree");
       const usable = BATTLE_ITEMS.filter((it) => !it.wildOnly || setup.wild);
       for (const item of usable) {
         const held = itemsOnHand(st, 0, item.id, save.bag[item.id] ?? 0);
@@ -758,7 +761,6 @@ function runBattle(
     // What this Scoba does with its turn. Three, always, so the row never
     // changes shape whatever it knows, and three columns wide however narrow
     // the screen is, so it never reflows into two rows and back either.
-    wrap.classList.add("bthree");
     // The basic attack has no move behind it, and lands as Plain, so that is
     // the colour it wears.
     wrap.appendChild(act("Basic attack", "100% Str",
@@ -780,7 +782,6 @@ function runBattle(
       }, { alt: true, small: true }),
       act("Extra", "", () => renderExtra(slot), { alt: true, small: true }),
     );
-    minor.classList.add("bthree");
     return rows([wrap, minor], stepBack());
   };
 
@@ -792,7 +793,7 @@ function runBattle(
   const grid = (buttons: HTMLElement[]): HTMLElement[] => {
     const out: HTMLElement[] = [];
     for (let i = 0; i < buttons.length; i += 3) {
-      const row = el("div", "bactions bthree");
+      const row = el("div", "bactions");
       for (const b of buttons.slice(i, i + 3)) row.appendChild(b);
       out.push(row);
     }

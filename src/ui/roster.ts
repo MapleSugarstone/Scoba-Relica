@@ -79,17 +79,35 @@ const bigBtn = (label: string, onClick: () => void, primary = false): HTMLButton
   return b;
 };
 
-/** Portrait at list size, cropped to the critter and wearing its own mask. */
+/**
+ * Portrait at list size, cropped to the critter and wearing its own mask.
+ *
+ * The box is fixed and the art inside it is never resampled. Stretching a
+ * portrait to a row height meant a 33 px critter drawn at 48, and at 1.45x
+ * nearest-neighbour every third source pixel comes out two wide, which is the
+ * one thing this art is not allowed to do. It also made the box as wide as
+ * whatever the species cropped to, so no two rows started their name at the
+ * same place. Whole steps only, and the box holds its width either way.
+ */
 function portrait(art: Art, s: ScobaInstance, px: number): HTMLElement {
-  const sp = SPECIES[s.speciesId];
   const wrap = el("div", "pface");
+  wrap.style.width = `${PORTRAIT_BOX}px`;
+  wrap.style.height = `${px}px`;
+  const sp = SPECIES[s.speciesId];
   if (!sp) return wrap;
   const cv = critterPortrait(art, sp, s.tint, s.shiny);
-  cv.style.height = `${px}px`;
-  cv.style.width = "auto";
+  const step = Math.max(1, Math.min(
+    Math.floor(PORTRAIT_BOX / cv.width),
+    Math.floor(px / cv.height),
+  ));
+  cv.style.width = `${cv.width * step}px`;
+  cv.style.height = `${cv.height * step}px`;
   wrap.appendChild(cv);
   return wrap;
 }
+
+/** Wide enough for every species' crop, so the name column never moves. */
+const PORTRAIT_BOX = 80;
 
 function nameBlock(s: ScobaInstance): HTMLElement {
   const sp = SPECIES[s.speciesId];

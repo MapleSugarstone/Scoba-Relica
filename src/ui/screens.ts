@@ -445,7 +445,7 @@ function customizeScreen(
       idCard.appendChild(name);
 
       idCard.appendChild(el("label", undefined, "Pronouns"));
-      const pronRow = el("div", "row");
+      const pronRow = el("div", "choices");
       const renderProns = (): void => {
         pronRow.innerHTML = "";
         PRONOUN_PRESETS.forEach((p) => {
@@ -500,7 +500,7 @@ function customizeScreen(
 
       const artCard = el("div", "card");
       artCard.appendChild(el("label", undefined, "Custom art"));
-      const artRow = el("div", "row");
+      const artRow = el("div", "choices");
       for (const target of PAINT_MENU) {
         const b = el("button", `pill${hasPaint(d.look.paint, target) ? " sel" : ""}`,
           SLOT_INFO[target].label);
@@ -542,7 +542,7 @@ function customizeScreen(
         swatches = [];
         colorCard.appendChild(el("label", undefined, "Colors"));
 
-        const tabs = el("div", "row");
+        const tabs = el("div", "choices wide");
         CHANNELS.forEach((c, i) => {
           const b = el("button", `pill chan${i === channel ? " sel" : ""}`);
           const dot = el("i");

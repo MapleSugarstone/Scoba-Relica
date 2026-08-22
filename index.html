@@ -54,7 +54,7 @@
       /* safe: a screen taller than the viewport pins to the top instead of
          centering its overflow out of scroll range. */
       justify-content: safe center;
-      gap: 14px;
+      gap: 16px;
       padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
       background: #2a3049;
       overflow-y: auto;
@@ -71,21 +71,39 @@
     .bplates { position: absolute; inset: 0; z-index: 2; }
     /* Compounded with .bcard, which is defined later and would otherwise win
        on source order at equal specificity. */
+    /*
+     * One width for every readout on the field, rather than whatever its
+     * occupant's name came to. A bar is read by its length, so two bars at the
+     * same share have to be the same length: sized by content, a Cottlequeen's
+     * HP bar came out at twice a Plib's and half health looked like more on one
+     * than the other. The name gives way instead, since a name is read and a
+     * bar is measured.
+     */
     .bcard.bplate {
       position: absolute;
       top: 0;
       left: 0;
       pointer-events: auto;
-      padding: 5px 8px;
+      padding: 4px 8px;
       gap: 2px;
-      min-width: 104px;
+      width: 136px;
       transform-origin: top left;
     }
-    .bcard.bplate .nm { font-size: 12px; }
-    .bcard.bplate .nm .lv { font-size: 10px; }
+    .bcard.bplate .nm { font-size: 12px; width: 100%; justify-content: center; }
+    /* The one part that gives: everything beside it is a fixed reading. */
+    .bcard.bplate .nm strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .bcard.bplate .nm .lv { font-size: 10px; flex: none; }
     .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 10px; }
-    .bcard.bplate .own { font-size: 9px; }
-    .bcard.bplate .bbar { height: 13px; }
+    .bcard.bplate .own { font-size: 10px; }
+    .bcard.bplate .bbar { height: 12px; }
+    /* Two badges side by side are 84 px of art, which is what sets the width
+       above. A third wraps rather than pushing the panel out. */
+    .bcard.bplate .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }
     /*
      * A Mote's readout. Three of these stand behind the two Scobas, so it
      * carries only what a Mote has to say: its name, its two bars, and any
@@ -94,11 +112,18 @@
      */
     .bcard.bmote.bplate {
       --fill: #2f3450;
-      min-width: 0;
-      padding: 4px 7px;
+      width: 104px;
+      padding: 4px 8px;
       gap: 2px;
     }
-    .bcard.bmote .nm { font-size: 11px; white-space: nowrap; }
+    .bcard.bmote .nm {
+      font-size: 12px;
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: center;
+    }
     .bcard.bmote .bbar { height: 10px; }
     /* The badge is drawn art at 41x17 and is never scaled, here least of all:
        shrinking it for a small card is exactly what would put its outline
@@ -110,17 +135,17 @@
        they belong to. */
     @media (max-width: 560px) {
       .bcard.bplate {
-        min-width: 76px;
-        padding: 3px 5px;
-        gap: 1px;
+        width: 104px;
+        padding: 2px 4px;
+        gap: 2px;
       }
-      .bcard.bplate .nm { font-size: 10px; gap: 3px; }
-      .bcard.bplate .nm .lv { font-size: 8px; }
-      .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 8px; }
-      .bcard.bplate .own { font-size: 8px; letter-spacing: 0; }
+      .bcard.bplate .nm { font-size: 10px; gap: 4px; }
+      .bcard.bplate .nm .lv { font-size: 10px; }
+      .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 10px; }
+      .bcard.bplate .own { font-size: 10px; letter-spacing: 0; }
       .bcard.bplate .bbar { height: 10px; }
-      .bcard.bmote.bplate { padding: 3px 5px; }
-      .bcard.bmote .nm { font-size: 9px; }
+      .bcard.bmote.bplate { width: 84px; padding: 2px 4px; }
+      .bcard.bmote .nm { font-size: 10px; }
       .bcard.bmote .bbar { height: 8px; }
     }
 
@@ -144,7 +169,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       width: 100%;
     }
     .screen h1 { font-size: clamp(28px, 9vw, 52px); letter-spacing: 2px; text-shadow: 3px 3px 0 #171b2c; }
@@ -183,9 +208,9 @@
 
     button.big {
       font: inherit;
-      font-size: 18px;
-      padding: 12px 28px;
-      min-width: 220px;
+      font-size: 16px;
+      padding: 12px 24px;
+      width: min(100%, 260px);
       --fill: #5c4e92;
       color: #f3f2c0;
       cursor: pointer;
@@ -195,23 +220,39 @@
     button.big.primary { --fill: #7aa74a; }
     button.big.primary:active { --fill: #5f843a; }
 
-    .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
+    /*
+     * A set of choices, rather than a row of things that happen to be next to
+     * each other. Laid out as equal cells so "Hair" and "Accessories" are the
+     * same button: a wrapped row of content-sized pills came out at five
+     * different widths, which reads as a mistake before it reads as anything
+     * else. Cells wrap on their own, so no screen width needs its own rule.
+     */
+    .choices {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+      gap: 8px;
+      width: 100%;
+    }
+    /* Channel pills carry a swatch and a longer label. */
+    .choices.wide { grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); }
+    .choices > .pill { width: 100%; }
     .card {
       --fill: #363d5e;
-      padding: 14px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
       align-items: center;
       max-width: 420px;
       width: min(100%, 420px);
     }
-    .card label { font-size: 13px; color: #9aa0c3; align-self: flex-start; }
+    .card label { font-size: 12px; color: #9aa0c3; align-self: flex-start; }
     .card input[type="text"] {
       font: inherit;
       font-size: 16px;
       width: 100%;
-      padding: 8px 10px;
+      padding: 8px 8px;
       --fill: #2a3049;
       color: #f3f2c0;
     }
@@ -223,7 +264,7 @@
     }
     .pill {
       font: inherit; font-size: 14px;
-      padding: 7px 14px;
+      padding: 8px 16px;
       --fill: #2a3049;
       color: #f3f2c0;
       cursor: pointer;
@@ -236,7 +277,7 @@
     .lobbyProblem {
       max-width: 420px;
       width: min(100%, 420px);
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1.5;
       color: #e8a0a0;
       text-align: center;
@@ -246,8 +287,8 @@
     /* The build, on the title screen. Quiet enough to ignore while playing and
        legible enough to read off a screenshot when something has gone wrong. */
     .buildTag {
-      font-size: 11px;
-      color: #6b7099;
+      font-size: 12px;
+      color: #6b7196;
       letter-spacing: 1px;
       margin-top: 4px;
     }
@@ -270,13 +311,13 @@
 
     /* The home-screen nudge. Quieter fill than a .card that holds the screen's
        actual work, so it reads as an aside under the title buttons. */
-    .card.install { --fill: #2f3450; gap: 8px; margin-top: 6px; }
-    .card.install strong { font-size: 15px; }
+    .card.install { --fill: #2f3450; gap: 8px; margin-top: 8px; }
+    .card.install strong { font-size: 14px; }
     .card.install .dim { align-self: center; text-align: center; line-height: 1.5; }
     .card.install .steps {
       display: flex; align-items: center; justify-content: center;
-      flex-wrap: wrap; gap: 6px;
-      font-size: 13px; color: #f3f2c0;
+      flex-wrap: wrap; gap: 8px;
+      font-size: 12px; color: #f3f2c0;
     }
     .card.install .steps svg {
       width: 16px; height: 16px;
@@ -295,7 +336,7 @@
       font: inherit;
       color: #f3f2c0;
       --fill: #363d5e;
-      padding: 6px 4px 8px;
+      padding: 8px 4px 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -309,9 +350,9 @@
       align-items: flex-end;
       justify-content: center;
     }
-    button.starter .nm { font-size: 13px; }
+    button.starter .nm { font-size: 12px; }
     canvas.critter { image-rendering: pixelated; display: block; }
-    .tbadges { display: flex; gap: 3px; justify-content: center; }
+    .tbadges { display: flex; gap: 4px; justify-content: center; }
     /* Type badges: drawn art, never scaled, so their outline stays 3 px. */
     .tico {
       image-rendering: pixelated;
@@ -320,20 +361,20 @@
       height: 17px;
       vertical-align: middle;
     }
-    .ticos { display: inline-flex; gap: 3px; align-items: center; vertical-align: middle; }
+    .ticos { display: inline-flex; gap: 4px; align-items: center; vertical-align: middle; }
     .tbadge {
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       color: #171b2c;
-      padding: 1px 9px;
+      padding: 2px 8px;
     }
-    .card .dim { color: #9aa0c3; font-size: 13px; align-self: flex-start; }
+    .card .dim { color: #9aa0c3; font-size: 12px; align-self: flex-start; }
     .flip { display: block; line-height: 0; transform: scaleX(-1); }
 
     /* Character creator */
     .dollWrap {
       --fill: #ded9ee;
-      padding: 8px 18px 4px;
+      padding: 8px 16px 4px;
     }
     canvas.doll {
       display: block;
@@ -371,18 +412,18 @@
       gap: 4px;
       justify-content: center;
     }
-    .panPad button { padding: 0; font-size: 13px; line-height: 1; }
+    .panPad button { padding: 0; font-size: 12px; line-height: 1; }
     .panPad .gap { visibility: hidden; }
 
     .thumbs { display: flex; gap: 8px; flex-wrap: wrap; align-self: flex-start; }
     button.thumb {
-      padding: 5px;
+      padding: 4px;
       line-height: 0;
       --fill: #ded9ee;
       cursor: pointer;
     }
     button.thumb canvas { image-rendering: pixelated; display: block; }
-    .pill.chan { display: inline-flex; align-items: center; gap: 7px; }
+    .pill.chan { display: inline-flex; align-items: center; gap: 8px; }
     .pill.chan i {
       display: block;
       width: 14px; height: 14px;
@@ -391,9 +432,9 @@
     label.custom {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       align-self: flex-start;
-      font-size: 13px;
+      font-size: 12px;
       color: #9aa0c3;
       cursor: pointer;
     }
@@ -413,11 +454,11 @@
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 6px;
+      gap: 8px;
     }
     #bagBtn {
       width: 46px; height: 46px;
-      padding: 7px;
+      padding: 8px;
       --fill: #363d5e;
       color: #f3f2c0;
       display: block;
@@ -429,7 +470,7 @@
     #bagMenu {
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 4px;
       /* Taller than the screen on a short phone, so it carries its own scroll
          rather than pushing the last door off the bottom. */
       max-height: calc(100vh - 90px);
@@ -437,17 +478,17 @@
     }
     #bagMenu[hidden] { display: none; }
     .code {
-      font: inherit; font-size: 22px;
+      font: inherit; font-size: 20px;
       letter-spacing: 0.22em;
       color: #eae178;
-      padding: 6px 4px;
+      padding: 8px 4px;
       flex: 1;
     }
     #bagMenu button {
       font: inherit; font-size: 14px;
       letter-spacing: 0.08em;
-      padding: 9px 14px;
-      min-width: 132px;
+      padding: 8px 16px;
+      width: 176px;
       text-align: center;
       --fill: #363d5e;
       color: #f3f2c0;
@@ -459,7 +500,7 @@
       width: 74px; height: 74px;
       --fill: #7aa74a;
       color: #f3f2c0;
-      font: inherit; font-size: 17px;
+      font: inherit; font-size: 16px;
       display: none;
     }
     body.touch #actBtn { display: block; }
@@ -488,28 +529,17 @@
       width: min(94vw, 560px);
       --ink: #5c4e92;
       --fill: #171b2c;
-      padding: 14px 16px;
+      padding: 16px 16px;
       font-size: 16px;
       line-height: 1.45;
       display: none;
     }
-    #dialog .who { color: #eae178; font-size: 13px; margin-bottom: 4px; }
-    #dialog .next { color: #9aa0c3; font-size: 12px; text-align: right; margin-top: 6px; }
+    #dialog .who { color: #eae178; font-size: 12px; margin-bottom: 4px; }
+    #dialog .next { color: #9aa0c3; font-size: 12px; text-align: right; margin-top: 8px; }
 
-    /* Your Scobas on the left, the enemy's on the right, with the two sides
-       breaking onto their own lines before a card ever has to shrink. */
-    .bfield {
-      display: flex;
-      gap: 10px 26px;
-      flex-wrap: wrap;
-      align-items: flex-start;
-      justify-content: center;
-      width: 100%;
-      max-width: 94vw;
-    }
-    .bt-side { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-    .bfield .allies { justify-content: flex-end; }
-    .bfield .foes { justify-content: flex-start; }
+    /* Every readout is a plate laid over the scene, and every plate carries its
+       own width, so nothing here may set a floor: a `min-width` beats the
+       `width` above it and put a Mote back at a Scoba's size. */
     .bcard {
       --fill: #363d5e;
       position: relative;
@@ -518,16 +548,15 @@
       flex-direction: column;
       gap: 4px;
       align-items: center;
-      min-width: 132px;
     }
     .bcard.target { outline: 3px solid #eae178; outline-offset: -3px; cursor: pointer; }
     /* Whose turn it is to pick, so two players never lose track of the order. */
     .bcard.acting { outline: 3px solid #7c9df0; outline-offset: -3px; }
-    .bcard .own { font-size: 11px; color: #9aa0c3; letter-spacing: 1px; text-transform: uppercase; }
+    .bcard .own { font-size: 12px; color: #9aa0c3; letter-spacing: 1px; text-transform: uppercase; }
     .bcard.empty { --fill: #2f3450; justify-content: center; min-height: 62px; }
     .bcard.empty .sub { color: #9aa0c3; font-size: 12px; }
     .bcard canvas { image-rendering: pixelated; }
-    .bcard .nm { font-size: 14px; display: flex; gap: 6px; align-items: baseline; }
+    .bcard .nm { font-size: 14px; display: flex; gap: 8px; align-items: baseline; }
     .bcard .nm .lv { color: #9aa0c3; font-size: 12px; }
     /* Too short for stepped corners: a square 2 px frame stays just as sharp. */
     .bbar { position: relative; width: 100%; height: 14px; border: 2px solid #171b2c; background: #2a3049; overflow: hidden; }
@@ -538,13 +567,23 @@
     .bbar u { position: absolute; top: 0; bottom: 0; background: #46507e; }
     .bbar.mp i { background: #7c9df0; }
     .bbar.mp b { background: #d3e2ff; }
-    .bnum { font-size: 11px; color: #9aa0c3; align-self: flex-end; }
-    .bnum:empty { display: none; }
-    /* A bar with its number beside it: the bar says what it is, so the number
-       is the reading and not a caption. */
-    .brow { display: flex; align-items: center; gap: 5px; width: 100%; }
-    .brow .bbar { flex: 1; }
-    .bpct { font-size: 11px; color: #9aa0c3; min-width: 3.2em; text-align: right; }
+    /*
+     * The footer under the bars: what the bars cannot say on the left, the
+     * mana share on the right. It holds its line whether or not there is a
+     * state to report, because the marks hang off the bottom of the panel and
+     * a line that collapsed moved every sigil under it the moment a Scoba
+     * started blocking.
+     */
+    .bfoot {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 4px;
+      width: 100%;
+      min-height: 1.2em;
+    }
+    .bnum { font-size: 12px; color: #9aa0c3; }
+    .bpct { font-size: 12px; color: #9aa0c3; margin-left: auto; }
     /*
      * One line at a time, saying what is happening right now rather than
      * keeping a history. It holds its box whether or not it has anything to
@@ -557,8 +596,8 @@
       align-items: center;
       justify-content: center;
       text-align: center;
-      padding: 8px 14px;
-      font-size: 15px;
+      padding: 8px 16px;
+      font-size: 16px;
       line-height: 1.3;
       visibility: hidden;
     }
@@ -568,7 +607,7 @@
       --fill: #171b2c;
     }
     .blog.ev-win { color: #eae178; }
-    .blog.ev-faint { color: #e58a8a; }
+    .blog.ev-faint { color: #e8a0a0; }
     .blog.ev-heal { color: #7aa74a; }
     .blog.ev-status { color: #e7a03c; }
     .blog.ev-field { color: #eae178; }
@@ -582,7 +621,7 @@
       /* Hung under the card rather than sitting in it: out of flow, so the
          panel keeps one shape whatever a Scoba has picked up. */
       position: absolute;
-      top: calc(100% + 3px);
+      top: calc(100% + 4px);
       left: 0;
       width: 100%;
       display: flex;
@@ -607,7 +646,7 @@
     }
     /* A status with no sigil drawn yet, so it can still be hovered. */
     .bcard .mark .sig.txt {
-      font-size: 11px;
+      font-size: 12px;
       line-height: 26px;
       text-align: center;
       text-transform: uppercase;
@@ -643,7 +682,7 @@
       flex-direction: column;
       gap: 2px;
       width: 168px;
-      padding: 6px 9px;
+      padding: 8px 8px;
       line-height: 1.25;
       text-align: left;
       pointer-events: none;
@@ -662,7 +701,7 @@
     }
     .bcard .mark:hover .sigtip, .bcard .mark:focus-within .sigtip { display: flex; }
     .bcard .mark .sigtip strong { font-size: 12px; color: #eae178; }
-    .bcard .mark .sigtip span { font-size: 11px; }
+    .bcard .mark .sigtip span { font-size: 12px; }
     .bcard .mark .sigtip .dim { color: #9aa0c3; }
 
     /*
@@ -674,14 +713,14 @@
       display: grid;
       gap: 8px;
       width: min(100%, 740px);
-      grid-template-columns: 178px minmax(0, 1fr) 66px;
+      grid-template-columns: 178px minmax(0, 1fr) 84px;
       grid-template-areas:
         "search grid side"
         "info   foot side";
     }
     .bxSearch { grid-area: search; }
-    .bxGridPanel { grid-area: grid; padding: 6px; }
-    .bxSide { grid-area: side; display: flex; flex-direction: column; gap: 6px; }
+    .bxGridPanel { grid-area: grid; padding: 8px; }
+    .bxSide { grid-area: side; display: flex; flex-direction: column; gap: 8px; }
     .bxInfo { grid-area: info; }
     .bxFoot { grid-area: foot; display: flex; }
     .bxPanel {
@@ -690,18 +729,18 @@
       padding: 8px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 8px;
       min-width: 0;
     }
     .bxGrid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 6px;
+      gap: 8px;
       align-content: start;
       height: 300px;
       overflow-y: auto;
       background: #2a3049;
-      padding: 6px;
+      padding: 8px;
       /* The column on the right is the scrollbar; the browser's own is noise. */
       scrollbar-width: none;
     }
@@ -721,14 +760,14 @@
     .bxCell:disabled { cursor: default; }
     .bxFace { display: flex; align-items: flex-end; justify-content: center; }
     .bxFace canvas { image-rendering: pixelated; display: block; }
-    .bxEmpty { grid-column: 1 / -1; color: #9aa0c3; font-size: 13px; padding: 10px 4px; }
+    .bxEmpty { grid-column: 1 / -1; color: #9aa0c3; font-size: 12px; padding: 8px 4px; }
 
     /* Search panel. */
     .bxName {
       font: inherit;
-      font-size: 15px;
+      font-size: 14px;
       width: 100%;
-      padding: 6px 8px;
+      padding: 8px 8px;
       border: 3px solid #171b2c;
       background: #2a3049;
       color: #f3f2c0;
@@ -744,7 +783,7 @@
       opacity: 0.55;
     }
     .bxChip.sel { opacity: 1; outline: 3px solid #f3f2c0; outline-offset: -3px; }
-    .bxStat { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .bxStat { display: flex; align-items: center; gap: 8px; font-size: 12px; }
     .bxStatName { width: 30px; color: #f3f2c0; }
     .bxStatNum { width: 26px; text-align: right; color: #9aa0c3; }
     .setBar { display: flex; align-items: center; gap: 8px; font-size: 14px; }
@@ -776,7 +815,7 @@
     .bxWide {
       font: inherit;
       font-size: 14px;
-      padding: 7px 10px;
+      padding: 8px 8px;
       border: 3px solid #171b2c;
       background: #5c4e92;
       color: #f3f2c0;
@@ -790,11 +829,11 @@
     .bxReadName { font-size: 14px; color: #f3f2c0; }
 
     /* Whose party the strip is showing, and the scroll column. */
-    .bxOwner { display: flex; flex-direction: column; gap: 3px; width: 84px; }
+    .bxOwner { display: flex; flex-direction: column; gap: 4px; width: 84px; }
     .bxOwnerBtn {
       font: inherit;
-      font-size: 11px;
-      padding: 5px 2px;
+      font-size: 12px;
+      padding: 4px 2px;
       border: 3px solid #171b2c;
       background: #2a3049;
       color: #9aa0c3;
@@ -805,8 +844,8 @@
     .bxOwnerBtn.sel { background: #7aa74a; color: #171b2c; }
     .bxArrow {
       font: inherit;
-      font-size: 15px;
-      padding: 6px 0;
+      font-size: 14px;
+      padding: 8px 0;
       border: 3px solid #171b2c;
       background: #46507e;
       color: #f3f2c0;
@@ -829,7 +868,7 @@
     .bxPartyRow { display: flex; align-items: center; gap: 4px; }
     .bxParty .bxCell { width: 78px; position: relative; }
     /* Says a Scoba on the other character's strip is one of yours, on loan. */
-    .bxLent { position: absolute; top: 2px; right: 3px; font-size: 9px; color: #f3f2c0; }
+    .bxLent { position: absolute; top: 2px; right: 3px; font-size: 10px; color: #f3f2c0; }
     .bxLendNote { flex-basis: 100%; text-align: center; font-size: 12px; }
     .bxSwap {
       font: inherit;
@@ -840,7 +879,7 @@
       color: #f3f2c0;
       cursor: pointer;
     }
-    .bxOps { display: flex; flex-direction: column; gap: 5px; width: 84px; }
+    .bxOps { display: flex; flex-direction: column; gap: 4px; width: 84px; }
     .bxPick { flex: 1; align-items: stretch; justify-content: center; }
 
     /*
@@ -851,10 +890,10 @@
       width: min(100%, 620px);
       border: 3px solid #171b2c;
       background: #363d5e;
-      padding: 10px;
+      padding: 8px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
     .bxCardHead { display: flex; gap: 12px; align-items: stretch; }
     .bxPortrait {
@@ -868,18 +907,18 @@
       padding-bottom: 4px;
       flex: none;
     }
-    .bxFacts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
-    .bxFactsTop { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+    .bxFacts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+    .bxFactsTop { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
     .bxWho { min-width: 0; }
-    .bxCardName { font-size: 21px; overflow-wrap: anywhere; }
-    .bxCorner { text-align: right; font-size: 13px; color: #9aa0c3; flex: none; }
+    .bxCardName { font-size: 20px; overflow-wrap: anywhere; }
+    .bxCorner { text-align: right; font-size: 12px; color: #9aa0c3; flex: none; }
     .bxStatList { display: flex; flex-direction: column; font-size: 14px; color: #f3f2c0; }
-    .bxCardTail { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; }
-    .bxCardWhere { font-size: 13px; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+    .bxCardTail { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
+    .bxCardWhere { font-size: 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
     .bxCardBack {
       font: inherit;
-      font-size: 13px;
-      padding: 4px 18px;
+      font-size: 12px;
+      padding: 4px 16px;
       border: 3px solid #171b2c;
       background: #46507e;
       color: #f3f2c0;
@@ -887,11 +926,11 @@
       flex: none;
     }
 
-    .bxSlots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .bxSlots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .bxSlot {
       font: inherit;
-      font-size: 15px;
-      padding: 8px 10px;
+      font-size: 14px;
+      padding: 8px 8px;
       border: 3px solid #171b2c;
       background: #46507e;
       color: #f3f2c0;
@@ -899,7 +938,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 1px;
+      gap: 2px;
     }
     .bxSlot.sel { background: #5c4e92; outline: 3px solid #f3f2c0; outline-offset: -3px; }
     .bxSlot.typed { color: #171b2c; }
@@ -912,7 +951,7 @@
     .bxNote {
       border: 3px solid #171b2c;
       background: #2a3049;
-      padding: 8px 10px;
+      padding: 8px 8px;
       min-height: 62px;
       font-size: 14px;
       display: flex;
@@ -920,7 +959,7 @@
       gap: 2px;
     }
     .bxNote .dim { color: #9aa0c3; font-size: 12px; }
-    .bxNoteHead { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .bxNoteHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
     @media (max-width: 620px) {
       .bxCardHead { flex-direction: column; align-items: center; }
@@ -934,7 +973,7 @@
         grid-template-areas: "grid" "info" "foot" "search";
       }
       .bxOwner { flex-direction: row; width: auto; flex-basis: 100%; }
-      .bxOwnerBtn { flex: 1; font-size: 13px; }
+      .bxOwnerBtn { flex: 1; font-size: 12px; }
       /* Nothing left in the column once the bar and its arrows are gone. */
       .bxSide { display: none; }
       .bxGrid { height: 46vh; }
@@ -945,17 +984,17 @@
     .xlist {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
       width: min(94vw, 620px);
       max-height: 62vh;
       overflow-y: auto;
     }
-    .xscoba { align-items: stretch; gap: 6px; text-align: left; }
-    .xscoba .nm { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+    .xscoba { align-items: stretch; gap: 8px; text-align: left; }
+    .xscoba .nm { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
     .xstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #c9c4ee; }
-    .xpass { display: flex; gap: 6px; font-size: 12px; color: #9aa0c3; }
+    .xpass { display: flex; gap: 8px; font-size: 12px; color: #9aa0c3; }
     .xpass strong { color: #eae178; }
-    .xinfo { font-size: 13px; line-height: 1.5; display: flex; flex-direction: column; gap: 2px; }
+    .xinfo { font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; gap: 2px; }
     .xinfo:empty { display: none; }
     .xhead { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
     .xinfo .dim { color: #9aa0c3; font-size: 12px; }
@@ -999,10 +1038,10 @@
     /* Compounded with .small, which is defined later and would otherwise win
        on source order at equal specificity. */
     button.act.small.tiny {
-      padding: 4px 10px;
-      min-width: 66px;
-      min-height: 30px;
-      font-size: 13px;
+      padding: 4px 8px;
+      width: 96px;
+      min-height: 32px;
+      font-size: 12px;
     }
     .bactions.bconfirm { color: #eae178; }
     /*
@@ -1020,7 +1059,6 @@
        than pushing its neighbours about. */
     .bactions > button.act { min-width: 0; width: 100%; }
     button.act.small { gap: 0; }
-    .bactions.bminor > button.act { min-width: 76px; }
 
     /*
      * Four cells, always. A Scoba with two moves shows two dead slots rather
@@ -1082,11 +1120,11 @@
       align-items: center;
       justify-content: center;
       gap: 2px;
-      padding: 6px 10px;
+      padding: 8px 8px;
       min-width: 0;
       min-height: 0;
       height: 100%;
-      font-size: 17px;
+      font-size: 16px;
       line-height: 1.15;
       text-align: center;
       overflow-wrap: anywhere;
@@ -1096,9 +1134,7 @@
     }
     button.act:active { --fill: #473b74; }
     button.act:disabled { opacity: 0.4; }
-    button.act .sub { font-size: 13px; color: #c9c4ee; }
-    /* Steady widths: the labels change but the row must not. */
-    .bactions > button.act { min-width: 104px; }
+    button.act .sub { font-size: 12px; color: #c9c4ee; }
     .bgrid > button.act .sub { min-height: 1.2em; }
     button.act.alt { --fill: #3f4a66; }
     /* A move button is coloured by what the move is. */
@@ -1110,24 +1146,34 @@
     .mgmark { position: absolute; width: 7px; top: -5px; bottom: -5px; background: #f3f2c0; }
 
     .meter { width: 100%; }
-    .meter .lbl { display: flex; justify-content: space-between; font-size: 13px; color: #9aa0c3; margin-bottom: 3px; }
+    .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: #9aa0c3; margin-bottom: 4px; }
     .meter .bar { height: 12px; border: 2px solid #171b2c; background: #2a3049; overflow: hidden; }
     .meter .bar i { display: block; height: 100%; background: #7aa74a; }
     .badge { font-size: 12px; background: #d9553f; padding: 2px 8px; color: #171b2c; }
     .list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
-    .list .item { display: flex; justify-content: space-between; font-size: 15px; --fill: #2a3049; padding: 9px 12px; }
-    .list .item .dim { color: #9aa0c3; font-size: 13px; }
-    .list .item .who { gap: 7px; }
+    .list .item { display: flex; justify-content: space-between; font-size: 14px; --fill: #2a3049; padding: 8px 12px; }
+    .list .item .dim { color: #9aa0c3; font-size: 12px; }
+    .list .item .who { gap: 8px; }
     /* A box with more in it than fits scrolls inside its own card. */
     .list.scroll { max-height: 42vh; overflow-y: auto; }
     /* Roster rows: a face and a name on the left, what you can do on the right. */
-    .who { display: flex; align-items: center; gap: 9px; min-width: 0; }
-    .pface { width: 44px; display: flex; justify-content: center; }
+    .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    /* A fixed box, bottom aligned so feet line up down the column. Its size
+       comes from the caller, since a party row and a card want different
+       heights, and the art inside is only ever drawn at a whole step. */
+    .pface {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      flex: none;
+      overflow: hidden;
+    }
+    .pface canvas { image-rendering: pixelated; display: block; }
     .pname { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
     .pname .dim { color: #9aa0c3; font-size: 12px; }
-    .pnameLine { display: flex; align-items: center; gap: 6px; }
-    .ops { display: flex; align-items: center; gap: 5px; }
-    .pill.tiny { font-size: 12px; padding: 5px 9px; }
+    .pnameLine { display: flex; align-items: center; gap: 8px; }
+    .ops { display: flex; align-items: center; gap: 4px; }
+    .pill.tiny { font-size: 12px; padding: 4px 8px; }
     .pill:disabled { color: #6b7196; cursor: default; }
 
     /* Dev-mode editor panel */
@@ -1138,26 +1184,26 @@
       background: #1b2033f2;
       border-left: 3px solid #171b2c;
       overflow-y: auto;
-      padding: 10px;
+      padding: 8px;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      font-size: 13px;
+      font-size: 12px;
     }
     #devPanel .devHead { display: flex; justify-content: space-between; align-items: center; }
     #devPanel .devTabs { display: flex; flex-wrap: wrap; gap: 4px; }
-    #devPanel .devTabs .pill { font-size: 12px; padding: 5px 9px; }
-    #devPanel .devStatus { color: #9aa0c3; font-size: 11px; line-height: 1.4; }
+    #devPanel .devTabs .pill { font-size: 12px; padding: 4px 8px; }
+    #devPanel .devStatus { color: #9aa0c3; font-size: 12px; line-height: 1.4; }
     #devPanel .devBody { display: flex; flex-direction: column; gap: 8px; }
-    #devPanel .devHint { color: #9aa0c3; font-size: 11px; line-height: 1.45; }
-    #devPanel .devList { display: flex; flex-direction: column; gap: 3px; max-height: 150px; overflow-y: auto; }
+    #devPanel .devHint { color: #9aa0c3; font-size: 12px; line-height: 1.45; }
+    #devPanel .devList { display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto; }
     #devPanel .devItem {
       font: inherit; font-size: 12px;
       text-align: left;
       color: #f3f2c0;
       background: #2a3049;
       border: 2px solid #171b2c;
-      padding: 5px 8px;
+      padding: 4px 8px;
       cursor: pointer;
     }
     #devPanel .devItem.sel { border-color: #f3f2c0; }
@@ -1167,26 +1213,26 @@
       padding: 8px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 8px;
     }
-    #devPanel .devField { display: flex; flex-direction: column; gap: 3px; }
-    #devPanel .devField label { color: #9aa0c3; font-size: 11px; }
+    #devPanel .devField { display: flex; flex-direction: column; gap: 4px; }
+    #devPanel .devField label { color: #9aa0c3; font-size: 12px; }
     #devPanel input[type="text"], #devPanel input[type="number"],
     #devPanel textarea, #devPanel select {
-      font: inherit; font-size: 13px;
+      font: inherit; font-size: 12px;
       color: #f3f2c0;
       background: #2a3049;
       border: 2px solid #171b2c;
-      padding: 5px 7px;
+      padding: 4px 8px;
       width: 100%;
     }
     #devPanel textarea { resize: vertical; }
-    #devPanel .row { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-start; }
+    #devPanel .row { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-start; }
     #devPanel .row input[type="number"] { width: 64px; }
     #devPanel .row select { flex: 1; width: auto; min-width: 0; }
     #devPanel .pill.warn { --fill: #d9553f; }
     #devPanel .pill:disabled { opacity: 0.4; }
-    #devPanel .palGroup { color: #9aa0c3; font-size: 11px; }
+    #devPanel .palGroup { color: #9aa0c3; font-size: 12px; }
     #devPanel .tilePal { display: flex; flex-wrap: wrap; gap: 4px; }
     #devPanel .tileBtn {
       padding: 0;
@@ -1216,11 +1262,11 @@
       cursor: pointer;
     }
     #devPanel .maskCell.on { background: #d9553fcc; }
-    .bcard .nm .shiny, .pnameLine .shiny { color: #d9553f; font-size: 13px; line-height: 1; }
+    .bcard .nm .shiny, .pnameLine .shiny { color: #d9553f; font-size: 12px; line-height: 1; flex: none; }
 
     #devPanel .layerRow { display: flex; gap: 4px; align-items: stretch; }
     #devPanel .layerRow .devItem { flex: 1; min-width: 0; }
-    #devPanel .layerRow .pill { font-size: 11px; padding: 4px 8px; }
+    #devPanel .layerRow .pill { font-size: 12px; padding: 4px 8px; }
 
     /*
      * The cover between one thing and the next. It starts on, so the page is
@@ -1247,7 +1293,7 @@
       transform: translateX(-50%);
       --ink: #5c4e92;
       --fill: #171b2c;
-      padding: 8px 18px;
+      padding: 8px 16px;
       font-size: 14px;
       opacity: 0;
       transition: opacity 0.25s;
