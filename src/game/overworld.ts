@@ -52,6 +52,12 @@ export interface OverworldHooks {
  * `ui/battle.ts` owns the running fight.
  */
 export interface WorldBattle {
+  /**
+   * Which fight this marker is for. Two can exist in a session: your own, and
+   * the one your partner started while you were busy with yours. Without an id
+   * the second was wiped the moment the first ended.
+   */
+  id: string;
   x: number;
   y: number;
   /** The character whose slot is still open, or null once nobody can join. */
@@ -1178,7 +1184,14 @@ export class Overworld {
     this.activeBattle = battle;
   }
 
-  closeActiveBattle(): void {
+  /**
+   * Take the marker down, but only if it is the one being asked about. Ending
+   * your own fight used to clear whatever marker was standing, including one
+   * that had arrived for your partner's fight while you were in yours, so you
+   * came out of a battle with nothing to walk to.
+   */
+  closeActiveBattle(id?: string): void {
+    if (id !== undefined && this.activeBattle && this.activeBattle.id !== id) return;
     this.activeBattle = null;
   }
 

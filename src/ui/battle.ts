@@ -1124,7 +1124,12 @@ function runBattle(
     aiming = null;
     sendInSlots = [];
     menu = "main";
-    flushJoin();
+    const arriving = flushJoin();
+    if (arriving.length > 0) {
+      // Play them on, then start the round properly once they are standing.
+      playThen(arriving, beginRound);
+      return;
+    }
     // The Motes that run themselves are left off: nobody is asked about them,
     // and their choices come out of the AI when the round is submitted.
     localReady = false;
@@ -1330,20 +1335,26 @@ function runBattle(
    * Applies a queued join, but only between rounds: a request that arrives
    * while the turn is resolving or while choices are half-picked waits.
    */
-  const flushJoin = (): void => {
+  /**
+   * Applies a queued join and hands back what it wants played. The events are
+   * returned rather than just spoken so the arrival gets its walk-on: saying
+   * the lines without playing them had the second Scoba appear on the field
+   * fully formed between one frame and the next.
+   */
+  const flushJoin = (): BattleEvent[] => {
     const owner = pendingJoin;
-    if (owner === null) return;
-    if (busy || staged.length > 0) return;
+    if (owner === null) return [];
+    if (busy || staged.length > 0) return [];
     pendingJoin = null;
-    if (!canJoin(owner)) return;
+    if (!canJoin(owner)) return [];
     // A peer brings its own party: this save's copy of the other character's
     // Scobas drifted the moment either player did anything alone.
     const team = joinTeams.get(owner) ?? partyOf(save, owner);
     joinTeams.delete(owner);
-    say(`${nameOf(owner)} joins the battle!`, "win");
-    for (const ev of joinBattle(st, owner, team)) say(ev.text, ev.kind);
+    const events = joinBattle(st, owner, team);
     // The host is the one that was here first, so it settles what the state is.
     if (net?.isHost) net.send({ t: "battle-sync", battleId: net.battleId, state: st });
+    return [{ text: `${nameOf(owner)} joins the battle!`, kind: "win" }, ...events];
   };
 
   const requestJoin = (owner: OwnerId): boolean => {

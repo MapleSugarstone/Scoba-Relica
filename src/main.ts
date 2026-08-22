@@ -86,6 +86,32 @@ function openLobby(code: string, mine: "A" | "B"): void {
   }, code, mine);
 }
 
+/** The marker for a fight the peer has started, so it can be stood repeatedly. */
+function standPeerBattle(save: SaveData, waiting: PendingBattle): void {
+  scene?.openActiveBattle({
+    id: waiting.battleId,
+    x: waiting.at.x, y: waiting.at.y,
+    guest: () => save.localSlot,
+    join: () => {
+      session?.joinBattle(waiting.battleId, save.localSlot, partyOf(save, save.localSlot));
+      ui.toast("Asking to join...");
+      return true;
+    },
+  });
+}
+
+/**
+ * Coming out of your own fight. Its marker goes, but if your partner started
+ * one while you were in there, theirs is still going and you should be able to
+ * walk to it: taking down whatever marker happened to be standing left you
+ * with nothing to join.
+ */
+function leftBattle(id: string): void {
+  scene?.closeActiveBattle(id);
+  const waiting = pendingPeerBattle;
+  if (waiting && currentSave) standPeerBattle(currentSave, waiting);
+}
+
 function showTitle(): void {
   editor?.close();
   session?.stop();
@@ -160,26 +186,20 @@ function openSession(save: SaveData): void {
     onBattleOpened: (battle) => {
       pendingPeerBattle = battle;
       // Stand the marker where they are fighting so this player can walk over.
-      scene?.openActiveBattle({
-        x: battle.at.x, y: battle.at.y,
-        guest: () => save.localSlot,
-        join: () => {
-          session?.joinBattle(battle.battleId, save.localSlot, partyOf(save, save.localSlot));
-          ui.toast("Asking to join...");
-          return true;
-        },
-      });
+      // Not while this player is in a fight of their own: it would be replaced
+      // by theirs anyway, and `leftBattle` stands it when they come out.
+      if (!battleStage()) standPeerBattle(save, battle);
     },
     onBattleClosed: (battleId) => {
       if (pendingPeerBattle?.battleId !== battleId) return;
       pendingPeerBattle = null;
-      scene?.closeActiveBattle();
+      scene?.closeActiveBattle(battleId);
     },
     onBattleAdopted: (battleId, state) => {
       pendingPeerBattle = null;
       void ui.transition(() => {
         openWildBattle(ui, art, save, state.teams[1][0]!.scoba, (res) => {
-          scene?.closeActiveBattle();
+          scene?.closeActiveBattle(battleId);
           scene?.encounterGrace();
           scene?.refreshCompanions();
           void res;
@@ -280,9 +300,9 @@ function buildGame(save: SaveData): void {
   ui.hud(true);
   // A co-op battle stands in the world while it runs, so the other player can
   // walk over and join it. Solo battles hand back nothing to stand there.
-  const stand = (at: { x: number; y: number }, battle: ActiveBattle | null): void => {
+  const stand = (id: string, at: { x: number; y: number }, battle: ActiveBattle | null): void => {
     if (!battle) return;
-    scene?.openActiveBattle({ x: at.x, y: at.y, guest: battle.guest, join: battle.join });
+    scene?.openActiveBattle({ id, x: at.x, y: at.y, guest: battle.guest, join: battle.join });
   };
 
   /**
@@ -319,8 +339,8 @@ function buildGame(save: SaveData): void {
       void ui.transition(() => {
         const battleId = freshBattleId();
         announce(battleId, at);
-        stand(at, openWildBattle(ui, art, save, wild, (res) => {
-          scene?.closeActiveBattle();
+        stand(battleId, at, openWildBattle(ui, art, save, wild, (res) => {
+          leftBattle(battleId);
           scene?.encounterGrace();
           scene?.refreshCompanions();
           // Catching one clears the encounter as surely as beating it does.
@@ -342,8 +362,8 @@ function buildGame(save: SaveData): void {
       void ui.transition(() => {
         const trainerBattleId = freshBattleId();
         announce(trainerBattleId, { x: npc.x, y: npc.y });
-        stand({ x: npc.x, y: npc.y }, openTrainerBattle(ui, art, save, { name: npc.name, enemies, reward: trainer.reward }, (res) => {
-          scene?.closeActiveBattle();
+        stand(trainerBattleId, { x: npc.x, y: npc.y }, openTrainerBattle(ui, art, save, { name: npc.name, enemies, reward: trainer.reward }, (res) => {
+          leftBattle(trainerBattleId);
           scene?.encounterGrace();
           scene?.refreshCompanions();
           result(res.outcome === "win");
@@ -618,12 +638,12 @@ async function boot(): Promise<void> {
       }
       void ui.transition(() => {
         const active = openWildBattle(ui, art, save, wild, () => {
-          scene?.closeActiveBattle();
+          leftBattle(battleId);
           scene?.encounterGrace();
           scene?.refreshCompanions();
         }, battleNet(save, battleId, true));
         if (active) {
-          scene?.openActiveBattle({ x: spot.x, y: spot.y, guest: active.guest, join: active.join });
+          scene?.openActiveBattle({ id: battleId, x: spot.x, y: spot.y, guest: active.guest, join: active.join });
         }
       });
       return true;
