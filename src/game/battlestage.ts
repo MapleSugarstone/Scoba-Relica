@@ -284,7 +284,11 @@ const WAITING_TINT = "brightness(0.4) saturate(0.7)";
 export class BattleStage {
   private fighters: Fighter[] = [];
   /** The two characters, and the enemy trainer when there is one. */
-  private people: { actor: Actor; side: 0 | 1; slot: number; ox: number; oy: number }[] = [];
+  private people: {
+    actor: Actor; side: 0 | 1; slot: number; ox: number; oy: number;
+    /** Which character this is, so somebody arriving can be found or added. */
+    who?: SlotId;
+  }[] = [];
   private effects: Effect[] = [];
   /** The wash over each side, side 0's half of the view and side 1's. */
   private washes: [FieldWash, FieldWash] = [
@@ -439,7 +443,7 @@ export class BattleStage {
       actor.speed = CHAR_SPEED;
       actor.dir = 1;
       actor.desync(i * 0.41 + 0.13);
-      this.people.push({ actor, side: 0, slot: i, ox: 0, oy: 0 });
+      this.people.push({ actor, side: 0, slot: i, ox: 0, oy: 0, who: slot });
     });
     if (this.opts.trainer) {
       const other: SlotId = local === "A" ? "B" : "A";
@@ -810,6 +814,140 @@ export class BattleStage {
    * Scobas take the field. A wild fight has no trainer to walk on, so its
    * Scoba is simply already there.
    */
+  /**
+   * Somebody arriving at a fight already in progress: they walk on from their
+   * own side and take their place, and only then does their Scoba come out.
+   * Everyone already here stays exactly where they are, because from their
+   * point of view nothing is starting, somebody is just turning up.
+   *
+   * `withScoba` is for the arriving player's own screen, where the Scoba is
+   * already in the state they were handed and so has no send-in of its own to
+   * animate. On the other screen the join brings a switch-in with it, and that
+   * plays the Scoba on by itself.
+   */
+  playArrival(who: SlotId, withScoba: boolean): Promise<void> {
+    this.instant = (window as { __scobaFast?: boolean }).__scobaFast === true;
+    const person = this.personFor(who);
+    if (!person) return Promise.resolve();
+
+    // Whoever is already fighting is settled where they belong, so the arrival
+    // does not disturb them.
+    this.push({
+      dur: 0,
+      start: () => {
+        for (const p of this.people) {
+          if (p === person) continue;
+          const home = this.personAnchor(p.side, p.slot);
+          p.actor.x = home.x;
+          p.actor.y = home.y;
+          p.actor.dir = p.side === 0 ? 1 : -1;
+        }
+        for (const f of this.fighters) {
+          const a = this.anchor(f.side, f.slot);
+          const arriving = withScoba && this.ownerOf(f) === who;
+          if (arriving) {
+            // Held off the edge until its owner is standing.
+            f.alpha = 0;
+            f.settled = false;
+            f.actor.x = -16;
+            f.actor.y = a.y;
+          } else {
+            f.actor.x = a.x;
+            f.actor.y = a.y;
+            f.alpha = 1;
+            f.settled = true;
+          }
+          f.actor.dir = f.side === 0 ? 1 : -1;
+        }
+        // They come in along the line their Scoba will stand on, rather than
+        // straight to the mark they keep, so the walk reads as joining in.
+        const lane = this.anchor(0, person.slot === 0 ? 0 : 1);
+        person.actor.x = -18;
+        person.actor.y = lane.y;
+        person.actor.dir = 1;
+      },
+    });
+
+    const forward = (): { x: number; y: number } => {
+      const home = this.personAnchor(person.side, person.slot);
+      const lane = this.anchor(0, person.slot === 0 ? 0 : 1);
+      return { x: home.x + this.view.w * 0.12, y: lane.y };
+    };
+
+    this.push({
+      dur: 1.3,
+      run: (_k, dt) => {
+        const to = forward();
+        person.actor.seek(dt, to.x, to.y, ARRIVED, NO_MAP, 1.5, WALK_ON);
+      },
+      hold: () => {
+        const to = forward();
+        return Math.hypot(to.x - person.actor.x, to.y - person.actor.y) > ARRIVED;
+      },
+    });
+
+    this.push({ dur: 0.3 });
+
+    // They drop back to their mark, and their Scoba takes the field.
+    this.push({
+      dur: 1.5,
+      start: () => {
+        if (!withScoba) return;
+        for (const f of this.fighters) {
+          if (this.ownerOf(f) !== who) continue;
+          f.alpha = 1;
+        }
+      },
+      run: (_k, dt) => {
+        const home = this.personAnchor(person.side, person.slot);
+        person.actor.seek(dt, home.x, home.y, ARRIVED, NO_MAP, 1.5, WALK_ON);
+        if (!withScoba) return;
+        for (const f of this.fighters) {
+          if (this.ownerOf(f) !== who) continue;
+          const a = this.anchor(f.side, f.slot);
+          f.actor.seek(dt, a.x, a.y, ARRIVED, NO_MAP, 1.4, WALK_ON);
+        }
+      },
+      hold: () => {
+        const home = this.personAnchor(person.side, person.slot);
+        return Math.hypot(home.x - person.actor.x, home.y - person.actor.y) > ARRIVED;
+      },
+      end: () => {
+        this.resnap();
+        person.actor.dir = 1;
+        for (const f of this.fighters) {
+          f.actor.dir = f.side === 0 ? 1 : -1;
+          if (!f.mote) f.settled = true;
+        }
+      },
+    });
+
+    return this.flush();
+  }
+
+  /** Which character a Scoba on the field belongs to, if any. */
+  private ownerOf(f: Fighter): SlotId | null {
+    if (f.side !== 0 || f.mote) return null;
+    const owner = this.st.teams[0][f.index]?.scoba.owner;
+    return owner === "A" || owner === "B" ? owner : null;
+  }
+
+  /** The person for a character, adding them to the stage if they are new. */
+  private personFor(who: SlotId): typeof this.people[number] | null {
+    const found = this.people.find((p) => p.side === 0 && p.who === who);
+    if (found) return found;
+    const look = this.save.characters[who]?.look;
+    if (!look) return null;
+    const actor = new Actor(0, 0, { sprite: worldSprite(this.art.doll, look), motion: "hop" });
+    actor.speed = CHAR_SPEED;
+    actor.dir = 1;
+    actor.desync(0.29);
+    const slot = this.people.filter((p) => p.side === 0).length;
+    const person = { actor, side: 0 as const, slot, ox: 0, oy: 0, who };
+    this.people.push(person);
+    return person;
+  }
+
   playIntro(): Promise<void> {
     this.instant = (window as { __scobaFast?: boolean }).__scobaFast === true;
     this.opening = true;

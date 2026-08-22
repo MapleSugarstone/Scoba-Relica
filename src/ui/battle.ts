@@ -180,8 +180,12 @@ function runBattle(
   const askOrder = (slot: number): number =>
     isMoteSlot(slot) ? 10 + slot : displayOrder.indexOf(slot as 0 | 1);
 
+  // Taken from the state rather than from who started it: a guest walking into
+  // a fight already in progress has the host standing in it, and building the
+  // stage from `fighters` alone left them invisible on the guest's screen.
+  const onStage = (["A", "B"] as OwnerId[]).filter((o) => st.slotOwner.includes(o));
   const stage = new BattleStage(art, st, save, {
-    fighters,
+    fighters: onStage.length > 0 ? onStage : fighters,
     trainer: setup.trainerName !== undefined,
   });
   stage.onFrame = () => positionPlates();
@@ -1126,8 +1130,15 @@ function runBattle(
     menu = "main";
     const arriving = flushJoin();
     if (arriving.length > 0) {
-      // Play them on, then start the round properly once they are standing.
-      playThen(arriving, beginRound);
+      // The person walks in first and their Scoba follows, because somebody
+      // turning up to a fight arrives before whatever they brought does.
+      busy = true;
+      stage.sync();
+      render();
+      void stage.playArrival(joinedOwner!, false).then(() => {
+        busy = false;
+        playThen(arriving, beginRound);
+      });
       return;
     }
     // The Motes that run themselves are left off: nobody is asked about them,
@@ -1341,6 +1352,9 @@ function runBattle(
    * the lines without playing them had the second Scoba appear on the field
    * fully formed between one frame and the next.
    */
+  /** Who the last flushed join was for, so the arrival knows who to walk on. */
+  let joinedOwner: OwnerId | null = null;
+
   const flushJoin = (): BattleEvent[] => {
     const owner = pendingJoin;
     if (owner === null) return [];
@@ -1352,6 +1366,7 @@ function runBattle(
     const team = joinTeams.get(owner) ?? partyOf(save, owner);
     joinTeams.delete(owner);
     const events = joinBattle(st, owner, team);
+    joinedOwner = owner;
     // The host is the one that was here first, so it settles what the state is.
     if (net?.isHost) net.send({ t: "battle-sync", battleId: net.battleId, state: st });
     return [{ text: `${nameOf(owner)} joins the battle!`, kind: "win" }, ...events];
@@ -1472,7 +1487,12 @@ function runBattle(
   // had to say, which is where a passive that calls up a Mote goes off.
   render();
   busy = true;
-  void stage.playIntro().then(() => {
+  // Adopting a fight means walking into one already happening, so the opening
+  // is somebody arriving rather than everybody starting.
+  const opening = net?.adopted
+    ? stage.playArrival(net.localOwner, true)
+    : stage.playIntro();
+  void opening.then(() => {
     busy = false;
     playThen(st.opening, fillEmpties);
   });
