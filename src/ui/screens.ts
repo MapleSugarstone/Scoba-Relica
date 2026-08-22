@@ -32,6 +32,8 @@ import {
 } from "../save/save";
 import type { WorldContent } from "../game/content";
 import { questLog } from "../game/quests";
+export { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
+import { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
 import { mountInstallCard } from "./install";
 
 export interface DialogLine {
@@ -745,10 +747,25 @@ export function questScreen(ui: UI, save: SaveData, content: WorldContent, onBac
  * Relica: the special Scoba, and everything you do for it. Its meters carry on
  * running whether or not this is open, so opening it advances the clock first.
  */
+/**
+ * The reminders control, handed in rather than reached for, so this file stays
+ * clear of the push and relay code. `label` is what the pill should say and
+ * `note` the line under it, both worked out from the real permission state.
+ */
+export interface ReminderControl {
+  read(): Promise<{ label: string; note: string; actionable: boolean }>;
+  toggle(): Promise<{ note: string }>;
+}
+
 export function relicaScreen(
   ui: UI,
   save: SaveData,
-  cb: { onBack: () => void; onCareChange: (s: CareState) => void; onPlay: () => void },
+  cb: {
+    onBack: () => void;
+    onCareChange: (s: CareState) => void;
+    onPlay: () => void;
+    reminders?: ReminderControl;
+  },
 ): void {
   ui.screen((s) => {
     s.appendChild(el("h2", undefined, "Relica"));
@@ -786,6 +803,39 @@ export function relicaScreen(
     };
     render();
     s.appendChild(card);
+
+    if (cb.reminders) {
+      const control = cb.reminders;
+      const remind = el("div", "card");
+      remind.appendChild(el("strong", undefined, "Reminders"));
+      const note = el("div", "dim", "Checking...");
+      const button = el("button", "pill", "...");
+      button.disabled = true;
+      // The permission state is only knowable asynchronously, so the card goes
+      // up straight away and fills itself in rather than holding the screen.
+      const refresh = (): void => {
+        void control.read().then(({ label, note: text, actionable }) => {
+          if (!remind.isConnected) return;
+          button.textContent = label;
+          button.disabled = !actionable;
+          note.textContent = text;
+        });
+      };
+      button.addEventListener("click", () => {
+        sfx.confirm();
+        button.disabled = true;
+        void control.toggle().then(({ note: text }) => {
+          if (!remind.isConnected) return;
+          note.textContent = text;
+          refresh();
+        });
+      });
+      remind.appendChild(button);
+      remind.appendChild(note);
+      s.appendChild(remind);
+      refresh();
+    }
+
     s.appendChild(bigBtn("Back", cb.onBack, true));
   });
 }
@@ -831,40 +881,36 @@ export function indexScreen(ui: UI, art: Art, save: SaveData, onBack: () => void
   });
 }
 
-/** Characters a room code is spelled from: no O/0 or I/1 to read wrong. */
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-export function freshRoomCode(): string {
-  let out = "";
-  for (let i = 0; i < 6; i++) {
-    out += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
-  }
-  return out;
-}
-
-/** A code is only a code if it is six of the characters we spell them from. */
-export function normalizeRoomCode(raw: string): string | null {
-  const up = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (up.length !== 6) return null;
-  return [...up].every((c) => CODE_CHARS.includes(c)) ? up : null;
-}
-
 /**
  * Connect: host a room and read out its code, or type someone else's in. The
- * relay that would carry the two of them is not up yet, so this settles the
- * room on both sides and says as much rather than pretending to dial out.
+ * screen reads out where the connection currently stands rather than claiming
+ * a room is shared the moment a code is typed.
  */
 export function connectScreen(
   ui: UI,
   save: SaveData,
-  cb: { onBack: () => void; onChange: () => void },
+  cb: {
+    onBack: () => void;
+    onChange: () => void;
+    /** Read when the screen is built, so reopening it refreshes the reading. */
+    relay: () => { status: string; partnerHere: boolean };
+  },
 ): void {
   ui.screen((s) => {
     s.appendChild(el("h2", undefined, "Connect"));
 
-    const status = el("div", "sub", save.room
-      ? `Room ${save.room}. Waiting on the other player.`
-      : "Two players share one campaign. One hosts, the other joins with the code.");
+    const link = cb.relay();
+    const reading = (room: string | undefined): string => {
+      if (!room) return "Two players share one campaign. One hosts, the other joins with the code.";
+      if (link.status === "live") {
+        return link.partnerHere
+          ? `Room ${room}. The other player is here.`
+          : `Room ${room}. Connected, waiting on the other player.`;
+      }
+      if (link.status === "connecting") return `Room ${room}. Connecting.`;
+      return `Room ${room}. Not connected.`;
+    };
+    const status = el("div", "sub", reading(save.room));
     s.appendChild(status);
 
     const card = el("div", "card");
@@ -877,7 +923,7 @@ export function connectScreen(
       sfx.confirm();
       save.room = freshRoomCode();
       codeOut.textContent = save.room;
-      status.textContent = `Room ${save.room}. Waiting on the other player.`;
+      status.textContent = `Room ${save.room}. Connecting.`;
       cb.onChange();
     });
     codeRow.appendChild(hostB);
@@ -905,9 +951,9 @@ export function connectScreen(
       sfx.confirm();
       save.room = code;
       codeOut.textContent = code;
-      status.textContent = `Room ${code}. Waiting on the other player.`;
+      status.textContent = `Room ${code}. Connecting.`;
       cb.onChange();
-      ui.toast("Code saved. The relay is not up yet, so nothing dials out.");
+      ui.toast("Joining that room.");
     });
     join.appendChild(joinB);
     s.appendChild(join);
@@ -923,7 +969,7 @@ export function connectScreen(
       s.appendChild(drop);
     }
     s.appendChild(el("div", "sub",
-      "The relay that carries a room between two machines is not running yet, so a code is remembered but nobody is on the other end of it."));
+      "The Relica is shared: whoever feeds or washes it, the other sees it that way too."));
     s.appendChild(bigBtn("Back", cb.onBack, true));
   });
 }

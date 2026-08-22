@@ -45,6 +45,12 @@ export interface SaveData {
   seen?: string[];
   /** Room code the two players share. Set by Connect; no relay reads it yet. */
   room?: string;
+  /**
+   * Monotonic counter for the shared Relica and story flags, so the relay can
+   * tell which of two clients changed them last. Optional: a save written
+   * before there was a relay simply starts at zero.
+   */
+  careRev?: number;
   /** EZ mode: the players' own Scobas gain far more from every level. */
   ez?: boolean;
   /** Qualifying wins counted so far, keyed "<mapId>:<cx>,<cy>" per sentinel. */

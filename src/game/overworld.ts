@@ -1248,6 +1248,11 @@ export class Overworld {
   debugInfo(): object {
     return {
       player: { x: this.player.x, y: this.player.y, dir: this.player.dir },
+      // Where a co-op fight is standing, so a test can tell whether the peer's
+      // battle was heard about without walking to it.
+      activeBattle: this.activeBattle
+        ? { x: this.activeBattle.x, y: this.activeBattle.y, guest: this.activeBattle.guest() }
+        : null,
       partner: this.partner.debug(),
       special: this.special.debug(),
       pets: this.pets.map((p) => p.debug()),

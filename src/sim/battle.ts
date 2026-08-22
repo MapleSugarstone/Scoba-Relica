@@ -1115,8 +1115,21 @@ export function spendItem(st: BattleState, side: 0 | 1, item: string): "battle" 
 
 // --- turn resolution ---
 
-export function resolveTurn(st: BattleState, choices: Choice[]): BattleEvent[] {
+/**
+ * A round is a set of choices, not a sequence. Two clients in a co-op battle
+ * each ask about their own character first, so they hand the same round in
+ * different orders; the turn rng is consumed once per acting choice, so an
+ * unsorted round would give the two of them different tie-breaks and desync
+ * everything after it. Sorting by side and slot is a total order, since no
+ * slot ever gets two choices.
+ */
+function canonicalOrder(choices: Choice[]): Choice[] {
+  return [...choices].sort((a, b) => a.side - b.side || a.slot - b.slot);
+}
+
+export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[] {
   if (st.winner !== -1 || st.outcome !== "") return [{ text: "The battle is over.", kind: "info" }];
+  const choices = canonicalOrder(unordered);
   for (const c of choices) {
     const err = choiceError(st, c);
     if (err) throw new Error(`illegal choice from side ${c.side} slot ${c.slot}: ${err}`);

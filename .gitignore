@@ -3,6 +3,13 @@ dist/
 *.local
 world.json.bak
 
+# Local relay state: miniflare's own sqlite for `wrangler dev`, holding
+# whatever rooms were opened while testing.
+.wrangler/
+
 # Working notes and local editor config. Kept on disk, kept out of the repo.
 claude-notes/
 .claude/
+
+# Local worker secrets for `wrangler dev`. Never committed.
+.dev.vars

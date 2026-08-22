@@ -7,7 +7,7 @@ import {
   UI, titleScreen, newGameFlow, connectScreen, indexScreen, questScreen,
   relicaScreen, settingsScreen,
 } from "./ui/screens";
-import { battleStage, openTrainerBattle, openWildBattle, type ActiveBattle } from "./ui/battle";
+import { battleStage, netBattle, openTrainerBattle, openWildBattle, type ActiveBattle } from "./ui/battle";
 import { openBreeding } from "./ui/breeding";
 import { openBox, openParty } from "./ui/roster";
 import { openBounceGame } from "./ui/minigame";
@@ -19,9 +19,15 @@ import { loadDevContent, normalizeContent, saveDevContent, type WorldContent } f
 import bundledContent from "./game/content/world.json";
 import type { DevEditor } from "./dev/editor";
 import { registerServiceWorker, requestDurableStorage } from "./pwa";
+import { Session } from "./net/session";
+import type { BattleNet, PendingBattle } from "./net/battlelink";
+import { relayUrl } from "./net/relay";
+import { disableReminders, enableReminders, reminderState } from "./net/push";
+import type { ReminderControl } from "./ui/screens";
 import {
   clearStampedGrowth,
   loadSave,
+  partyOf,
   writeSave,
   flushAutosave,
   exportSave,
@@ -42,10 +48,18 @@ const devEnabled = import.meta.env.DEV || new URLSearchParams(location.search).h
 let scene: Overworld | null = null;
 let currentSave: SaveData | null = null;
 let editor: DevEditor | null = null;
+let session: Session | null = null;
+let relayStatus: { status: string; partnerHere: boolean } = { status: "offline", partnerHere: false };
+/** A fight the peer has started that this player has not walked into yet. */
+let pendingPeerBattle: PendingBattle | null = null;
+/** The last message kind seen from the peer, for diagnosing a stuck co-op fight. */
+let lastFromPeer: string[] = [];
 let art: Art;
 
 function showTitle(): void {
   editor?.close();
+  session?.stop();
+  session = null;
   scene = null;
   currentSave = null;
   ui.hud(false);
@@ -73,11 +87,139 @@ function startGame(save: SaveData): void {
   void ui.transition(() => buildGame(save));
 }
 
+/**
+ * Dials the relay for a save that has a room code. A save without one plays
+ * exactly as before: the session is the only thing that knows about the peer,
+ * so nothing else has to care whether one is connected.
+ */
+/**
+ * The link a fight is opened with, or null when nobody is on the other end.
+ * `battleId` is minted by whoever starts the fight and is what every later
+ * message about it is matched on.
+ */
+function battleNet(save: SaveData, battleId: string, isHost: boolean): BattleNet | null {
+  if (!session?.connected || !save.partnerJoined) return null;
+  return {
+    battleId,
+    localOwner: save.localSlot,
+    isHost,
+    send: (msg) => session?.send(msg),
+  };
+}
+
+function freshBattleId(): string {
+  return `bt${Date.now().toString(36)}${Math.floor(Math.random() * 4096).toString(36)}`;
+}
+
+function openSession(save: SaveData): void {
+  session?.stop();
+  session = new Session(save, {
+    onSaveChanged: () => writeSave(save),
+    liveBattle: () => netBattle(),
+    onTraffic: (kind) => {
+      lastFromPeer.push(kind);
+      if (lastFromPeer.length > 25) lastFromPeer.shift();
+    },
+    onBattleOpened: (battle) => {
+      pendingPeerBattle = battle;
+      // Stand the marker where they are fighting so this player can walk over.
+      scene?.openActiveBattle({
+        x: battle.at.x, y: battle.at.y,
+        guest: () => save.localSlot,
+        join: () => {
+          session?.joinBattle(battle.battleId, save.localSlot, partyOf(save, save.localSlot));
+          ui.toast("Asking to join...");
+          return true;
+        },
+      });
+    },
+    onBattleClosed: (battleId) => {
+      if (pendingPeerBattle?.battleId !== battleId) return;
+      pendingPeerBattle = null;
+      scene?.closeActiveBattle();
+    },
+    onBattleAdopted: (battleId, state) => {
+      pendingPeerBattle = null;
+      void ui.transition(() => {
+        openWildBattle(ui, art, save, state.teams[1][0]!.scoba, (res) => {
+          scene?.closeActiveBattle();
+          scene?.encounterGrace();
+          scene?.refreshCompanions();
+          void res;
+        }, { ...battleNet(save, battleId, false)!, adopted: state });
+      });
+    },
+    onStatus: (status, partnerHere) => {
+      relayStatus = { status, partnerHere };
+      if (status === "live" && partnerHere) scene?.refreshCompanions();
+    },
+    onError: (reason) => ui.toast(`Relay: ${reason}`),
+  });
+  session.start();
+}
+
+/**
+ * Wiring for the Relica screen's reminders card. The relay is what actually
+ * wakes a phone, so a room code is as much a prerequisite as permission is,
+ * and the notes say which of the two is missing rather than failing quietly.
+ */
+function reminderControl(save: SaveData): ReminderControl {
+  return {
+    async read() {
+      const state = await reminderState();
+      if (state === "unavailable") {
+        return { label: "Unavailable", note: "This browser cannot show reminders.", actionable: false };
+      }
+      if (state === "needs-install") {
+        return {
+          label: "Unavailable",
+          note: "Add the game to your Home Screen first, then reminders can be turned on.",
+          actionable: false,
+        };
+      }
+      if (state === "blocked") {
+        return {
+          label: "Blocked",
+          note: "Notifications are turned off for this site in your browser settings.",
+          actionable: false,
+        };
+      }
+      if (!save.room) {
+        return {
+          label: "Turn on",
+          note: "Host or join a room under Connect first: reminders come from the shared Relica.",
+          actionable: false,
+        };
+      }
+      return state === "on"
+        ? { label: "Turn off", note: `${SPECIAL.name} will tell you when it needs feeding, washing or playing with.`, actionable: true }
+        : { label: "Turn on", note: `Be told when ${SPECIAL.name} needs something, even with the game closed.`, actionable: true };
+    },
+    async toggle() {
+      const state = await reminderState();
+      if (state === "on") {
+        await disableReminders();
+        session?.dropSubscription();
+        return { note: "Reminders off." };
+      }
+      const result = await enableReminders();
+      if (!result.ok) {
+        return { note: result.state === "blocked"
+          ? "Your browser refused. Allow notifications for this site to turn them on."
+          : "Reminders were not turned on." };
+      }
+      session?.sendSubscription(result.sub);
+      return { note: `${SPECIAL.name} will let you know when it needs something.` };
+    },
+  };
+}
+
 /** Everything that swaps the title out for a running world. */
 function buildGame(save: SaveData): void {
   editor?.close();
   currentSave = save;
   writeSave(save);
+  openSession(save);
   ui.closeScreen();
   ui.hud(true);
   // A co-op battle stands in the world while it runs, so the other player can
@@ -85,6 +227,15 @@ function buildGame(save: SaveData): void {
   const stand = (at: { x: number; y: number }, battle: ActiveBattle | null): void => {
     if (!battle) return;
     scene?.openActiveBattle({ x: at.x, y: at.y, guest: battle.guest, join: battle.join });
+  };
+
+  /**
+   * Starting a fight tells the peer where it is, so their client can stand the
+   * same marker and they can walk over. Only the id and the place travel: the
+   * fight itself is handed over whole once they actually arrive.
+   */
+  const announce = (id: string, at: { x: number; y: number }): void => {
+    if (session?.connected && save.partnerJoined) session.openBattle(id, save.localSlot, at);
   };
 
   scene = new Overworld(art, save, content, input, ui, {
@@ -97,6 +248,8 @@ function buildGame(save: SaveData): void {
         writeSave(save);
       }
       void ui.transition(() => {
+        const battleId = freshBattleId();
+        announce(battleId, at);
         stand(at, openWildBattle(ui, art, save, wild, (res) => {
           scene?.closeActiveBattle();
           scene?.encounterGrace();
@@ -105,7 +258,7 @@ function buildGame(save: SaveData): void {
           if (res.outcome === "win" || res.outcome === "caught") {
             scene?.creditSentinels("wild", at);
           }
-        }));
+        }, battleNet(save, battleId, true)));
       });
     },
     onOpenNest: () => openBreeding(ui, art!, save, () => scene?.refreshCompanions()),
@@ -118,12 +271,14 @@ function buildGame(save: SaveData): void {
         .map((m) => makeWild(m.species, m.level, rng));
       if (enemies.length === 0) return;
       void ui.transition(() => {
+        const trainerBattleId = freshBattleId();
+        announce(trainerBattleId, { x: npc.x, y: npc.y });
         stand({ x: npc.x, y: npc.y }, openTrainerBattle(ui, art, save, { name: npc.name, enemies, reward: trainer.reward }, (res) => {
           scene?.closeActiveBattle();
           scene?.encounterGrace();
           scene?.refreshCompanions();
           result(res.outcome === "win");
-        }));
+        }, battleNet(save, trainerBattleId, true)));
       });
     },
   });
@@ -190,10 +345,15 @@ function hangBagDoors(): void {
     { label: "QUESTS", open: withSave((save) => questScreen(ui, save, content, back)) },
     { label: "RELICA", open: withSave((save) => relicaScreen(ui, save, {
       onBack: back,
-      onCareChange: () => writeSave(save),
+      reminders: reminderControl(save),
+      onCareChange: () => {
+        writeSave(save);
+        session?.pushCare();
+      },
       onPlay: () => openBounceGame(ui, (score) => {
         save.special = play(advanceCare(save.special, Date.now()), score);
         writeSave(save);
+        session?.pushCare();
         ui.toast(score > 0
           ? `${SPECIAL.name} had fun. +${Math.round(Math.min(100, score) * 0.4)} mood.`
           : `${SPECIAL.name} shrugs.`);
@@ -201,7 +361,11 @@ function hangBagDoors(): void {
     })) },
     { label: "CONNECT", open: withSave((save) => connectScreen(ui, save, {
       onBack: back,
-      onChange: () => writeSave(save),
+      onChange: () => {
+        writeSave(save);
+        session?.start();
+      },
+      relay: () => relayStatus,
     })) },
     { label: "SAVE", open: withSave((save) => {
       flushAutosave();
@@ -321,6 +485,9 @@ async function boot(): Promise<void> {
   // launch, and the storage grant only matters by the first autosave.
   void registerServiceWorker();
   void requestDurableStorage();
+  // Read once at boot so a `?relay=` override is captured even on a launch
+  // that never opens a room, which is how it gets set in the first place.
+  relayUrl();
   // The page starts covered, so nothing shows until the art is actually in.
   art = await loadArt();
   showTitle();
@@ -368,12 +535,26 @@ async function boot(): Promise<void> {
      */
     fight(speciesId: string, level = 4): boolean {
       if (!currentSave || !scene || !SPECIES[speciesId]) return false;
+      const save = currentSave;
       const wild = makeWild(speciesId, level, rngFrom(`debug:${speciesId}:${Date.now().toString(36)}`));
+      // Goes through the same announce and link as a real encounter, so a
+      // co-op fight can be started from the console rather than by pacing a
+      // meadow until one turns up.
+      const battleId = freshBattleId();
+      const where = scene.debugInfo() as { player?: { x: number; y: number } };
+      const spot = { x: where.player?.x ?? 0, y: where.player?.y ?? 0 };
+      if (session?.connected && save.partnerJoined) {
+        session.openBattle(battleId, save.localSlot, spot);
+      }
       void ui.transition(() => {
-        openWildBattle(ui, art, currentSave!, wild, () => {
+        const active = openWildBattle(ui, art, save, wild, () => {
+          scene?.closeActiveBattle();
           scene?.encounterGrace();
           scene?.refreshCompanions();
-        });
+        }, battleNet(save, battleId, true));
+        if (active) {
+          scene?.openActiveBattle({ x: spot.x, y: spot.y, guest: active.guest, join: active.join });
+        }
       });
       return true;
     },
@@ -383,6 +564,14 @@ async function boot(): Promise<void> {
     },
     /** The live save, for setting up a state worth testing from. */
     save: (): SaveData | null => currentSave,
+    /** Relay and co-op battle state, for testing two clients against each other. */
+    net: (): object => ({
+      status: relayStatus,
+      battleId: netBattle()?.battleId ?? null,
+      battle: netBattle()?.debug() ?? null,
+      pending: pendingPeerBattle,
+      lastFromPeer,
+    }),
   };
   // Dev/content hook: read and write the authored world from the console.
   (window as unknown as { scobaDev: object }).scobaDev = {

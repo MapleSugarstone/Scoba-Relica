@@ -8,6 +8,7 @@ import {
   benchFor,
   slotOf,
   slotsAwaitingChoice,
+  stateHash,
   emptySlots,
   sendIn,
   choiceError,
@@ -36,6 +37,7 @@ import {
 import { STATUSES, statusName, type StatusInstance } from "../sim/status";
 import { fieldSigilText, sigilText, sigilUrl, type SigilText } from "./sigil";
 import { enemyChoices, moteChoices } from "../sim/ai";
+import { PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
 import { rngFrom } from "../sim/rng";
 import { gainXp, MAX_LEVEL, maxHp, moveCost, moveName, settleCaught, type ScobaInstance } from "../sim/scoba";
 import { AETUS_PER_TRAINER, AETUS_PER_WILD } from "../sim/growth";
@@ -57,8 +59,18 @@ export interface BattleResult {
  */
 let liveStage: BattleStage | null = null;
 
+/**
+ * The running battle's network handle, so the session can push a peer's
+ * choices into it without threading a reference through the overworld.
+ */
+let livePeer: NetBattle | null = null;
+
 export function battleStage(): BattleStage | null {
   return liveStage;
+}
+
+export function netBattle(): NetBattle | null {
+  return livePeer;
 }
 
 /**
@@ -109,8 +121,9 @@ export function openWildBattle(
   save: SaveData,
   wild: ScobaInstance,
   onDone: (result: BattleResult) => void,
+  net: BattleNet | null = null,
 ): ActiveBattle | null {
-  return runBattle(ui, art, save, { enemies: [wild], wild: true, onDone });
+  return runBattle(ui, art, save, { enemies: [wild], wild: true, onDone }, net);
 }
 
 export function openTrainerBattle(
@@ -119,6 +132,7 @@ export function openTrainerBattle(
   save: SaveData,
   setup: { name: string; enemies: ScobaInstance[]; reward: number },
   onDone: (result: BattleResult) => void,
+  net: BattleNet | null = null,
 ): ActiveBattle | null {
   return runBattle(ui, art, save, {
     enemies: setup.enemies,
@@ -126,10 +140,16 @@ export function openTrainerBattle(
     trainerName: setup.name,
     rewardMoney: setup.reward,
     onDone,
-  });
+  }, net);
 }
 
-function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): ActiveBattle | null {
+function runBattle(
+  ui: UI,
+  art: Art,
+  save: SaveData,
+  setup: BattleSetup,
+  net: BattleNet | null = null,
+): ActiveBattle | null {
   const { enemies, onDone } = setup;
   // Solo puts both characters in from the start and the one player picks for
   // both. With a second player connected only the character who walked into
@@ -146,10 +166,14 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
     fighters.includes("B") ? "B" : null,
   ];
   const team = fighters.flatMap((owner) => partyOf(save, owner));
-  const seed = `${save.worldSeed}:${Date.now().toString(36)}`;
-  const st = startBattle(seed, team, enemies, {
-    slots: 2, wild: setup.wild, owners, ez: save.ez,
-  });
+  // The guest is handed the fight as it stands rather than rebuilding it: it
+  // may have walked in several rounds late, and only the host was there for
+  // what happened before that.
+  const st = net?.adopted ?? startBattle(
+    `${save.worldSeed}:${Date.now().toString(36)}`,
+    team, enemies, { slots: 2, wild: setup.wild, owners, ez: save.ez },
+  );
+  const seed = st.seed;
   // Local player's Scoba reads first, whichever character they control.
   const displayOrder: (0 | 1)[] = localOwner === "A" ? [0, 1] : [1, 0];
   /** Which order the slots are asked about in: Scobas first, Motes after. */
@@ -172,6 +196,12 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
   /** Slots waiting on a replacement, asked about between rounds. */
   let sendInSlots: number[] = [];
   let pendingJoin: OwnerId | null = null;
+  /** Choices the peer has sent for this turn, keyed by turn so an early one keeps. */
+  const peerChoices = new PeerChoices();
+  /** Teams the peer sent with its join, keyed by character. */
+  const joinTeams = new Map<OwnerId, ScobaInstance[]>();
+  /** Set once the local player has answered for every slot they own. */
+  let localReady = false;
   /**
    * The action the current character has chosen but not yet aimed. Picking a
    * move opens this, and it closes once every target spec has an answer.
@@ -1097,16 +1127,21 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
     flushJoin();
     // The Motes that run themselves are left off: nobody is asked about them,
     // and their choices come out of the AI when the round is submitted.
+    localReady = false;
     roundSlots = slotsAwaitingChoice(st, 0)
       .filter((slot) => {
         const c = at(0, slot);
-        return !!c && !selfRunning(c);
+        if (!c || selfRunning(c)) return false;
+        // With a peer connected each client answers only for its own
+        // character. Solo keeps both, because one player is playing both.
+        return !net || st.slotOwner[slot] === net.localOwner;
       })
       .sort((a, b) => askOrder(a) - askOrder(b));
     // Nobody left to ask, but the field is not empty: the round still has to
     // play so whatever is standing there gets its turn.
     if (roundSlots.length === 0) {
-      submitRound();
+      localReady = true;
+      tryResolve();
       return;
     }
     render();
@@ -1120,15 +1155,54 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
       return;
     }
     staged.push(choice);
+    net?.send({ t: "battle-choice", battleId: net.battleId, turn: st.turn, choice });
     // Fleeing ends the battle before anyone acts, so nobody else picks.
     if (choice.kind === "flee") {
-      submitRound();
+      localReady = true;
+      tryResolve();
       return;
     }
     pickIndex += 1;
     menu = "main";
-    if (pickIndex >= roundSlots.length) submitRound();
-    else render();
+    if (pickIndex >= roundSlots.length) {
+      localReady = true;
+      tryResolve();
+    } else {
+      render();
+    }
+  };
+
+  /** Slots the peer owns that are still owed a choice this round. */
+  const peerSlotsOwed = (): number[] => {
+    if (!net) return [];
+    return slotsAwaitingChoice(st, 0).filter((slot) => {
+      const c = at(0, slot);
+      if (!c || selfRunning(c)) return false;
+      return st.slotOwner[slot] !== net.localOwner && st.slotOwner[slot] !== null;
+    });
+  };
+
+  /**
+   * The round goes when both players have answered. Solo resolves the moment
+   * the one player is done; with a peer it waits, and the wait is shown rather
+   * than looking like the game has stopped.
+   */
+  const tryResolve = (): void => {
+    if (!localReady || busy) return;
+    if (!net) {
+      submitRound();
+      return;
+    }
+    const owed = peerSlotsOwed();
+    const have = peerChoices.forTurn(st.turn);
+    if (owed.some((slot) => !have.some((c) => c.slot === slot))) {
+      // Rendered first: `render` rebuilds the log element, so saying it before
+      // would write the line onto the node that is about to be thrown away.
+      render();
+      say(`Waiting for ${nameOf(OTHER[net.localOwner])}...`, "info");
+      return;
+    }
+    submitRound();
   };
 
   const submitRound = (): void => {
@@ -1142,8 +1216,21 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
     // What the plates show is frozen where the player can see it, then let
     // out event by event as the round plays.
     stage.snapshot();
-    const events = resolveTurn(st, [...staged, ...moteChoices(st, 0), ...enemyChoices(st)]);
+    // The peer's picks join ours. `resolveTurn` sorts the round into a
+    // canonical order, so it does not matter that the two clients assemble
+    // this array from opposite ends.
+    const resolvedTurn = st.turn;
+    const peers = net ? peerChoices.forTurn(resolvedTurn) : [];
+    const events = resolveTurn(st, [...staged, ...peers, ...moteChoices(st, 0), ...enemyChoices(st)]);
     staged = [];
+    localReady = false;
+    if (net) {
+      peerChoices.clearThrough(resolvedTurn);
+      // Both clients hash the result and the relay compares them. Nothing is
+      // rolled back on a mismatch: it is reported, because a desync means the
+      // two of them stopped playing the same game and only a person can judge.
+      net.send({ t: "battle-hash", battleId: net.battleId, turn: resolvedTurn, hash: stateHash(st) });
+    }
     stage.setAiming(null);
     render();
     // The scene paces the round: each event writes its log line as its own
@@ -1195,7 +1282,10 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
       const bench = benchFor(st, 1, slot);
       if (bench.length > 0) events.push(...sendIn(st, 1, slot, bench[0]!));
     }
-    sendInSlots = emptySlots(st, 0);
+    // Each client fills only its own character's empty slots; the peer's
+    // arrive as `battle-send-in`.
+    sendInSlots = emptySlots(st, 0)
+      .filter((slot) => !net || st.slotOwner[slot] === net.localOwner);
     playThen(events, askSendIn);
   };
 
@@ -1208,6 +1298,20 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
   };
 
   const chooseSendIn = (slot: number, benchIndex: number): void => {
+    const events = sendIn(st, 0, slot, benchIndex);
+    sendInSlots = sendInSlots.filter((s) => s !== slot);
+    // Arriving costs no turn, so a replacement is not one of the round's
+    // choices and the peer has to be told about it separately or the two
+    // clients field different Scobas.
+    if (net && (slot === 0 || slot === 1)) {
+      net.send({ t: "battle-send-in", battleId: net.battleId, turn: st.turn, slot, benchIndex });
+    }
+    playThen(events, askSendIn);
+  };
+
+  /** A replacement the peer walked on. Applied without asking anyone here. */
+  const applyPeerSendIn = (slot: 0 | 1, benchIndex: number): void => {
+    if (!emptySlots(st, 0).includes(slot)) return;
     const events = sendIn(st, 0, slot, benchIndex);
     sendInSlots = sendInSlots.filter((s) => s !== slot);
     playThen(events, askSendIn);
@@ -1232,8 +1336,14 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
     if (busy || staged.length > 0) return;
     pendingJoin = null;
     if (!canJoin(owner)) return;
+    // A peer brings its own party: this save's copy of the other character's
+    // Scobas drifted the moment either player did anything alone.
+    const team = joinTeams.get(owner) ?? partyOf(save, owner);
+    joinTeams.delete(owner);
     say(`${nameOf(owner)} joins the battle!`, "win");
-    for (const ev of joinBattle(st, owner, partyOf(save, owner))) say(ev.text, ev.kind);
+    for (const ev of joinBattle(st, owner, team)) say(ev.text, ev.kind);
+    // The host is the one that was here first, so it settles what the state is.
+    if (net?.isHost) net.send({ t: "battle-sync", battleId: net.battleId, state: st });
   };
 
   const requestJoin = (owner: OwnerId): boolean => {
@@ -1325,9 +1435,12 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
     healParty();
     // Under the cover, so the battle screen never blinks off to show the
     // overworld before the overworld is ready to be seen.
+    // The peer stops waiting on choices that are never coming.
+    net?.send({ t: "battle-close", battleId: net.battleId, outcome: result.outcome });
     void ui.transition(() => {
       stage.onFrame = null;
       liveStage = null;
+      livePeer = null;
       writeSave(save);
       autosave(save);
       ui.setLocked(false);
@@ -1341,6 +1454,7 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
   if (st.teams[0].every((c) => c.fainted)) {
     handleLoss();
     liveStage = null;
+    livePeer = null;
     return null;
   }
   // The opening walks everyone on, then plays whatever the opening triggers
@@ -1351,6 +1465,45 @@ function runBattle(ui: UI, art: Art, save: SaveData, setup: BattleSetup): Active
     busy = false;
     playThen(st.opening, fillEmpties);
   });
+
+  // The handle the session drives peer messages through. Registered even when
+  // the battle is solo-shaped, because a peer can connect mid-fight.
+  livePeer = net ? {
+    battleId: net.battleId,
+    peerChoice(turn: number, choice: Choice) {
+      // A choice for a turn already resolved is a straggler from a resend.
+      if (turn < st.turn) return;
+      peerChoices.add(turn, choice);
+      tryResolve();
+    },
+    peerSendIn(turn: number, slot: 0 | 1, benchIndex: number) {
+      if (turn < st.turn) return;
+      applyPeerSendIn(slot, benchIndex);
+    },
+    peerJoin(guest: OwnerId, team: ScobaInstance[]) {
+      if (!canJoin(guest)) return;
+      pendingJoin = guest;
+      joinTeams.set(guest, team);
+      if (!busy && staged.length === 0) beginRound();
+    },
+    peerLeft() {
+      say("The other player left the fight.", "info");
+    },
+    desynced(reason: string) {
+      ui.toast(`Out of step with the other player: ${reason}`);
+    },
+    debug: () => ({
+      coop, busy, staged: staged.length, pendingJoin, roundSlots,
+      localReady, slotOwner: [...st.slotOwner], turn: st.turn,
+      canJoinGuest: canJoin(guestOwner),
+      joinTeams: [...joinTeams.keys()],
+      active: [...st.active[0]],
+      teamSize: st.teams[0].length,
+      // The whole point of the exercise: if these differ, the two clients are
+      // no longer playing the same battle.
+      hash: stateHash(st),
+    }),
+  } : null;
 
   if (!coop) return null;
   return {
