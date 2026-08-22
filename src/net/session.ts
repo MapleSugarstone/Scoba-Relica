@@ -18,7 +18,11 @@ import { sanitizeDollLook } from "../engine/paperdoll";
 export interface SessionHooks {
   /** Care or flags changed underneath the game and the save needs writing. */
   onSaveChanged(): void;
-  /** Connection state, for the Connect screen to read out. */
+  /**
+   * Connection state, and whether somebody is really playing the other
+   * character: holding their slot is not the same thing, and everything
+   * outside here means the second one.
+   */
   onStatus(status: RelayStatus, partnerHere: boolean): void;
   onError(reason: string): void;
   /** Every message from the peer, for diagnosing a stuck co-op fight. */
@@ -47,7 +51,19 @@ const FORGET_PEER_MS = 10000;
 export class Session {
   private relay: Relay | null = null;
   private status: RelayStatus = "offline";
+  /**
+   * The other slot is held by something. Enough to start negotiating a peer
+   * connection, and not enough to believe anybody is playing them: joining
+   * reads a room before it has a save to read it into, and that knock takes
+   * the slot for a moment without ever walking a character.
+   */
   private partnerHere = false;
+  /**
+   * Somebody has said who they are on the other slot, which only a client
+   * that is actually playing them does. This is what the game outside here
+   * means by the partner being present.
+   */
+  private partnerPlaying = false;
   private peer: PeerLink | null = null;
   /** What we send, and how often, which depends on what is carrying it. */
   private mine = new LocalTrack(RELAY_INTERVAL_MS);
@@ -68,14 +84,18 @@ export class Session {
       onMessage: (msg) => this.receive(msg),
       onStatus: (s) => {
         this.status = s;
-        if (s !== "live") this.partnerHere = false;
-        this.hooks.onStatus(s, this.partnerHere);
+        if (s !== "live") {
+          this.partnerHere = false;
+          this.partnerPlaying = false;
+        }
+        this.hooks.onStatus(s, this.partnerPlaying);
       },
     });
     this.relay.setSaveRev(this.save.careRev ?? 0);
   }
 
   stop(): void {
+    this.partnerPlaying = false;
     this.peer?.close();
     this.peer = null;
     if (this.forgetTimer !== null) clearTimeout(this.forgetTimer);
@@ -87,12 +107,17 @@ export class Session {
     this.partnerHere = false;
   }
 
+  /** True while somebody is really playing the other character. */
+  get partnerIsPlaying(): boolean {
+    return this.partnerPlaying;
+  }
+
   /**
    * Report where this player is. Called every frame; the track decides whether
    * anything is worth sending, and the peer link decides how it travels.
    */
   reportPosition(now: number, state: LocalState): void {
-    if (!this.peer || !this.partnerHere) return;
+    if (!this.peer || !this.partnerPlaying) return;
     const step = this.mine.tick(now, state);
     if (step) this.peer.send(step);
   }
@@ -108,7 +133,7 @@ export class Session {
 
   /** True when this client is the one deciding where the Relica goes. */
   get decidesCompanionship(): boolean {
-    return this.save.localSlot === "A" || !this.partnerHere;
+    return this.save.localSlot === "A" || !this.partnerPlaying;
   }
 
   /**
@@ -269,7 +294,7 @@ export class Session {
           this.announceProfile();
         }
         if (msg.care) this.adoptCare(msg.care.state, msg.care.rev);
-        this.hooks.onStatus(this.status, this.partnerHere);
+        this.hooks.onStatus(this.status, this.partnerPlaying);
         return;
       case "peer": {
         const was = this.partnerHere;
@@ -280,14 +305,13 @@ export class Session {
           // not made a save yet is listening for exactly this.
           this.announceProfile();
         }
-        if (!this.partnerHere && was) this.closePeerLink();
-        // Once the other character has been seen, the save stays in two-player
-        // shape even offline: their half of the story is real either way.
-        if (this.partnerHere && !this.save.partnerJoined) {
-          this.save.partnerJoined = true;
-          this.hooks.onSaveChanged();
+        if (!this.partnerHere && was) {
+          this.closePeerLink();
+          // Whoever was playing them has gone. The next one has to say who
+          // they are before they count as playing again.
+          this.partnerPlaying = false;
         }
-        this.hooks.onStatus(this.status, this.partnerHere);
+        this.hooks.onStatus(this.status, this.partnerPlaying);
         return;
       }
       case "care-state":
@@ -310,6 +334,13 @@ export class Session {
         // playing them, rather than like the placeholder made at setup.
         if (msg.slot !== this.save.localSlot) {
           const them = this.save.characters[msg.slot];
+          // Saying who you are is the first thing a client that is playing
+          // does, and the only thing a knock never does.
+          const arrived = !this.partnerPlaying;
+          this.partnerPlaying = true;
+          // Once the other character has been played, the save stays in
+          // two-player shape even offline: their half of the story is real.
+          if (!this.save.partnerJoined) this.save.partnerJoined = true;
           them.name = msg.character.name;
           // Read rather than trusted: a look now carries hand-painted layers,
           // and this one was encoded by somebody else's client.
@@ -317,6 +348,7 @@ export class Session {
           them.starter = msg.character.starter;
           this.hooks.onSaveChanged();
           this.hooks.onPeerLook?.();
+          if (arrived) this.hooks.onStatus(this.status, this.partnerPlaying);
         }
         return;
       case "relica":

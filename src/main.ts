@@ -143,9 +143,9 @@ function letPartnerIn(): void {
   save.partnerJoined = true;
   const home = recallLent(save);
   writeSave(save);
-  // The scene walks the stand-in off to meet them rather than dropping it, and
-  // rebuilds who is following whom once that is done.
-  scene?.partnerReconnected();
+  // Nothing is told to redraw here. The scene starts the stand-in walking off
+  // to meet them the moment it hears where they are, and rebuilds who follows
+  // whom once that walk is done.
   if (home.length > 0) {
     ui.toast(home.length === 1
       ? "The Scoba you lent comes back to your box."
@@ -282,7 +282,6 @@ function openSession(save: SaveData): void {
     onStatus: (status, partnerHere) => {
       relayStatus = { status, partnerHere };
       partnerPresence(status === "live" && partnerHere);
-      if (status === "live" && partnerHere) scene?.refreshCompanions();
     },
     onError: (reason) => {
       // Recorded as well as shown: a toast is gone in two seconds and these

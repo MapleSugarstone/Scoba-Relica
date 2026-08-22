@@ -7,7 +7,7 @@ import { critterActor, critterSkin } from "./critters";
 import { TILE, type TileMap } from "../engine/tilemap";
 import { Actor, Trail } from "./actors";
 import { findPath, lineOfSight } from "./pathfind";
-import { Handover } from "./handover";
+import { Handover, MEET_DIST } from "./handover";
 import {
   cloneZone, WANDER_SHARE,
   type WorldDef, type EncounterZone, type ZoneSpecies,
@@ -1257,6 +1257,12 @@ export class Overworld {
    */
   private applyPeerPosition(dt: number): boolean {
     const at = this.hooks.peerAt?.() ?? null;
+    // Hearing where they are is what starts the walk, rather than being told
+    // somebody is in the room. A client that knocks to read the world holds
+    // their slot for a moment without walking anybody, and a relay is slow to
+    // notice a closed tab, so presence says somebody is there long before and
+    // long after anybody is.
+    if (at && !this.peerDriven && !this.handover && this.handoverDue(at)) this.beginHandover();
     // A handover holds the character back until the stand-in has walked its
     // errand; only once that is finished does the peer get to place them.
     if (this.handover && !this.stepHandover(dt, at)) return false;
@@ -1276,12 +1282,22 @@ export class Overworld {
   }
 
   /**
-   * The other player is back. Rather than dropping the stand-in and putting
-   * the character wherever they really are, the stand-in sets off to meet
-   * them and the two swap over when it gets there. See `handover.ts`.
+   * Whether the character is somewhere other than where the player who has
+   * just spoken up says they are. If it is already standing there, which is
+   * what a brief drop and reconnect leaves behind, there is nothing to hand
+   * over and walking would only make a fuss about it.
    */
-  partnerReconnected(): void {
-    if (this.handover) return;
+  private handoverDue(at: { x: number; y: number; map: string }): boolean {
+    if (at.map !== this.mapId) return true;
+    return Math.hypot(this.partner.actor.x - at.x, this.partner.actor.y - at.y) > MEET_DIST;
+  }
+
+  /**
+   * Rather than dropping the stand-in and putting the character wherever they
+   * really are, the stand-in sets off to meet them and the two swap over when
+   * it gets there. See `handover.ts`.
+   */
+  private beginHandover(): void {
     this.handover = new Handover();
     this.handoverExit = null;
     // It has somewhere to be now, so it closes right up rather than settling

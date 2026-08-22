@@ -345,10 +345,14 @@
        since a 118 px character is worked on a pixel at a time. It caps at three
        screen pixels per art pixel, which is where a fingertip stops missing. */
     .dollWrap.paintWrap { width: min(100%, 366px); padding: 6px; }
+    /* The stage carries its own size: one whole screen pixel per art pixel at
+       whatever zoom is set, so a grid rule lands on a pixel edge rather than
+       across one. It only ever shrinks, for a screen too narrow to hold it. */
     canvas.paintStage {
       display: block;
+      margin: 0 auto;
       image-rendering: pixelated;
-      width: 100%;
+      max-width: 100%;
       height: auto;
       /* A drag on the doll is a stroke, never a scroll of the screen under it. */
       touch-action: none;
