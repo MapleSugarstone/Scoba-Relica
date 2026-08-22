@@ -101,6 +101,8 @@ export function sendToBox(save: SaveData, uid: string): boolean {
   const at = save.party.findIndex((s) => s.uid === uid);
   const scoba = save.party[at];
   if (!scoba) return false;
+  // A loan goes home to the lender's box, never into the borrower's.
+  if (scoba.lentBy) return false;
   if (partyOf(save, scoba.owner ?? save.localSlot).length <= 1) return false;
   save.party.splice(at, 1);
   save.box.push(scoba);
@@ -122,6 +124,58 @@ export function takeFromBox(save: SaveData, uid: string): boolean {
 
 export function partyHasRoom(save: SaveData, owner: SlotId): boolean {
   return partyOf(save, owner).length < PARTY_PER_CHARACTER;
+}
+
+export function otherSlot(slot: SlotId): SlotId {
+  return slot === "A" ? "B" : "A";
+}
+
+/**
+ * Puts one of your boxed Scobas in the other character's party, for the stretch
+ * where nobody else is playing them. It stays yours the whole time: `lentBy` is
+ * what brings it home the moment a second player turns up, and it is why their
+ * box is never involved at either end of the loan.
+ */
+export function lend(save: SaveData, uid: string): boolean {
+  const at = save.box.findIndex((s) => s.uid === uid);
+  const scoba = save.box[at];
+  if (!scoba || scoba.lentBy) return false;
+  const from = save.localSlot;
+  if ((scoba.owner ?? from) !== from) return false;
+  const to = otherSlot(from);
+  if (!partyHasRoom(save, to)) return false;
+  save.box.splice(at, 1);
+  scoba.lentBy = from;
+  scoba.owner = to;
+  save.party.push(scoba);
+  return true;
+}
+
+/**
+ * Takes a loan back off the other character. No party minimum: what is on loan
+ * was never theirs to be left with, and a real partner arrives with their own.
+ */
+export function takeBack(save: SaveData, uid: string): boolean {
+  const at = save.party.findIndex((s) => s.uid === uid);
+  const scoba = save.party[at];
+  if (!scoba?.lentBy) return false;
+  save.party.splice(at, 1);
+  scoba.owner = scoba.lentBy;
+  delete scoba.lentBy;
+  save.box.push(scoba);
+  return true;
+}
+
+/** Everything out on loan, in the order it was lent. */
+export function lentOut(save: SaveData): ScobaInstance[] {
+  return save.party.filter((s) => s.lentBy !== undefined);
+}
+
+/** Brings every loan home at once, which is what a second player arriving means. */
+export function recallLent(save: SaveData): ScobaInstance[] {
+  const home = lentOut(save);
+  for (const s of home) takeBack(save, s.uid);
+  return home;
 }
 
 /**

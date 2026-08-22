@@ -772,8 +772,8 @@
     .bxRead { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 110px; justify-content: center; }
     .bxReadName { font-size: 14px; color: #f3f2c0; }
 
-    /* Scroll column, with whose box it is above it. */
-    .bxOwner { display: flex; flex-direction: column; gap: 3px; }
+    /* Whose party the strip is showing, and the scroll column. */
+    .bxOwner { display: flex; flex-direction: column; gap: 3px; width: 84px; }
     .bxOwnerBtn {
       font: inherit;
       font-size: 11px;
@@ -808,9 +808,12 @@
     .bxThumb.held { background: #f3f2c0; }
 
     /* The strip under the grid. */
-    .bxParty { flex: 1; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+    .bxParty { flex: 1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
     .bxPartyRow { display: flex; align-items: center; gap: 4px; }
-    .bxParty .bxCell { width: 78px; }
+    .bxParty .bxCell { width: 78px; position: relative; }
+    /* Says a Scoba on the other character's strip is one of yours, on loan. */
+    .bxLent { position: absolute; top: 2px; right: 3px; font-size: 9px; color: #f3f2c0; }
+    .bxLendNote { flex-basis: 100%; text-align: center; font-size: 12px; }
     .bxSwap {
       font: inherit;
       font-size: 12px;
@@ -911,13 +914,12 @@
     @media (max-width: 760px) {
       .browser {
         grid-template-columns: minmax(0, 1fr);
-        grid-template-areas: "side" "grid" "info" "foot" "search";
+        grid-template-areas: "grid" "info" "foot" "search";
       }
-      .bxSide { flex-direction: row; align-items: stretch; }
-      .bxOwner { flex-direction: row; flex: 1; }
+      .bxOwner { flex-direction: row; width: auto; flex-basis: 100%; }
       .bxOwnerBtn { flex: 1; font-size: 13px; }
-      .bxArrow, .bxTrack { display: none; }
-      .bxSide:not(:has(.bxOwner)) { display: none; }
+      /* Nothing left in the column once the bar and its arrows are gone. */
+      .bxSide { display: none; }
       .bxGrid { height: 46vh; }
       .bxRead { min-height: 0; }
     }

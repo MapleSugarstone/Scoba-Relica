@@ -41,6 +41,8 @@ export interface ScobaInstance {
   hp: number; // current effective HP, persisted between battles
   /** Which character it walks with in the overworld. Wild ones have none. */
   owner?: "A" | "B";
+  /** Whose it really is, while it is lent to the other character. */
+  lentBy?: "A" | "B";
   /** Colour mask inherited from its father, drawn over the species art. */
   tint?: Tint;
   /** Rare colouring: its main colour is turned, and it glitters. */

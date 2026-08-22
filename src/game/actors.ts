@@ -92,15 +92,31 @@ export class Actor {
     return MOTIONS[this.skin.motion];
   }
 
-  /** Move by an axis vector with collision; updates direction and hop state. */
   /** Start it see-through and let it come in over `secs`. */
   ghostIn(secs = 0.7): void {
     this.fade = 0;
     this.fadeRate = 1 / Math.max(0.01, secs);
   }
 
+  /** Take it down to nothing over `secs`. `faded` says when it has gone. */
+  ghostOut(secs = 0.5): void {
+    this.fadeRate = -1 / Math.max(0.01, secs);
+  }
+
+  /** True once a fade-out has run all the way down. */
+  get faded(): boolean {
+    return this.fade <= 0;
+  }
+
+  private stepFade(dt: number): void {
+    if (this.fadeRate === 0) return;
+    this.fade = Math.max(0, Math.min(1, this.fade + this.fadeRate * dt));
+    if (this.fade === 0 || this.fade === 1) this.fadeRate = 0;
+  }
+
+  /** Move by an axis vector with collision; updates direction and hop state. */
   step(dt: number, ax: number, ay: number, map: TileMap): void {
-    if (this.fade < 1) this.fade = Math.min(1, this.fade + this.fadeRate * dt);
+    this.stepFade(dt);
     if (this.skin.sparkle) {
       this.sparkCarry = shedSparks(this.sparks, this.x, this.y, this.sparkCarry, dt);
     }
@@ -172,7 +188,7 @@ export class Actor {
    * leaves them standing rather than trudging on the spot forever.
    */
   driveTo(dt: number, x: number, y: number, dir: 1 | -1): void {
-    if (this.fade < 1) this.fade = Math.min(1, this.fade + this.fadeRate * dt);
+    this.stepFade(dt);
     if (this.skin.sparkle) {
       this.sparkCarry = shedSparks(this.sparks, this.x, this.y, this.sparkCarry, dt);
     }

@@ -7,6 +7,7 @@ import { critterActor, critterSkin } from "./critters";
 import { TILE, type TileMap } from "../engine/tilemap";
 import { Actor, Trail } from "./actors";
 import { findPath, lineOfSight } from "./pathfind";
+import { Handover } from "./handover";
 import {
   cloneZone, WANDER_SHARE,
   type WorldDef, type EncounterZone, type ZoneSpecies,
@@ -133,7 +134,8 @@ class Companion {
     readonly actor: Actor,
     /** Where it wants to be near, read fresh every frame. */
     readonly anchor: () => { x: number; y: number },
-    readonly ring: { near: number; far: number },
+    /** Settable: a stand-in walking somebody in closes right up first. */
+    public ring: { near: number; far: number },
     /** Past this it gives up on holding a spot and heads straight over. */
     readonly leash: number,
     /** The path it rejoins along after being left behind. */
@@ -600,6 +602,8 @@ class Companion {
       // character with this stuck false slides about with its legs frozen.
       moving: this.actor.moving,
       gait: Number(this.actor.gaitPhase().toFixed(2)),
+      fade: Number(this.actor.fade.toFixed(2)),
+      hidden: this.actor.hidden,
     };
   }
 }
@@ -618,6 +622,15 @@ interface Roamer {
   calm: number;
 }
 
+/** The ring the other character keeps while simply tagging along. */
+const PARTNER_RING = { near: 20, far: 46 };
+/** The one it closes to while walking somebody in, so a meeting is a meeting. */
+const MEETING_RING = { near: 3, far: 10 };
+/** How far past the edge of the view a stand-in walks before it is out of it. */
+const EXIT_MARGIN = 96;
+/** How long a stand-in takes to go once it has nothing left to walk to. */
+const HANDOVER_FADE = 0.6;
+
 export class Overworld {
   private world: WorldDef;
   private player: Actor;
@@ -625,6 +638,8 @@ export class Overworld {
   /** The special Scoba: a third wheel that hangs between the two characters. */
   private special: Companion;
   private pets: Companion[] = [];
+  /** The other character's Scobas, which come and go with them. */
+  private partnerPets: Companion[] = [];
   private companions: Companion[] = [];
   /** Paths the two characters have walked, for companions rejoining them. */
   private trails: Record<SlotId, Trail> = { A: new Trail(), B: new Trail() };
@@ -638,6 +653,15 @@ export class Overworld {
   private static readonly REUNION_DIST = 90;
   /** True while the other player is walking the partner, not this client. */
   private peerDriven = false;
+  /**
+   * The stand-in walking off to meet a player who has just come back, so the
+   * character is handed over on a meeting rather than on a teleport.
+   */
+  private handover: Handover | null = null;
+  /** Where the stand-in is walking while handing over, or null to follow. */
+  private handoverGoal: { x: number; y: number } | null = null;
+  /** Where a leaving walk is headed, re-picked once it gets there. */
+  private handoverExit: { x: number; y: number } | null = null;
   /** Last computed reachability, for the debug readout. */
   private lastHere: { A: boolean; B: boolean } = { A: true, B: true };
   private cam = new Camera();
@@ -692,7 +716,7 @@ export class Overworld {
     // The partner picks a strong side of its own; the special stays looser
     // since it already weaves between the two characters.
     this.partner = new Companion(
-      partnerActor, () => this.player, { near: 20, far: 46 }, 60,
+      partnerActor, () => this.handoverGoal ?? this.player, { ...PARTNER_RING }, 60,
       this.trails[save.localSlot], (Math.random() < 0.5 ? -1 : 1) * 0.85,
     );
 
@@ -723,16 +747,19 @@ export class Overworld {
   private buildPets(): void {
     const keep = new Map(this.pets.filter((p) => p.uid).map((p) => [p.uid!, p]));
     this.pets = [];
+    this.partnerPets = [];
     for (const slot of ["A", "B"] as SlotId[]) {
-      const anchor = slot === this.save.localSlot
-        ? (): Actor => this.player
-        : (): Actor => this.partner.actor;
+      const theirs = slot !== this.save.localSlot;
+      const anchor = theirs
+        ? (): Actor => this.partner.actor
+        : (): Actor => this.player;
       const mine = partyOf(this.save, slot);
       for (let i = 0; i < mine.length; i++) {
         const inst = mine[i]!;
         const existing = keep.get(inst.uid);
         if (existing) {
           this.pets.push(existing);
+          if (theirs) this.partnerPets.push(existing);
           continue;
         }
         const spec = SPECIES[inst.speciesId];
@@ -741,11 +768,18 @@ export class Overworld {
         const actor = critterActor(this.art, spec, at.x, at.y, inst.tint, inst.shiny);
         actor.speed = this.player.speed;
         actor.radius = 3;
+        // One of theirs is drawn however they are: off on another map, or on
+        // its way out with a stand-in, rather than standing there solid.
+        if (theirs) {
+          actor.fade = this.partner.actor.fade;
+          actor.hidden = this.partner.actor.hidden;
+        }
         // Alternate sides down the roster so each pet chases on its own line.
         const flank = (i % 2 === 0 ? 1 : -1) * (0.5 + 0.25 * Math.floor(i / 2) + Math.random() * 0.15);
         const pet = new Companion(actor, anchor, { near: 12, far: 40 }, 54, this.trails[slot], flank, inst.uid);
         pet.placeNear(this.world.map, [this.player, ...this.pets.map((p) => p.actor)]);
         this.pets.push(pet);
+        if (theirs) this.partnerPets.push(pet);
       }
     }
     this.companions = [this.partner, this.special, ...this.pets];
@@ -780,6 +814,10 @@ export class Overworld {
    */
   private between(): { x: number; y: number } {
     const a = this.player;
+    // A stand-in on its way out is nobody to keep company. The Relica stays
+    // with whoever is actually here until the swap is done, and eases back
+    // over afterwards if the other character is who it was walking with.
+    if (this.handover) return { x: a.x, y: a.y };
     const b = this.partner.actor;
     return { x: a.x + (b.x - a.x) * this.lean, y: a.y + (b.y - a.y) * this.lean };
   }
@@ -913,6 +951,8 @@ export class Overworld {
   enterMap(mapId: string, at?: { x: number; y: number }): void {
     const target = mapById(this.content, mapId);
     if (!target) return;
+    // Nobody is going to meet anybody across a map change.
+    this.endHandover();
     this.mapId = mapId;
     this.world = resolveWorld(this.art, this.save.worldSeed, this.content, mapId, this.sentinelOpen);
     let sp = at ?? this.world.spawn;
@@ -1050,17 +1090,15 @@ export class Overworld {
    */
   private recoverLostCompanions(crowd: Actor[]): void {
     if (this.view.w === 0) return; // no frame drawn yet
-    const margin = 24; // clearly past the edge, not just clipped by it
-    const hidden = (x: number, y: number): boolean =>
-      x < this.view.x - margin || x > this.view.x + this.view.w + margin ||
-      y < this.view.y - margin || y > this.view.y + this.view.h + margin;
+    const hidden = (x: number, y: number): boolean => this.offView(x, y);
     const edge = Math.max(this.view.w, this.view.h) / 2 + 24;
     for (const c of this.companions) {
       // The other player being off this screen is not them getting lost, it is
       // them walking somewhere else, which is the entire point of two people
       // moving separately. Snapping them back onto our trail fought their own
-      // position every frame and flung them about.
-      if (this.peerDriven && c === this.partner) continue;
+      // position every frame and flung them about. Nor is a stand-in walking
+      // off to meet them: leaving the screen is what it is for.
+      if (c === this.partner && (this.peerDriven || this.handover)) continue;
       if (c.trailing()) continue; // already walking its way back
       if (c.away() < c.leash + 40) continue; // just clipped by the edge, not lost
       if (hidden(c.actor.x, c.actor.y)) c.snapToTrail(this.world.map, crowd, hidden, edge);
@@ -1219,19 +1257,133 @@ export class Overworld {
    */
   private applyPeerPosition(dt: number): boolean {
     const at = this.hooks.peerAt?.() ?? null;
+    // A handover holds the character back until the stand-in has walked its
+    // errand; only once that is finished does the peer get to place them.
+    if (this.handover && !this.stepHandover(dt, at)) return false;
     if (!at) {
-      this.partner.actor.hidden = false;
+      this.showPartner(true);
       return false;
     }
     if (at.map !== this.mapId) {
-      this.partner.actor.hidden = true;
+      this.showPartner(false);
       return true;
     }
-    this.partner.actor.hidden = false;
+    this.showPartner(true);
     // Placed rather than walked, but still animated: the gait has to be
     // advanced by hand or the character slides with its legs frozen.
     this.partner.actor.driveTo(dt, at.x, at.y, at.dir);
     return true;
+  }
+
+  /**
+   * The other player is back. Rather than dropping the stand-in and putting
+   * the character wherever they really are, the stand-in sets off to meet
+   * them and the two swap over when it gets there. See `handover.ts`.
+   */
+  partnerReconnected(): void {
+    if (this.handover) return;
+    this.handover = new Handover();
+    this.handoverExit = null;
+    // It has somewhere to be now, so it closes right up rather than settling
+    // at the loose following distance it keeps when it is just tagging along.
+    this.partner.ring = { ...MEETING_RING };
+  }
+
+  /**
+   * Walk the stand-in through its errand. Returns true once the swap is made,
+   * so the same frame can go on to place the character where they really are.
+   */
+  private stepHandover(dt: number, at: { x: number; y: number; map: string } | null): boolean {
+    const h = this.handover!;
+    const me = this.partner.actor;
+    const sameMap = at !== null && at.map === this.mapId;
+    const act = h.step(dt, {
+      peer: at ? { x: at.x, y: at.y } : null,
+      sameMap,
+      dist: at ? Math.hypot(me.x - at.x, me.y - at.y) : Infinity,
+      offView: this.offView(me.x, me.y),
+      faded: me.faded,
+    });
+    if (act === "done") {
+      this.endHandover();
+      return true;
+    }
+    // Visible for all of it: this is the character, walking, and hiding it
+    // would be the disappearance the whole errand exists to avoid.
+    this.showPartner(true);
+    if (act === "follow") this.handoverGoal = null;
+    else if (act === "meet") this.handoverGoal = at ? { x: at.x, y: at.y } : null;
+    else if (act === "leave") this.handoverGoal = this.exitGoal();
+    else {
+      // Fading: it keeps walking wherever it was headed on the way out.
+      for (const a of this.partnerActors()) {
+        if (a.fade >= 1) a.ghostOut(HANDOVER_FADE);
+      }
+    }
+    return false;
+  }
+
+  /** Put the stand-in away and let the returning player have the character. */
+  private endHandover(): void {
+    if (!this.handover) return;
+    this.handover = null;
+    this.handoverGoal = null;
+    this.handoverExit = null;
+    this.partner.ring = { ...PARTNER_RING };
+    // What they are really bringing with them, which is not what the stand-in
+    // was walking with: anything you had lent them went home when they logged
+    // in, and this is the first moment it can show without them vanishing.
+    this.refreshCompanions();
+    // Anything that faded out comes back in wherever they turn out to be,
+    // rather than popping into being there.
+    for (const a of this.partnerActors()) {
+      if (a.fade < 1) a.ghostIn(0.4);
+    }
+  }
+
+  /** The other character and everything walking with them. */
+  private partnerActors(): Actor[] {
+    return [this.partner.actor, ...this.partnerPets.map((p) => p.actor)];
+  }
+
+  /** Show or hide the other character and their Scobas as one. */
+  private showPartner(shown: boolean): void {
+    for (const a of this.partnerActors()) a.hidden = !shown;
+  }
+
+  /**
+   * Somewhere off the screen for the stand-in to head for when the player it
+   * is going to meet is on another map: away from you, past the edge of what
+   * you can see, and on ground it can stand on. Re-picked once it arrives,
+   * since a player who follows it there has moved the edge along with them.
+   */
+  private exitGoal(): { x: number; y: number } {
+    const me = this.partner.actor;
+    const at = this.handoverExit;
+    if (at && Math.hypot(me.x - at.x, me.y - at.y) > 14) return at;
+    const away = Math.atan2(me.y - this.player.y, me.x - this.player.x);
+    const reach = Math.max(this.view.w, this.view.h) / 2 + EXIT_MARGIN;
+    // Sweeping outwards from the way it is already facing, all the way round:
+    // one ring of open water is enough to leave a small island with only one
+    // direction anybody can walk off in.
+    for (let turn = 0; turn <= Math.PI + 0.01; turn += Math.PI / 8) {
+      for (const side of turn === 0 ? [0] : [turn, -turn]) {
+        const x = this.player.x + Math.cos(away + side) * reach;
+        const y = this.player.y + Math.sin(away + side) * reach;
+        if (blocked(this.world.map, x, y, me.radius + 1)) continue;
+        this.handoverExit = { x, y };
+        return this.handoverExit;
+      }
+    }
+    this.handoverExit = { x: me.x, y: me.y };
+    return this.handoverExit;
+  }
+
+  /** Past the edge of what the camera is showing, with room to spare. */
+  private offView(x: number, y: number, margin = 24): boolean {
+    if (this.view.w === 0) return false; // no frame drawn yet
+    return x < this.view.x - margin || x > this.view.x + this.view.w + margin ||
+      y < this.view.y - margin || y > this.view.y + this.view.h + margin;
   }
 
   /** Where a character is standing: the one you drive, or the one you follow. */
@@ -1391,12 +1543,16 @@ export class Overworld {
   debugInfo(): object {
     return {
       player: { x: this.player.x, y: this.player.y, dir: this.player.dir },
+      mapId: this.mapId,
       // Where a co-op fight is standing, so a test can tell whether the peer's
       // battle was heard about without walking to it.
       activeBattle: this.activeBattle
         ? { x: this.activeBattle.x, y: this.activeBattle.y, guest: this.activeBattle.guest() }
         : null,
       partner: this.partner.debug(),
+      handover: this.handover
+        ? { goal: this.handoverGoal, driven: this.peerDriven }
+        : null,
       companionship: { ...(this.save.companionship ?? {}), here: this.lastHere },
       special: this.special.debug(),
       pets: this.pets.map((p) => p.debug()),

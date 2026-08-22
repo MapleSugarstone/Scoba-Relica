@@ -153,8 +153,10 @@ function runBattle(
   const { enemies, onDone } = setup;
   // Solo puts both characters in from the start and the one player picks for
   // both. With a second player connected only the character who walked into
-  // the fight starts, and the other joins from the overworld.
-  const coop = save.partnerJoined;
+  // the fight starts, and the other joins from the overworld. A link is what
+  // says which this is: there is one exactly when somebody is on the other end
+  // to hand the second character to.
+  const coop = net !== null;
   const localOwner = save.localSlot;
   const guestOwner = OTHER[localOwner];
   const fighters: OwnerId[] = coop ? [localOwner] : ["A", "B"];

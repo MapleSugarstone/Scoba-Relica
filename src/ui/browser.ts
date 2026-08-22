@@ -17,7 +17,6 @@ import { moveCost, passiveStatuses, statsAt, maxHp, type ScobaInstance } from ".
 import { ABILITIES, MOVES, SPECIES, typesOf, type Move } from "../sim/species";
 import { TARGET_LABELS } from "../sim/targeting";
 import { STAT_LABELS, TYPES, TYPE_COLORS, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
-import type { SaveData, SlotId } from "../save/save";
 import type { UI } from "./screens";
 import { typeIcon, typeIcons } from "./typeicon";
 
@@ -77,18 +76,14 @@ export interface FootContext {
   gridPick: () => ScobaInstance | null;
   /** Put one of the strip's own Scobas in the readout instead. */
   show: (s: ScobaInstance | null) => void;
-  /** Which character's roster is on screen. */
-  owner: () => SlotId;
   /** Re-read everything: the grid, the strip and the readout. */
   refresh: () => void;
 }
 
 export interface BrowserConfig {
   title: string;
-  /** Everything the grid can show for that character, before any filter. */
-  source: (owner: SlotId) => ScobaInstance[];
-  /** Whether the side column offers the other character's box. */
-  ownerSwitch: boolean;
+  /** Everything the grid can show, before any filter. */
+  source: () => ScobaInstance[];
   /** The strip under the grid: the party for the Box, one button for the nest. */
   foot: (ctx: FootContext) => HTMLElement;
   onBack: () => void;
@@ -100,8 +95,7 @@ export interface BrowserConfig {
   empty?: string;
 }
 
-export function openBrowser(ui: UI, art: Art, save: SaveData, cfg: BrowserConfig): void {
-  let owner: SlotId = save.localSlot;
+export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
   let picked: string | null = null;
   // What the form is set to, which is not what is being searched until Search.
   const draft = { name: "", types: new Set<ElementType>(), stats: emptyStats() };
@@ -121,7 +115,7 @@ export function openBrowser(ui: UI, art: Art, save: SaveData, cfg: BrowserConfig
    */
   const ceilings = (): Record<StatName, number> => {
     const out = { hp: 0, str: 0, def: 0, res: 0, mag: 0, spd: 0 };
-    for (const s of cfg.source(owner)) {
+    for (const s of cfg.source()) {
       const stats = statsAt(s);
       for (const name of FILTER_STATS) out[name] = Math.max(out[name], stats[name]);
     }
@@ -129,7 +123,7 @@ export function openBrowser(ui: UI, art: Art, save: SaveData, cfg: BrowserConfig
     return out;
   };
 
-  const shown = (): ScobaInstance[] => cfg.source(owner).filter((s) => {
+  const shown = (): ScobaInstance[] => cfg.source().filter((s) => {
     const sp = SPECIES[s.speciesId];
     const q = applied.name.trim().toLowerCase();
     if (q !== "" && !displayName(s).toLowerCase().includes(q)
@@ -140,7 +134,7 @@ export function openBrowser(ui: UI, art: Art, save: SaveData, cfg: BrowserConfig
   });
 
   const gridPick = (): ScobaInstance | null =>
-    cfg.source(owner).find((s) => s.uid === picked) ?? null;
+    cfg.source().find((s) => s.uid === picked) ?? null;
 
   // The strip can borrow the readout for something the grid does not hold, so
   // a fielded Scoba can be read without being put back in the box first.
@@ -149,7 +143,7 @@ export function openBrowser(ui: UI, art: Art, save: SaveData, cfg: BrowserConfig
 
   // --- the pieces that get updated in place ---
   const grid = el("div", "bxGrid");
-  const memoryKey = (): string => `${cfg.memory}:${owner}`;
+  const memoryKey = (): string => cfg.memory;
   const readout = el("div", "bxRead");
   const footWrap = el("div", "bxFoot");
   const thumb = el("i", "bxThumb");
@@ -162,7 +156,6 @@ export function openBrowser(ui: UI, art: Art, save: SaveData, cfg: BrowserConfig
       fillReadout();
       fillFoot();
     },
-    owner: () => owner,
     refresh: () => {
       fillGrid();
       fillFoot();
@@ -205,7 +198,7 @@ export function openBrowser(ui: UI, art: Art, save: SaveData, cfg: BrowserConfig
     const list = shown();
     if (list.length === 0) {
       // An empty box and a search that found nothing read the same otherwise.
-      grid.appendChild(el("div", "bxEmpty", cfg.source(owner).length === 0
+      grid.appendChild(el("div", "bxEmpty", cfg.source().length === 0
         ? (cfg.empty ?? "Nothing in here yet.")
         : "Nothing matches that search."));
       laterThumb();
@@ -366,24 +359,8 @@ export function openBrowser(ui: UI, art: Art, save: SaveData, cfg: BrowserConfig
       gridPanel.appendChild(grid);
       wrap.appendChild(gridPanel);
 
-      // Side column: whose box, then the scroll controls under it.
+      // Side column: the scroll controls.
       const side = el("div", "bxSide");
-      if (cfg.ownerSwitch && !save.partnerJoined) {
-        const swap = el("div", "bxOwner");
-        for (const slot of ["A", "B"] as SlotId[]) {
-          const b = el("button", `bxOwnerBtn${slot === owner ? " sel" : ""}`, save.characters[slot].name);
-          b.addEventListener("click", () => {
-            if (slot === owner) return;
-            sfx.tap();
-            owner = slot;
-            picked = null;
-            spotlight = null;
-            build();
-          });
-          swap.appendChild(b);
-        }
-        side.appendChild(swap);
-      }
       side.appendChild(button("bxArrow", "▲", () => scrollBy(-1)));
       side.appendChild(track);
       side.appendChild(button("bxArrow", "▼", () => scrollBy(1)));

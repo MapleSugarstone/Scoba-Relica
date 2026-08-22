@@ -11,7 +11,7 @@ import {
 } from "./ui/screens";
 import { battleStage, netBattle, openTrainerBattle, openWildBattle, type ActiveBattle } from "./ui/battle";
 import { openBreeding } from "./ui/breeding";
-import { openBox, openParty } from "./ui/roster";
+import { openBox, openParty, type RosterHooks } from "./ui/roster";
 import { openBounceGame } from "./ui/minigame";
 import { SPECIAL, SPECIES } from "./sim/species";
 import { advanceCare, play } from "./sim/care";
@@ -33,6 +33,7 @@ import {
   clearStampedGrowth,
   loadSave,
   partyOf,
+  recallLent,
   writeSave,
   flushAutosave,
   exportSave,
@@ -57,6 +58,19 @@ let session: Session | null = null;
 let relayStatus: { status: string; partnerHere: boolean } = { status: "offline", partnerHere: false };
 /** A fight the peer has started that this player has not walked into yet. */
 let pendingPeerBattle: PendingBattle | null = null;
+/**
+ * True while somebody else is really playing the other character. Everything
+ * that behaves differently alone reads this rather than the save's flag, which
+ * only says the other character belongs to a person and never comes back down.
+ */
+let partnerLive = false;
+/** A partner who turned up mid-fight, held until that fight is over. */
+let partnerWaiting = false;
+/**
+ * Dev: a position to report as the other player's, so the handover can be
+ * walked through without a second device on the other end.
+ */
+let fakePeer: { x: number; y: number; dir: 1 | -1; moving: boolean; map: string } | null = null;
 /** The last message kind seen from the peer, for diagnosing a stuck co-op fight. */
 let lastFromPeer: string[] = [];
 /** How position updates are travelling, for the diagnostics readout. */
@@ -109,8 +123,56 @@ function standPeerBattle(save: SaveData, waiting: PendingBattle): void {
  */
 function leftBattle(id: string): void {
   scene?.closeActiveBattle(id);
+  // Whoever turned up while this fight was running comes in first, so the
+  // rosters are settled before anything is stood to walk into.
+  if (partnerWaiting) letPartnerIn();
   const waiting = pendingPeerBattle;
   if (waiting && currentSave) standPeerBattle(currentSave, waiting);
+}
+
+/**
+ * Somebody is playing the other character from here on. Everything lent to that
+ * character goes home, because from this moment they field their own, and one
+ * Scoba in two rosters at once is the desync all of this waits to avoid.
+ */
+function letPartnerIn(): void {
+  partnerWaiting = false;
+  partnerLive = true;
+  const save = currentSave;
+  if (!save) return;
+  save.partnerJoined = true;
+  const home = recallLent(save);
+  writeSave(save);
+  // The scene walks the stand-in off to meet them rather than dropping it, and
+  // rebuilds who is following whom once that is done.
+  scene?.partnerReconnected();
+  if (home.length > 0) {
+    ui.toast(home.length === 1
+      ? "The Scoba you lent comes back to your box."
+      : `The ${home.length} Scobas you lent come back to your box.`);
+  }
+}
+
+/**
+ * The partner turning up or dropping out. An arrival lands where it is heard
+ * unless a fight is running: that fight was built for one player holding both
+ * characters, and taking a roster out from under it mid-round is what breaks
+ * it. A departure needs no such care, since a fight it interrupts is a co-op
+ * one already and handles the peer leaving by itself.
+ */
+function partnerPresence(live: boolean): void {
+  if (!live) {
+    partnerWaiting = false;
+    partnerLive = false;
+    return;
+  }
+  if (partnerLive || partnerWaiting) return;
+  if (battleStage()) {
+    partnerWaiting = true;
+    ui.toast("Your partner is here. They join once this fight is over.");
+    return;
+  }
+  letPartnerIn();
 }
 
 function showTitle(): void {
@@ -119,6 +181,8 @@ function showTitle(): void {
   session = null;
   scene = null;
   currentSave = null;
+  partnerLive = false;
+  partnerWaiting = false;
   ui.hud(false);
   const existing = loadSave();
   titleScreen(ui, {
@@ -164,7 +228,7 @@ function startGame(save: SaveData): void {
  * message about it is matched on.
  */
 function battleNet(save: SaveData, battleId: string, isHost: boolean): BattleNet | null {
-  if (!session?.connected || !save.partnerJoined) return null;
+  if (!session?.connected || !partnerLive) return null;
   return {
     battleId,
     localOwner: save.localSlot,
@@ -204,17 +268,20 @@ function openSession(save: SaveData): void {
     },
     onBattleAdopted: (battleId, state) => {
       pendingPeerBattle = null;
+      const link = battleNet(save, battleId, false);
+      if (!link) return;
       void ui.transition(() => {
         openWildBattle(ui, art, save, state.teams[1][0]!.scoba, (res) => {
           scene?.closeActiveBattle(battleId);
           scene?.encounterGrace();
           scene?.refreshCompanions();
           void res;
-        }, { ...battleNet(save, battleId, false)!, adopted: state });
+        }, { ...link, adopted: state });
       });
     },
     onStatus: (status, partnerHere) => {
       relayStatus = { status, partnerHere };
+      partnerPresence(status === "live" && partnerHere);
       if (status === "live" && partnerHere) scene?.refreshCompanions();
     },
     onError: (reason) => {
@@ -318,14 +385,14 @@ function buildGame(save: SaveData): void {
    * fight itself is handed over whole once they actually arrive.
    */
   const announce = (id: string, at: { x: number; y: number }): void => {
-    if (session?.connected && save.partnerJoined) session.openBattle(id, save.localSlot, at);
+    if (session?.connected && partnerLive) session.openBattle(id, save.localSlot, at);
   };
 
   scene = new Overworld(art, save, content, input, ui, {
     // The other player, when someone is playing them. Sampled every frame so
     // the partner is drawn where the interpolation says, not where the last
     // packet happened to land.
-    peerAt: () => session?.peerAt(performance.now()) ?? null,
+    peerAt: () => fakePeer ?? session?.peerAt(performance.now()) ?? null,
     // Both clients draw the Relica, so only one of them gets to decide where
     // it went. Character A decides and tells the other; playing alone, the one
     // client decides for itself.
@@ -410,7 +477,7 @@ async function toggleEditor(): Promise<void> {
  * rebuilds its companions, since the party is who walks behind you.
  */
 function openRoster(
-  open: (ui: UI, art: Art, save: SaveData, hooks: { onBack: () => void; onChange: () => void }) => void,
+  open: (ui: UI, art: Art, save: SaveData, hooks: RosterHooks) => void,
   save: SaveData,
 ): void {
   if (!art) return;
@@ -421,6 +488,7 @@ function openRoster(
       writeSave(save);
       scene?.refreshCompanions();
     },
+    solo: () => !partnerLive,
   });
 }
 
@@ -605,8 +673,9 @@ async function boot(): Promise<void> {
     warpPlayer(x: number, y: number): void {
       scene?.debugWarpPlayer(x, y);
     },
-    /** Stands in for the relay: flips the save into two-player mode. */
+    /** Stands in for the relay: flips the game into two-player mode. */
     setPartnerJoined(on = true): void {
+      partnerPresence(on);
       if (currentSave) currentSave.partnerJoined = on;
     },
     blockedAt(x: number, y: number): boolean {
@@ -615,6 +684,18 @@ async function boot(): Promise<void> {
     /** Stands the partner somewhere, so a bad placement can be reproduced. */
     placePartner(x: number, y: number): void {
       scene?.debugPlacePartner(x, y);
+    },
+    /**
+     * Stands in for the other player being somewhere, without a second client.
+     * Reported as their position from here until `clearPeer`, which is what
+     * the stand-in's walk back is driven by.
+     */
+    placePeer(x: number, y: number, map?: string): void {
+      const here = (scene?.debugInfo() as { mapId?: string } | undefined)?.mapId ?? "";
+      fakePeer = { x, y, dir: 1, moving: false, map: map ?? here };
+    },
+    clearPeer(): void {
+      fakePeer = null;
     },
     /** Where everyone is standing on the battle scene, and what it is doing. */
     stage(): object | null {
@@ -640,7 +721,7 @@ async function boot(): Promise<void> {
       const battleId = freshBattleId();
       const where = scene.debugInfo() as { player?: { x: number; y: number } };
       const spot = { x: where.player?.x ?? 0, y: where.player?.y ?? 0 };
-      if (session?.connected && save.partnerJoined) {
+      if (session?.connected && partnerLive) {
         session.openBattle(battleId, save.localSlot, spot);
       }
       void ui.transition(() => {

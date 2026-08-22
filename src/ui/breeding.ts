@@ -59,10 +59,9 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
   };
 
   const pickMom = (): void => {
-    openBrowser(ui, art, save, {
+    openBrowser(ui, art, {
       title: `${SPECIAL.name}'s Nest`,
       memory: "nest-mom",
-      ownerSwitch: false,
       hint: "Pick a mother. The child takes her species.",
       empty: "Nothing here can breed yet. Catch a few more.",
       // A parent with nobody to pair with is no parent.
@@ -73,10 +72,9 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
   };
 
   const pickDad = (mom: ScobaInstance): void => {
-    openBrowser(ui, art, save, {
+    openBrowser(ui, art, {
       title: `Mother: ${displayName(mom)}`,
       memory: "nest-dad",
-      ownerSwitch: false,
       hint: "Pick a father. His ability, and his colours, may carry over.",
       empty: "Nobody will pair with her.",
       source: () => pool().filter((d) => d.uid !== mom.uid && canBreed(mom, d) === null),

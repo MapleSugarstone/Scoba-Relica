@@ -38,12 +38,17 @@ export const MAX_PAINT_COLORS = HEADS.length - 1;
 /** Brush footprints, in pixels across. */
 export type BrushSize = 1 | 2 | 3;
 
-/** The painter's own swatches: greys, flesh, and a spread of hues. */
+/**
+ * The painter's own swatches. Pure black and pure white lead, since they are
+ * the two a pixel artist reaches for first and neither is anywhere else in the
+ * game's palette: black is the line art, and white is the highlight over it.
+ * The rest run neutrals, flesh, warms and cools, eight to a row.
+ */
 export const PAINT_COLORS: string[] = [
-  "#171b2c", "#3f4a66", "#6b7196", "#9aa0c3", "#c8cdd6", "#ded9ee", "#ffffff", "#f3f2c0",
+  "#000000", "#ffffff", "#171b2c", "#3f4a66", "#6b7196", "#9aa0c3", "#c8cdd6", "#ded9ee",
   "#2a2530", "#5a3520", "#7d4a2c", "#a9663f", "#cd8552", "#e8a06a", "#ffab82", "#ffe0c4",
-  "#d9553f", "#b4553d", "#e7a03c", "#eae178", "#5f843a", "#7aa74a", "#b9c98a", "#8fd0c4",
-  "#4f8fba", "#7c9df0", "#5c4e92", "#8d63c0", "#dba7d6", "#e58ab8", "#d977b8", "#f2e9d8",
+  "#d9553f", "#b4553d", "#e7a03c", "#eae178", "#f3f2c0", "#5f843a", "#7aa74a", "#b9c98a",
+  "#8fd0c4", "#4f8fba", "#7c9df0", "#5c4e92", "#8d63c0", "#dba7d6", "#e58ab8", "#d977b8",
 ];
 
 const HEX = /^#[0-9a-f]{6}$/;
