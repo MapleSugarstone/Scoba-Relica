@@ -8,6 +8,8 @@
 import { isInstalled, isIosSafari } from "../pwa";
 import { reminderState } from "./push";
 import { relayUrl } from "./relay";
+import { PROTOCOL_VERSION } from "./protocol";
+import { BUILD_VERSION } from "../version";
 import { SAVE_KEY } from "../save/save";
 
 export interface DiagnosticLine {
@@ -118,6 +120,8 @@ export async function collectDiagnostics(relay: RelaySnapshot): Promise<Diagnost
   return [
     { label: "Installed", value: yesNo(installed), ok: installed },
     { label: "Platform", value: isIosSafari() ? "iOS Safari" : navigator.userAgent.slice(0, 28), ok: true },
+    // The commit this was built from, which is what a bug report needs to name.
+    { label: "Version", value: `${BUILD_VERSION} (wire v${PROTOCOL_VERSION})`, ok: true },
     { label: "Build", value: build, ok: build !== "not cached" },
     { label: "Worker", value: worker.text, ok: worker.ok },
     { label: "Save kept", value: storage.text, ok: storage.ok },
@@ -132,6 +136,16 @@ export async function collectDiagnostics(relay: RelaySnapshot): Promise<Diagnost
       // set but not connected is worth marking, or the mark stops meaning
       // anything and gets ignored on the screenshots this exists for.
       ok: !relay.room || relay.status === "live",
+    },
+    {
+      // The relay deploys separately from the game, so it is the half most
+      // likely to be left behind. Saying so beats watching every new message
+      // come back as unknown.
+      label: "Relay wire",
+      value: relay.relayVersion
+        ? `v${relay.relayVersion}${relay.relayVersion === PROTOCOL_VERSION ? "" : " — MISMATCH, redeploy the relay"}`
+        : "not asked yet",
+      ok: !relay.relayVersion || relay.relayVersion === PROTOCOL_VERSION,
     },
     { label: "Relay host", value: relayUrl().replace(/^wss?:\/\//, ""), ok: true },
     {
