@@ -7,7 +7,7 @@ import type { SlotId } from "../save/save";
 export type RelayStatus = "offline" | "connecting" | "live";
 
 const RELAY_OVERRIDE_KEY = "scoba-relay-url";
-const DEFAULT_RELAY = "wss://scoba-relica-relay.workers.dev";
+const DEFAULT_RELAY = "wss://scoba-relica-relay.maplesugarstone.workers.dev";
 
 /**
  * Where the relay lives. `?relay=ws://localhost:8787` pins a local `wrangler

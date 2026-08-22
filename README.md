@@ -57,6 +57,15 @@ relay says whether the worker has its half. For local work, put all three in
 On iOS reminders only work once the game is on the Home Screen: Safari will not
 grant notification permission to a tab.
 
+A local `wrangler dev` normally has its own throwaway keypair in
+`worker/.dev.vars`, which will not be the deployed one. That is fine, but the
+two halves have to agree: a subscription is made against the public key in the
+client build and can only be pushed to by the matching private key on the relay
+it is talking to. So when testing reminders locally, build the client with
+`VITE_VAPID_PUBLIC_KEY` set to the public key in `.dev.vars`. Pointing a client
+built for production at a local relay gets you a subscription the local relay
+cannot push to, which fails quietly and looks like a phone that never buzzed.
+
 ## Deploying to GitHub Pages
 
 Push to `main`. The workflow in `.github/workflows/deploy.yml` builds the site and publishes it to Pages. In the repo settings, set Pages > Source to "GitHub Actions" once.

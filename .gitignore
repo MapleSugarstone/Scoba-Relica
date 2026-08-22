@@ -13,3 +13,10 @@ claude-notes/
 
 # Local worker secrets for `wrangler dev`. Never committed.
 .dev.vars
+
+# Anything the VAPID generator writes. The script itself is safe to commit
+# (it holds no keys, it makes them), but its output carries the private half,
+# so the glob is deliberately wider than the one filename we use.
+vapid*.txt
+vapid*.json
+*vapid-secrets*

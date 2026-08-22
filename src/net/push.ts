@@ -8,11 +8,19 @@ import type { PushSubscriptionJson } from "./protocol";
 
 /**
  * Not a secret: the browser needs it to build a subscription only this relay
- * can push to. Set at build time from `worker/tools/make-vapid.mjs` output.
- * Empty means reminders are simply not offered.
+ * can push to, and it is public by design. It must match the keypair whose
+ * private half is set on the worker with `wrangler secret put`; regenerating
+ * that pair invalidates every subscription made against the old one.
+ *
+ * `VITE_VAPID_PUBLIC_KEY` overrides it, so a second relay can be pointed at
+ * without editing this file.
  */
+const VAPID_PUBLIC_KEY =
+  "BDNx3TVB9_3rkTaFCO-eAShoQL_1XbdkSYaCVvRvBPBngGjfEML3ASEgThPEWoa7FU_kvrtW0aE3pKQSk1vsGW4";
+
 export function vapidPublicKey(): string {
-  return (import.meta.env["VITE_VAPID_PUBLIC_KEY"] as string | undefined) ?? "";
+  const override = import.meta.env["VITE_VAPID_PUBLIC_KEY"] as string | undefined;
+  return override || VAPID_PUBLIC_KEY;
 }
 
 export type ReminderState =
