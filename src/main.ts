@@ -168,6 +168,13 @@ function partnerPresence(live: boolean): void {
   }
   if (partnerLive || partnerWaiting) return;
   if (battleStage()) {
+    // Said again for somebody who was not here to hear it start, so a fight
+    // they can still walk into is one they can still find.
+    const running = netBattle();
+    const where = scene?.activeBattleAt();
+    if (running && where && currentSave) {
+      session?.openBattle(running.battleId, currentSave.localSlot, where);
+    }
     partnerWaiting = true;
     ui.toast("Your partner is here. They join once this fight is over.");
     return;
@@ -592,12 +599,16 @@ function updateFrame(dt: number): void {
     return;
   }
   // A running battle owns the frame: the overworld is behind it and paused.
+  // The character is still standing in the world, though, and still has to say
+  // so: it is the only thing a partner arriving mid-fight has to walk to.
   const stage = battleStage();
   if (stage) {
+    scene?.reportStanding();
     stage.update(dt);
     return;
   }
-  if (!ui.screenOpen()) scene?.update(dt);
+  if (ui.screenOpen()) scene?.reportStanding();
+  else scene?.update(dt);
 }
 
 function renderFrame(): void {

@@ -361,6 +361,19 @@
     /* Thirty-two of them, so they sit four rows deep instead of eight. */
     .swatch.small { width: 26px; height: 26px; }
 
+    /* Shoving the painter's window about without a wheel or a keyboard. Laid
+       out as a compass rather than a row, because a direction control that
+       reads left to right is one you have to think about. */
+    .panPad {
+      display: grid;
+      grid-template-columns: repeat(3, 38px);
+      grid-auto-rows: 32px;
+      gap: 4px;
+      justify-content: center;
+    }
+    .panPad button { padding: 0; font-size: 13px; line-height: 1; }
+    .panPad .gap { visibility: hidden; }
+
     .thumbs { display: flex; gap: 8px; flex-wrap: wrap; align-self: flex-start; }
     button.thumb {
       padding: 5px;

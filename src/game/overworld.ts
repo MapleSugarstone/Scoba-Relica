@@ -1402,6 +1402,21 @@ export class Overworld {
       y < this.view.y - margin || y > this.view.y + this.view.h + margin;
   }
 
+  /**
+   * Say where this character is standing, without moving anybody.
+   *
+   * The world stops updating while a fight or a menu is up, and with it the
+   * only thing that ever reported a position. A partner who arrives during a
+   * fight has therefore never heard one at all, so their stand-in has nowhere
+   * to walk to and simply follows them about instead of going to find you.
+   */
+  reportStanding(): void {
+    this.hooks.reportSelf?.({
+      x: Math.round(this.player.x), y: Math.round(this.player.y),
+      dir: this.player.dir, moving: false, map: this.mapId,
+    });
+  }
+
   /** Where a character is standing: the one you drive, or the one you follow. */
   private actorFor(owner: SlotId): Actor {
     return owner === this.save.localSlot ? this.player : this.partner.actor;
@@ -1414,6 +1429,9 @@ export class Overworld {
    * they walked.
    */
   joinActiveBattleAs(owner: SlotId): boolean {
+    // Nothing to walk into while the stand-in is still on its way over: from
+    // here the fight has not been found yet, and neither has the person in it.
+    if (this.handover) return false;
     const battle = this.activeBattle;
     if (!battle || battle.guest() !== owner) return false;
     const who = this.actorFor(owner);
@@ -1746,7 +1764,9 @@ export class Overworld {
     for (const step of reachSteps(this.content, this.save, this.mapId)) {
       drawReachMarker(ctx, step.x - camX, step.y - camY, t);
     }
-    if (this.activeBattle && this.activeBattle.guest() !== null) {
+    // Hidden along with the character who is in it while their stand-in walks
+    // over, so the fight turns up when they do rather than before them.
+    if (this.activeBattle && this.activeBattle.guest() !== null && !this.handover) {
       drawBattleMarker(ctx, this.activeBattle.x - camX, this.activeBattle.y - camY, t);
     }
 

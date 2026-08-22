@@ -181,6 +181,27 @@ export function paintScreen(
     clampView();
   };
 
+  /** Where in the doll a screen point falls, in fractional art pixels. */
+  const artAt = (clientX: number, clientY: number): { ax: number; ay: number; fx: number; fy: number } => {
+    const r = stage.getBoundingClientRect();
+    const fx = (clientX - r.left) / r.width;
+    const fy = (clientY - r.top) / r.height;
+    const z = view();
+    return { ax: viewX + fx * z.w, ay: viewY + fy * z.h, fx, fy };
+  };
+
+  const panBy = (dx: number, dy: number): void => {
+    const wasX = viewX;
+    const wasY = viewY;
+    viewX += dx;
+    viewY += dy;
+    clampView();
+    if (viewX !== wasX || viewY !== wasY) redraw();
+  };
+
+  /** How far one nudge of a key or a pad button moves the window. */
+  const panStep = (): number => Math.max(1, Math.round(view().w / 8));
+
   const drawGrid = (): void => {
     const z = view();
     stageCtx.fillStyle = GRID_INK;
@@ -209,21 +230,36 @@ export function paintScreen(
     syncTools();
   };
 
-  const setZoom = (next: number): void => {
+  /**
+   * `hold` is a point to keep still, from `artAt`. A wheel zoom passes the one
+   * under the pointer, since that is what the eye is already on; a button press
+   * has no pointer to speak of and holds the middle instead.
+   */
+  const setZoom = (next: number, hold?: { ax: number; ay: number; fx: number; fy: number }): void => {
     const clamped = Math.max(0, Math.min(ZOOMS.length - 1, next));
     if (clamped === zoom) return;
-    // Zoom about the middle of what is on show, so whatever is being worked on
-    // does not slide off the edge on the way in.
     const before = view();
-    const cx = viewX + before.w / 2;
-    const cy = viewY + before.h / 2;
+    const anchor = hold ?? {
+      ax: viewX + before.w / 2,
+      ay: viewY + before.h / 2,
+      fx: 0.5,
+      fy: 0.5,
+    };
     zoom = clamped;
     const after = view();
-    viewX = cx - after.w / 2;
-    viewY = cy - after.h / 2;
+    viewX = anchor.ax - anchor.fx * after.w;
+    viewY = anchor.ay - anchor.fy * after.h;
     // Nothing left to pan around once it all fits, so the hand goes back to a brush.
     if (zoom === 0 && tool === "move") tool = "brush";
     sizeStage();
+    redraw();
+  };
+
+  const recentre = (): void => {
+    const z = view();
+    viewX = (DOLL_W - z.w) / 2;
+    viewY = (DOLL_H - z.h) / 2;
+    clampView();
     redraw();
   };
 
@@ -340,22 +376,63 @@ export function paintScreen(
   stage.addEventListener("pointercancel", endStroke);
 
   /**
-   * The shortcuts every drawing program has. Held on the window rather than the
-   * canvas, since nothing here takes focus, and dropped as soon as the screen
-   * it belongs to is gone, however it went.
+   * The wheel drives the window: plain for up and down, shift for left and
+   * right, and control (or command) to zoom about whatever the pointer is on.
+   * The page keeps the wheel while the whole doll is on screen, since there is
+   * nothing to scroll here then and taking it would strand the tools below.
+   */
+  const WHEEL_LINE = 16;
+  stage.addEventListener("wheel", (e) => {
+    const step = e.deltaMode === 1 ? WHEEL_LINE : e.deltaMode === 2 ? stage.height : 1;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const dir = e.deltaY < 0 ? 1 : -1;
+      if (e.deltaY !== 0) setZoom(zoom + dir, artAt(e.clientX, e.clientY));
+      return;
+    }
+    if (zoom === 0) return;
+    e.preventDefault();
+    const z = view();
+    const dy = (e.deltaY * step) / z.scale;
+    const dx = (e.deltaX * step) / z.scale;
+    if (e.shiftKey) panBy(dy + dx, 0);
+    else panBy(dx, dy);
+  }, { passive: false });
+
+  const PAN_KEYS: Record<string, [number, number]> = {
+    w: [0, -1], a: [-1, 0], s: [0, 1], d: [1, 0],
+    arrowup: [0, -1], arrowleft: [-1, 0], arrowdown: [0, 1], arrowright: [1, 0],
+  };
+
+  /**
+   * The shortcuts every drawing program has, plus WASD on the window. Held on
+   * the window rather than the canvas, since nothing here takes focus, and
+   * dropped as soon as the screen it belongs to is gone, however it went.
    */
   const onKey = (e: KeyboardEvent): void => {
     if (!stage.isConnected) {
       window.removeEventListener("keydown", onKey);
       return;
     }
-    if (!e.ctrlKey && !e.metaKey) return;
     const key = e.key.toLowerCase();
-    if (key !== "z" && key !== "y") return;
+    if (e.ctrlKey || e.metaKey) {
+      if (key !== "z" && key !== "y") return;
+      e.preventDefault();
+      const forward = key === "y" || e.shiftKey;
+      if (forward ? stepForward() : stepBack()) sfx.tap();
+      else sfx.back();
+      return;
+    }
+    if (e.altKey) return;
+    // A letter typed into a field is that field's, not the camera's.
+    const on = e.target as HTMLElement | null;
+    if (on && /^(INPUT|TEXTAREA|SELECT)$/.test(on.tagName)) return;
+    const pan = PAN_KEYS[key];
+    // Nothing to move while it all fits, and the arrow keys are the page's
+    // again in that case rather than being swallowed to no effect.
+    if (!pan || zoom === 0) return;
     e.preventDefault();
-    const forward = key === "y" || e.shiftKey;
-    if (forward ? stepForward() : stepBack()) sfx.tap();
-    else sfx.back();
+    panBy(pan[0] * panStep(), pan[1] * panStep());
   };
   window.addEventListener("keydown", onKey);
 
@@ -392,6 +469,37 @@ export function paintScreen(
     viewRow.appendChild(gridBtn);
     tools.appendChild(viewRow);
 
+    // A pad to shove the window about, for anyone without a wheel or a keyboard.
+    // It sits apart from the Hand tool on purpose: nudging the view here does
+    // not cost you the brush you are holding.
+    const pad = el("div", "panPad");
+    const padBtns: HTMLButtonElement[] = [];
+    const nudge = (label: string, dx: number, dy: number): HTMLButtonElement => {
+      const b = el("button", "pill", label);
+      b.addEventListener("click", () => {
+        sfx.tap();
+        panBy(dx * panStep(), dy * panStep());
+      });
+      padBtns.push(b);
+      return b;
+    };
+    const blank = (): HTMLElement => el("i", "gap");
+    const middle = el("button", "pill", "▢");
+    middle.title = "Centre";
+    middle.addEventListener("click", () => {
+      sfx.tap();
+      recentre();
+    });
+    padBtns.push(middle);
+    pad.append(
+      blank(), nudge("▲", 0, -1), blank(),
+      nudge("◀", -1, 0), middle, nudge("▶", 1, 0),
+      blank(), nudge("▼", 0, 1), blank(),
+    );
+    tools.appendChild(pad);
+    tools.appendChild(el("div", "dim",
+      "Scroll to move, shift to go sideways, ctrl and scroll to zoom. WASD moves too."));
+
     tools.appendChild(el("label", undefined, "Tool"));
     const toolRow = el("div", "row");
     const toolBtns: { el: HTMLElement; on: () => boolean }[] = [];
@@ -410,7 +518,7 @@ export function paintScreen(
       addTool(`${n}×${n}`, () => { tool = "brush"; size = n; }, () => tool === "brush" && size === n);
     }
     addTool("Fill", () => { tool = "fill"; }, () => tool === "fill");
-    const moveBtn = addTool("Move", () => { tool = "move"; }, () => tool === "move");
+    const handBtn = addTool("Hand", () => { tool = "move"; }, () => tool === "move");
     // The eraser rides on whichever tool is chosen rather than being a fourth
     // one, so filling with it wipes a shape the same way the brush wipes a line.
     addTool("Eraser", () => { erasing = !erasing; }, () => erasing);
@@ -499,7 +607,8 @@ export function paintScreen(
       outBtn.toggleAttribute("disabled", zoom === 0);
       inBtn.toggleAttribute("disabled", zoom === ZOOMS.length - 1);
       // There is nothing to move about while the whole doll is on screen.
-      moveBtn.toggleAttribute("disabled", zoom === 0);
+      handBtn.toggleAttribute("disabled", zoom === 0);
+      for (const b of padBtns) b.toggleAttribute("disabled", zoom === 0);
     };
     syncSwatches = (): void => {
       for (const sw of swatches) sw.el.classList.toggle("sel", !erasing && sw.color === color);
