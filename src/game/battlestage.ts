@@ -17,7 +17,7 @@ import type { BattleEvent, BattleState } from "../sim/battle";
 import { animOf, vfxOf, MOVES, SPECIES, type CasterAnim, type MoveVfx } from "../sim/species";
 import { FIELDS } from "../sim/status";
 import { TYPE_COLORS } from "../sim/types";
-import { ALL_SLOTS, SCOBA_SLOTS, isMoteSlot, type TargetRef } from "../sim/targeting";
+import { ALL_SLOTS, SCOBA_SLOTS, isPawnSlot, type TargetRef } from "../sim/targeting";
 import type { SaveData, SlotId } from "../save/save";
 
 /** Where a fighter stands, as a share of the view. */
@@ -31,8 +31,8 @@ interface Fighter {
   /** Slot it belongs to, which is what its anchor is computed from. */
   side: 0 | 1;
   slot: number;
-  /** Standing on a Mote mark: back off the line, and on a small card. */
-  mote: boolean;
+  /** Standing on a Pawn mark: back off the line, and on a small card. */
+  pawn: boolean;
   /** Where its art sits, in world units, so markers can find its head. */
   bounds: CritterBounds;
   /**
@@ -193,7 +193,7 @@ const RANK = {
    * bottom corner beside the buttons. Far enough back off the action bar that
    * the small cards under them still clear it.
    */
-  motes: 0.93,
+  pawns: 0.93,
 };
 
 /**
@@ -231,12 +231,21 @@ const SCOBA_ACROSS = [0.28, 0.62];
  */
 const EDGE = DOLL_W / (2 * ART) + 3;
 /**
- * How far apart the Mote row stands, in world units. Absolute rather than a
- * share of the view because what has to fit between them is their cards, and a
- * card is the same size on every screen: a card is 13 of these across, so this
- * is shoulder to shoulder with a hair between them.
+ * The least the Pawn row ever spreads, in world units, for the frames before a
+ * card has been measured.
+ *
+ * The step cannot be a constant. What must not collide is the readouts, and a
+ * readout is a fixed number of interface pixels wide while a world unit is
+ * worth a varying number of them: `pixelStep()` is a whole number and the
+ * screen's density is not, so one machine gets 8 interface pixels to the world
+ * unit and another gets 4. At 4 this constant put three cards 64 px apart when
+ * each was 104 px wide, and the row overlapped itself by 40 px a side.
+ * `ui/battle.ts` measures a card and `setPawnCard` turns it into the real
+ * step.
  */
-const MOTE_STEP = 16;
+const PAWN_STEP = 16;
+/** Air between two Pawn cards, and between the outermost one and the edge. */
+const PAWN_GAP = 4;
 
 /**
  * Slack around a Scoba's drawn pixels, in world units: air under the ring and
@@ -356,6 +365,21 @@ export class BattleStage {
    * `ui/battle.ts` measures it and the whole layout is worked out in what is
    * above it rather than against a guess.
    */
+  /**
+   * How wide a Pawn's readout actually came out, in screen pixels. Sets both
+   * how far apart the row stands and how far in from the edge it starts, so
+   * the outermost card cannot hang off the side of the screen.
+   */
+  private pawnStep = PAWN_STEP;
+  private pawnEdge = EDGE;
+
+  setPawnCard(px: number): void {
+    if (px <= 0) return;
+    const world = px * this.cssScale();
+    this.pawnStep = Math.max(PAWN_STEP, world + PAWN_GAP);
+    this.pawnEdge = Math.max(EDGE, world / 2 + PAWN_GAP);
+  }
+
   setSafeBottom(px: number): void {
     this.safeWant = Math.min(this.view.h * 0.5, Math.max(0, px) * this.cssScale());
     // The first reading is the layout, not a change to it.
@@ -393,12 +417,12 @@ export class BattleStage {
     // The court gathers at the front corner of its own side, in a row running
     // inward from the edge, where it fills the ground beside the buttons
     // instead of floating about behind everybody.
-    if (isMoteSlot(slot)) {
+    if (isPawnSlot(slot)) {
       const i = slot - SCOBA_SLOTS;
-      const along = EDGE + i * MOTE_STEP;
+      const along = this.pawnEdge + i * this.pawnStep;
       return {
         x: side === 0 ? along : this.view.w - along,
-        y: this.rankY(RANK.motes),
+        y: this.rankY(RANK.pawns),
       };
     }
     const across = SCOBA_ACROSS[slot] ?? SCOBA_ACROSS[0]!;
@@ -483,7 +507,7 @@ export class BattleStage {
         }
         const sp = SPECIES[c.scoba.speciesId];
         if (!sp) continue;
-        const mote = isMoteSlot(slot);
+        const pawn = isPawnSlot(slot);
         const at = this.anchor(side, slot);
         const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba));
         actor.dir = side === 0 ? 1 : -1;
@@ -496,14 +520,14 @@ export class BattleStage {
         // Deterministic per slot, so the bob is out of step with the others
         // but lands the same way on both clients.
         actor.desync(((side * 2 + slot) * 0.37 + index * 0.19) % 1);
-        // A Mote is only ever on the field because something called it, and
+        // A Pawn is only ever on the field because something called it, and
         // the call is what brings it in, so it starts hidden and the summon
         // event is what makes it appear.
         wanted.push({
-          actor, side, slot, index, mote, ox: 0, oy: 0,
+          actor, side, slot, index, pawn, ox: 0, oy: 0,
           bounds, head: bounds.top + idleLift(sp.movement, actor.idleMix),
-          alpha: mote ? 0 : 1, shake: 0, hurt: 0,
-          settled: !mote, plate: mote ? 0 : 1, leaving: null,
+          alpha: pawn ? 0 : 1, shake: 0, hurt: 0,
+          settled: !pawn, plate: pawn ? 0 : 1, leaving: null,
         });
         continue;
       }
@@ -700,7 +724,7 @@ export class BattleStage {
       if (Math.hypot(home.x - p.actor.x, home.y - p.actor.y) > ARRIVED) n += 1;
     }
     for (const f of this.fighters) {
-      if (f.mote || (f.side === 1 && !enemyWalksIn)) continue;
+      if (f.pawn || (f.side === 1 && !enemyWalksIn)) continue;
       const a = this.anchor(f.side, f.slot);
       if (Math.hypot(a.x - f.actor.x, a.y - f.actor.y) > ARRIVED) n += 1;
     }
@@ -917,7 +941,7 @@ export class BattleStage {
         person.actor.dir = 1;
         for (const f of this.fighters) {
           f.actor.dir = f.side === 0 ? 1 : -1;
-          if (!f.mote) f.settled = true;
+          if (!f.pawn) f.settled = true;
         }
       },
     });
@@ -927,7 +951,7 @@ export class BattleStage {
 
   /** Which character a Scoba on the field belongs to, if any. */
   private ownerOf(f: Fighter): SlotId | null {
-    if (f.side !== 0 || f.mote) return null;
+    if (f.side !== 0 || f.pawn) return null;
     const owner = this.st.teams[0][f.index]?.scoba.owner;
     return owner === "A" || owner === "B" ? owner : null;
   }
@@ -990,11 +1014,11 @@ export class BattleStage {
           const a = this.anchor(f.side, f.slot);
           f.actor.x = a.x;
           f.actor.y = a.y;
-          // A Mote called before the first round waits on its own mark until
+          // A Pawn called before the first round waits on its own mark until
           // the call plays: it was summoned, so it appears rather than walking.
-          const walksOn = !f.mote && (f.side === 0 || enemyWalksIn);
-          f.alpha = f.mote ? 0 : walksOn ? 0 : 1;
-          f.settled = !f.mote && !walksOn;
+          const walksOn = !f.pawn && (f.side === 0 || enemyWalksIn);
+          f.alpha = f.pawn ? 0 : walksOn ? 0 : 1;
+          f.settled = !f.pawn && !walksOn;
           f.plate = 0;
         }
       },
@@ -1020,7 +1044,7 @@ export class BattleStage {
       dur: 1.6,
       start: () => {
         for (const f of this.fighters) {
-          if (f.mote || (f.side === 1 && !enemyWalksIn)) continue;
+          if (f.pawn || (f.side === 1 && !enemyWalksIn)) continue;
           f.alpha = 1;
           const a = this.anchor(f.side, f.slot);
           f.actor.x = f.side === 0 ? -16 : this.view.w + 16;
@@ -1033,7 +1057,7 @@ export class BattleStage {
           p.actor.seek(dt, home.x, home.y, ARRIVED, NO_MAP, 1.5, WALK_ON);
         }
         for (const f of this.fighters) {
-          if (f.mote || (f.side === 1 && !enemyWalksIn)) continue;
+          if (f.pawn || (f.side === 1 && !enemyWalksIn)) continue;
           const a = this.anchor(f.side, f.slot);
           f.actor.seek(dt, a.x, a.y, ARRIVED, NO_MAP, 1.4, WALK_ON);
         }
@@ -1048,7 +1072,7 @@ export class BattleStage {
         for (const p of this.people) p.actor.dir = p.side === 0 ? 1 : -1;
         for (const f of this.fighters) {
           f.actor.dir = f.side === 0 ? 1 : -1;
-          if (!f.mote) f.settled = true;
+          if (!f.pawn) f.settled = true;
         }
       },
     });
@@ -1213,21 +1237,21 @@ export class BattleStage {
         return;
       }
       case "summon": {
-        // The caller rattles, then a poof over the mark, then the Mote is
+        // The caller rattles, then a poof over the mark, then the Pawn is
         // standing in it. The two halves are one step so the puff lands on the
         // same frame the shake ends on.
         //
         // Both are looked up as the step runs rather than as it is queued: a
-        // Mote called this round does not exist on the stage until the `sync`
+        // Pawn called this round does not exist on the stage until the `sync`
         // below puts it there, and a reference taken any earlier is null.
-        const moteRef = ev.at;
+        const pawnRef = ev.at;
         const callerRef = ev.by;
         let puffed = false;
         say(SUMMON_TIME, {
           start: () => {
             sfx.summon();
             this.sync();
-            const called = this.find(moteRef);
+            const called = this.find(pawnRef);
             if (!called) return;
             called.alpha = 0;
             called.plate = 0;
@@ -1236,7 +1260,7 @@ export class BattleStage {
           run: (k) => {
             const caller = this.find(callerRef);
             if (caller) caller.shake = k < SUMMON_CALL ? 3.2 : 0;
-            const called = this.find(moteRef);
+            const called = this.find(pawnRef);
             if (!called || k < SUMMON_CALL) return;
             if (!puffed) {
               puffed = true;
@@ -1248,7 +1272,7 @@ export class BattleStage {
           end: () => {
             const caller = this.find(callerRef);
             if (caller) caller.shake = 0;
-            const called = this.find(moteRef);
+            const called = this.find(pawnRef);
             if (!called) return;
             called.alpha = 1;
             called.settled = true;
@@ -1463,7 +1487,7 @@ export class BattleStage {
   /**
    * The box a Scoba occupies, in world units, for clicks and for the ring. It
    * is that Scoba's own drawn pixels with a little slack round them, not one
-   * size for everybody: a Mote's box is a Mote's size, so the ring fits it and
+   * size for everybody: a Pawn's box is a Pawn's size, so the ring fits it and
    * a tap beside it does not land on it.
    */
   private boxOf(f: Fighter): { x: number; y: number; w: number; h: number } {
@@ -1711,11 +1735,11 @@ function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
   /**
    * How far a shot arcs over the straight line between its two ends. A shot
    * between two Scobas on the same rank stays flat; one that climbs the field,
-   * which is every shot a Mote takes from its corner, is thrown over the top.
+   * which is every shot a Pawn takes from its corner, is thrown over the top.
    *
    * That is not a flourish. A readout is DOM and sits above the canvas whatever
    * the scene does, so a shot crossing the band a card hangs in disappears
-   * behind it, and the straight line from a Mote to the far side runs right
+   * behind it, and the straight line from a Pawn to the far side runs right
    * through the cards of everyone between them.
    */
   const climb = Math.min(ARC_MAX, Math.abs(e.from.y - e.to.y) * ARC_PER_RANK);
@@ -1822,7 +1846,7 @@ function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
  * A ring around whatever the cursor is over. One circle drawn with the same
  * three-pixel brush the art itself is outlined with, stepped along the art's
  * own pixel grid a row at a time rather than stroked, so no edge softens. It
- * takes its size from the Scoba it is drawn around, so a Mote gets a small one.
+ * takes its size from the Scoba it is drawn around, so a Pawn gets a small one.
  */
 function reticle(ctx: CanvasRenderingContext2D, b: { x: number; y: number; w: number; h: number }): void {
   const u = 1 / ART;

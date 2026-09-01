@@ -188,12 +188,12 @@ export function critterSkin(art: Art, sp: Species, tint?: Tint, shiny?: boolean)
 }
 
 /**
- * What a Mote wears: whichever of its summoner's colour marks its own art has a
- * colour for, in the order the summoner wears them. A Mote drawn in a palette
+ * What a Pawn wears: whichever of its summoner's colour marks its own art has a
+ * colour for, in the order the summoner wears them. A Pawn drawn in a palette
  * that shares nothing with the one that called it keeps its own colours and
  * does not glitter, however rare the summoner is.
  */
-export function moteLook(art: Art, sp: Species, from: Summoner): { swaps: Tint[]; shiny: boolean } {
+export function pawnLook(art: Art, sp: Species, from: Summoner): { swaps: Tint[]; shiny: boolean } {
   const summoner = SPECIES[from.speciesId];
   const worn = spriteColors(art, sp).map((c) => c.hex);
   // Both marks are offered in the order the summoner wears them, so the shiny
@@ -209,32 +209,32 @@ export function moteLook(art: Art, sp: Species, from: Summoner): { swaps: Tint[]
   };
 }
 
-const moteImages = new Map<string, ScobaImage>();
+const pawnImages = new Map<string, ScobaImage>();
 
-/** A Mote's art with its summoner's marks painted on, built once and kept. */
-function moteImage(art: Art, sp: Species, from: Summoner, swaps: Tint[]): ScobaImage {
+/** A Pawn's art with its summoner's marks painted on, built once and kept. */
+function pawnImage(art: Art, sp: Species, from: Summoner, swaps: Tint[]): ScobaImage {
   const base = baseArt(art, sp);
   if (swaps.length === 0) return base;
   const key = `${sp.id}<${from.speciesId}:${swaps.map((t) => `${t.from}>${t.to}`).join(",")}`;
-  const hit = moteImages.get(key);
+  const hit = pawnImages.get(key);
   if (hit) return hit;
   // One pass each, in order: a swap has to be able to read what the one before
   // it left, the same way a shiny turn reads a father's mark on a bred Scoba.
   let img = base;
   for (const t of swaps) img = paletteSwap(img, [[hexToRgb(t.from), hexToRgb(t.to)]]);
-  moteImages.set(key, img);
+  pawnImages.set(key, img);
   return img;
 }
 
 /**
- * The skin for one Scoba as it actually is: a Mote takes its colours from
+ * The skin for one Scoba as it actually is: a Pawn takes its colours from
  * whoever called it and comes out small, everything else wears its own.
  */
 export function critterLook(art: Art, sp: Species, s: ScobaInstance): ActorSkin {
   if (!s.summoner) return critterSkin(art, sp, s.tint, s.shiny);
-  const look = moteLook(art, sp, s.summoner);
+  const look = pawnLook(art, sp, s.summoner);
   return {
-    sprite: { img: moteImage(art, sp, s.summoner, look.swaps), px: DOLL_PIVOT.x, py: DOLL_PIVOT.y },
+    sprite: { img: pawnImage(art, sp, s.summoner, look.swaps), px: DOLL_PIVOT.x, py: DOLL_PIVOT.y },
     motion: sp.movement,
     sparkle: look.shiny,
   };

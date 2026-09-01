@@ -14,7 +14,7 @@ export function canBreed(mom: ScobaInstance, dad: ScobaInstance): string | null 
   const momSp = SPECIES[mom.speciesId];
   const dadSp = SPECIES[dad.speciesId];
   if (!momSp || !dadSp) return "Unknown species.";
-  if (momSp.special || dadSp.special || momSp.mote || dadSp.mote) return "This Scoba cannot breed.";
+  if (momSp.special || dadSp.special || momSp.pawn || dadSp.pawn) return "This Scoba cannot breed.";
   if (mom.breedCount >= MAX_BREED_COUNT || dad.breedCount >= MAX_BREED_COUNT) {
     return "Bred out. A line can only be bred twice.";
   }
@@ -134,8 +134,8 @@ const LINE_ART = new Set(["#000000", "#ffffff"]);
  * so a later swap is matched against what an earlier one left behind rather
  * than against the art underneath both.
  *
- * This is what decides how much of a summoner shows on the Mote it called: the
- * marks are the summoner's, and only the ones the Mote has a colour for stick.
+ * This is what decides how much of a summoner shows on the Pawn it called: the
+ * marks are the summoner's, and only the ones the Pawn has a colour for stick.
  */
 export function sharedSwaps(worn: readonly string[], offered: readonly (Tint | null)[]): (Tint | null)[] {
   const has = new Set(worn);

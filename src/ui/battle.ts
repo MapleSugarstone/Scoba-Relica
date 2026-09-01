@@ -32,11 +32,11 @@ import {
   type SlotHolder,
 } from "../sim/battle";
 import {
-  ALL_SLOTS, TARGET_LABELS, isMoteSlot, needsPick, sameRef, type TargetRef, type TargetSpec,
+  ALL_SLOTS, TARGET_LABELS, isPawnSlot, needsPick, sameRef, type TargetRef, type TargetSpec,
 } from "../sim/targeting";
 import { STATUSES, statusName, type StatusInstance } from "../sim/status";
 import { fieldSigilText, sigilText, sigilUrl, type SigilText } from "./sigil";
-import { enemyChoices, moteChoices } from "../sim/ai";
+import { enemyChoices, pawnChoices } from "../sim/ai";
 import { PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
 import { rngFrom } from "../sim/rng";
 import { gainXp, MAX_LEVEL, maxHp, moveCost, moveName, settleCaught, type ScobaInstance } from "../sim/scoba";
@@ -107,8 +107,10 @@ const OTHER: Record<OwnerId, OwnerId> = { A: "B", B: "A" };
  * moving the buttons or the scene above them. Wide and shallow: a button that
  * is as tall as it is broad reads as a tile rather than as something to press.
  */
-const BAR_SHARE = 0.22;
-const BAR_MAX_W = 900;
+/** How many rows of buttons the action block is, on every page. */
+const ACT_ROWS = 3;
+const BAR_SHARE = 0.26;
+const BAR_MAX_W = 1120;
 
 /** Bag entries that do something in a battle. Everything else stays put. */
 const BATTLE_ITEMS: { id: string; name: string; desc: string; wildOnly: boolean }[] = [
@@ -178,9 +180,9 @@ function runBattle(
   const seed = st.seed;
   // Local player's Scoba reads first, whichever character they control.
   const displayOrder: (0 | 1)[] = localOwner === "A" ? [0, 1] : [1, 0];
-  /** Which order the slots are asked about in: Scobas first, Motes after. */
+  /** Which order the slots are asked about in: Scobas first, Pawns after. */
   const askOrder = (slot: number): number =>
-    isMoteSlot(slot) ? 10 + slot : displayOrder.indexOf(slot as 0 | 1);
+    isPawnSlot(slot) ? 10 + slot : displayOrder.indexOf(slot as 0 | 1);
 
   // Taken from the state rather than from who started it: a guest walking into
   // a fight already in progress has the host standing in it, and building the
@@ -355,7 +357,7 @@ function runBattle(
     }
     nm.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
     wrap.appendChild(nm);
-    // Its own row, the same rule a Mote's readout keeps: a badge is 41 px of
+    // Its own row, the same rule a Pawn's readout keeps: a badge is 41 px of
     // drawn art that cannot be shrunk, and inline with the name it sets the
     // panel's width rather than the name doing it.
     wrap.appendChild(typeIcons(SPECIES[c.scoba.speciesId]!));
@@ -398,17 +400,17 @@ function runBattle(
   };
 
   /**
-   * A Mote's readout: the same numbers, small enough that three of them behind
+   * A Pawn's readout: the same numbers, small enough that three of them behind
    * a Scoba read as a row of helpers rather than as a second interface. It
-   * carries no owner line and no level, since a Mote is always its summoner's
+   * carries no owner line and no level, since a Pawn is always its summoner's
    * level and never anyone's to swap.
    */
-  const moteCard = (c: Combatant, ref: TargetRef): { node: HTMLElement; refresh: () => void } => {
-    const wrap = el("div", "bcard bmote");
+  const pawnCard = (c: Combatant, ref: TargetRef): { node: HTMLElement; refresh: () => void } => {
+    const wrap = el("div", "bcard bpawn");
     wrap.appendChild(el("div", "nm", displayName(c.scoba)));
     // Its own line rather than beside the name: a badge is 41 px of drawn art
     // that cannot be shrunk, and next to the name it would make a card wider
-    // than the gap between two Mote marks on a phone.
+    // than the gap between two Pawn marks on a phone.
     wrap.appendChild(typeIcons(SPECIES[c.scoba.speciesId]!));
     const max = combatantMaxHp(c);
     const hpBar = bar("");
@@ -462,20 +464,20 @@ function runBattle(
         // Scoba downed this round is still standing there until its faint has
         // played, and its readout should fade out with it rather than
         // vanishing the moment the round resolves.
-        const mote = isMoteSlot(slot);
-        // A Mote called this round is not on the stage yet, so its mark is read
+        const pawn = isPawnSlot(slot);
+        // A Pawn called this round is not on the stage yet, so its mark is read
         // off the battle instead. Its readout is built hidden and fades in with
         // the poof rather than turning up a beat after it.
         const index = stage.fighterOn(side, slot)
-          ?? (mote && (st.active[side][slot] ?? -1) >= 0 ? st.active[side][slot]! : null);
+          ?? (pawn && (st.active[side][slot] ?? -1) >= 0 ? st.active[side][slot]! : null);
         const c = index === null ? null : st.teams[side][index];
-        const owner = side === 0 && !mote ? st.slotOwner[slot] ?? null : null;
+        const owner = side === 0 && !pawn ? st.slotOwner[slot] ?? null : null;
         let built: { node: HTMLElement; refresh: () => void } | null = null;
         if (c && index !== null) {
-          built = mote ? moteCard(c, { side, index }) : card(c, { side, index });
+          built = pawn ? pawnCard(c, { side, index }) : card(c, { side, index });
           markTarget(built.node, { side, index });
-        } else if (mote) {
-          // An empty Mote mark is nothing at all: no card holds its place,
+        } else if (pawn) {
+          // An empty Pawn mark is nothing at all: no card holds its place,
           // because nothing is ever coming to fill it.
           continue;
         } else if (side === 0 && owner === null && coop) {
@@ -515,12 +517,24 @@ function runBattle(
     // The readouts hang under their fighters and the block is opaque, so the
     // room the scene is left has to cover a plate's height as well as the
     // block's. Measured rather than guessed: a plate is a different height on
-    // a narrow screen, and a Mote's is shorter than a Scoba's.
+    // a narrow screen, and a Pawn's is shorter than a Scoba's.
     const plateRoom = plates.reduce(
       (tallest, p) => Math.max(tallest, p.node.getBoundingClientRect().height),
       0,
     );
     stage.setSafeBottom(bar.getBoundingClientRect().height + plateRoom);
+    // The Pawn row is spaced by what a Pawn's card actually came out at, not
+    // by a world-unit constant: a world unit is worth a different number of
+    // interface pixels on different screens, and the cards are the thing that
+    // must not collide. Measured here because this already runs on every
+    // resize and the cards are in the document by now.
+    const pawnCardW = plates.reduce(
+      (widest, p) => p.node.classList.contains("bpawn")
+        ? Math.max(widest, p.node.getBoundingClientRect().width)
+        : widest,
+      0,
+    );
+    stage.setPawnCard(pawnCardW);
   };
 
   const positionPlates = (): void => {
@@ -818,7 +832,28 @@ function runBattle(
     const box = el("div", "bacts");
     if (head) box.appendChild(el("div", "aimline", head));
     if (corner) box.appendChild(corner);
-    for (const part of parts) box.appendChild(part);
+    // How many of the block's rows a part is worth. The move grid is always
+    // 2x2; an action row is three across, so six buttons are two rows of it.
+    const span = (p: HTMLElement): number =>
+      p.classList.contains("bgrid")
+        ? 2
+        : p.classList.contains("bactions")
+          ? Math.min(ACT_ROWS, Math.ceil(p.childElementCount / 3))
+          : 1;
+    // Placed against the bottom of the block rather than the top. Auto
+    // placement fills from row one, which left the main page's two rows of
+    // buttons sitting in the top two thirds and a whole dead row under them.
+    // Ending the group at the last row instead puts a short page's slack up
+    // against the open floor, where the prompt already floats, and keeps every
+    // button exactly one row tall on every page.
+    const total = parts.reduce((n, p) => n + span(p), 0);
+    let at = Math.max(1, ACT_ROWS + 1 - total);
+    for (const part of parts) {
+      const n = span(part);
+      part.style.gridRow = `${at} / span ${n}`;
+      at += n;
+      box.appendChild(part);
+    }
     return box;
   };
 
@@ -962,9 +997,9 @@ function runBattle(
     nm.appendChild(el("strong", undefined, displayName(c.scoba)));
     nm.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
     nm.appendChild(typeIcons(sp));
-    const mote = st.teams[0].indexOf(c) >= 0 && c.mote;
+    const pawn = st.teams[0].indexOf(c) >= 0 && c.pawn;
     nm.appendChild(el("span", "lv",
-      c.fainted ? "· fainted" : mote ? "· mote" : out ? "· out" : "· benched"));
+      c.fainted ? "· fainted" : pawn ? "· pawn" : out ? "· out" : "· benched"));
     wrap.appendChild(nm);
 
     const stats = combatantStats(c);
@@ -1085,10 +1120,10 @@ function runBattle(
         break;
       case "summon": {
         const called = SPECIES[effect.species];
-        // A Mote comes out at whoever called it, so naming a level would be a
+        // A Pawn comes out at whoever called it, so naming a level would be a
         // number the move never uses.
-        line.textContent = called?.mote
-          ? `Calls up a ${called.name} Mote at the caster's own level.`
+        line.textContent = called?.pawn
+          ? `Calls up a ${called.name} Pawn at the caster's own level.`
           : `Calls a level ${effect.level} ${called?.name ?? effect.species} to your side.`;
         break;
       }
@@ -1152,7 +1187,7 @@ function runBattle(
       });
       return;
     }
-    // The Motes that run themselves are left off: nobody is asked about them,
+    // The Pawns that run themselves are left off: nobody is asked about them,
     // and their choices come out of the AI when the round is submitted.
     localReady = false;
     roundSlots = slotsAwaitingChoice(st, 0)
@@ -1235,7 +1270,7 @@ function runBattle(
   const submitRound = (): void => {
     busy = true;
     aiming = null;
-    // Motes take no xp from a win: they are not there afterwards to have it.
+    // Pawns take no xp from a win: they are not there afterwards to have it.
     for (const slot of [0, 1] as const) {
       const idx = st.active[0][slot] ?? -1;
       if (idx >= 0) participated.add(idx);
@@ -1248,7 +1283,7 @@ function runBattle(
     // this array from opposite ends.
     const resolvedTurn = st.turn;
     const peers = net ? peerChoices.forTurn(resolvedTurn) : [];
-    const events = resolveTurn(st, [...staged, ...peers, ...moteChoices(st, 0), ...enemyChoices(st)]);
+    const events = resolveTurn(st, [...staged, ...peers, ...pawnChoices(st, 0), ...enemyChoices(st)]);
     staged = [];
     localReady = false;
     if (net) {
@@ -1495,7 +1530,7 @@ function runBattle(
     return null;
   }
   // The opening walks everyone on, then plays whatever the opening triggers
-  // had to say, which is where a passive that calls up a Mote goes off.
+  // had to say, which is where a passive that calls up a Pawn goes off.
   render();
   busy = true;
   // Adopting a fight means walking into one already happening, so the opening

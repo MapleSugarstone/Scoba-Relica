@@ -171,7 +171,7 @@ export function buildIslandWorld(art: Art, seed: string): WorldDef {
   // Wilds on the islands away from home.
   const encounters: EncounterZone[] = [];
   // Cottlequeen never comes alone: meeting one is meeting her court as well,
-  // which is what makes a Mote something you run into rather than read about.
+  // which is what makes a Pawn something you run into rather than read about.
   const pool = ["catsquito", "meepa", "cactunny", "cottlequeen"];
   islands.forEach((island, i) => {
     if (island === home || i % 2 === 1) return;

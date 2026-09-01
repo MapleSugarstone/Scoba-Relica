@@ -15,7 +15,7 @@ export interface Tint {
 }
 
 /**
- * Whoever called a Mote up, kept for the colours it wears. A Mote takes on its
+ * Whoever called a Pawn up, kept for the colours it wears. A Pawn takes on its
  * summoner's marks, but only where its own art has the colour to swap, which is
  * a question about pixels: the sim records who called it and the art layer
  * works out how much of that shows.
@@ -47,7 +47,7 @@ export interface ScobaInstance {
   tint?: Tint;
   /** Rare colouring: its main colour is turned, and it glitters. */
   shiny?: boolean;
-  /** Motes only: who called it up, which is what it takes its colours from. */
+  /** Pawns only: who called it up, which is what it takes its colours from. */
   summoner?: Summoner;
 }
 
@@ -115,7 +115,7 @@ export function makeWild(speciesId: string, level: number, rng: Rng): ScobaInsta
     xp: 0,
     genes: { ...sp.genes },
     moves: moves.length > 0 ? moves : [sp.learnset[0]!.move],
-    // A line with no secondary pool has one passive and no second: Motes are
+    // A line with no secondary pool has one passive and no second: Pawns are
     // built that way on purpose, and an empty string names no ability at all.
     secondaryAbility: sp.secondaryPool.length > 0 ? pick(rng, sp.secondaryPool) : "",
     breedCount: 0,

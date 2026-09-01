@@ -141,13 +141,13 @@ export interface Species {
   starter?: boolean;
   special?: boolean;
   /**
-   * A Mote: never caught, never bred, never in a party. It only ever reaches
-   * the field by being summoned onto a Mote slot, and it never leaves one, so
+   * A Pawn: never caught, never bred, never in a party. It only ever reaches
+   * the field by being summoned onto a Pawn slot, and it never leaves one, so
    * it is drawn smaller and read off a smaller card.
    */
-  mote?: boolean;
+  pawn?: boolean;
   /**
-   * Motes only. Nobody picks its actions: it runs the same AI the enemy team
+   * Pawns only. Nobody picks its actions: it runs the same AI the enemy team
    * does, on a seed of its own.
    */
   autonomous?: boolean;
@@ -280,22 +280,22 @@ export const MOVES: Record<string, Move> = Object.fromEntries(
       effects: [{ kind: "grant-item", item: "snare", count: 1 }],
     }),
 
-    // The Cottle line. A summon of a Mote takes the caller's own level, so the
-    // level named here is only what a non-Mote summon would come out at.
+    // The Cottle line. A summon of a Pawn takes the caller's own level, so the
+    // level named here is only what a non-Pawn summon would come out at.
     M("court-call", "Court Call", "fortuna", "utility", 0, 50, 2, 0, {
       anim: "rear", vfx: "glow",
       targets: [{ mode: "self", prompt: "Call the court" }],
       effects: [{ kind: "summon", species: "cottlecorn", level: 1 }],
     }),
-    M("mote-dart", "Mote Dart", "fortuna", "magical", 0.8, 20, 0, 0, {
+    M("pawn-dart", "Pawn Dart", "fortuna", "magical", 0.8, 20, 0, 0, {
       anim: "shake", vfx: "bolt",
     }),
-    M("mote-mend", "Mote Mend", "fortuna", "heal", 0.12, 25, 1, 0, {
+    M("pawn-mend", "Pawn Mend", "fortuna", "heal", 0.12, 25, 1, 0, {
       anim: "focus", vfx: "glow",
       targets: [{ mode: "any-ally", prompt: "Patch up" }],
     }),
     // A full bar to cast and a full bar is all anything can hold, so it only
-    // ever goes off on a Mote that has spent a few turns saving for it.
+    // ever goes off on a Pawn that has spent a few turns saving for it.
     M("sunfall", "Sunfall", "sun", "magical", 2.2, 100, 2, 1, {
       anim: "rear", vfx: "beam",
     }),
@@ -343,7 +343,7 @@ export const ABILITIES: Record<string, Ability> = Object.fromEntries(
       // The Cottle line: a queen who brings her court, and the court itself.
       {
         id: "cottle-court", name: "Cottle Court",
-        desc: "Calls up a Cottlecorn Mote the first time she takes the field.",
+        desc: "Calls up a Cottlecorn Pawn the first time she takes the field.",
       },
       { id: "queens-guard", name: "Queen's Guard", desc: "Bracing pours a tenth of her Magic into her Speed." },
       {
@@ -510,15 +510,15 @@ export const SPECIES: Record<string, Species> = Object.fromEntries(
         learnset: [L(1, "lucky-strike"), L(4, "crush"), L(6, "court-call"), L(10, "jackpot")],
         sprite: { kind: "art", art: "cottlequeen" }, movement: "hover",
       },
-      // The Mote her court is made of. Weak across the board, three moves, one
+      // The Pawn her court is made of. Weak across the board, three moves, one
       // passive, and no way onto the field but being called.
       {
         id: "cottlecorn", name: "Cottlecorn", type: "fortuna",
         genes: stats(3, 3, 3, 3, 4, 5),
         primaryAbility: "piercing-horn", secondaryPool: [],
-        learnset: [L(1, "mote-dart"), L(1, "mote-mend"), L(1, "sunfall")],
+        learnset: [L(1, "pawn-dart"), L(1, "pawn-mend"), L(1, "sunfall")],
         sprite: { kind: "art", art: "cottlecorn" }, movement: "skitter",
-        mote: true, autonomous: true,
+        pawn: true, autonomous: true,
       },
       {
         id: "relica", name: "Relica", type: "plain",
@@ -536,11 +536,11 @@ export const STARTER_IDS: string[] = STARTERS.map((s) => s.id);
 
 /**
  * The lines a player can actually keep. The special Scoba is nobody's and a
- * Mote is only ever summoned, so neither belongs in the index, the world
+ * Pawn is only ever summoned, so neither belongs in the index, the world
  * editor's species list, or the pools legality derives breeding from.
  */
 export function rosterSpecies(): Species[] {
-  return Object.values(SPECIES).filter((sp) => !sp.special && !sp.mote);
+  return Object.values(SPECIES).filter((sp) => !sp.special && !sp.pawn);
 }
 
 /**

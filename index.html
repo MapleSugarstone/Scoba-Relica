@@ -150,7 +150,7 @@
       pointer-events: auto;
       padding: 4px 8px;
       gap: 2px;
-      width: 136px;
+      width: 168px;
       transform-origin: top left;
     }
     .bcard.bplate .nm { font-size: 14px; width: 100%; justify-content: center; gap: 4px; }
@@ -161,28 +161,28 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .bcard.bplate .nm .lv { font-size: 10px; flex: none; }
-    .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 10px; }
+    .bcard.bplate .nm .lv { font-size: 12px; flex: none; }
+    .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 12px; }
     .bcard.bplate .own { font-size: 10px; }
-    .bcard.bplate .bbar { height: 12px; }
+    .bcard.bplate .bbar { height: 14px; }
     /* Two badges side by side are 84 px of art, which is what sets the width
        above. A third wraps rather than pushing the panel out. */
     .bcard.bplate .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }
     /*
-     * A Mote's readout. Three of these stand behind the two Scobas, so it
-     * carries only what a Mote has to say: its name, its two bars, and any
-     * marks it has picked up. No owner line and no level, since a Mote is
+     * A Pawn's readout. Three of these stand behind the two Scobas, so it
+     * carries only what a Pawn has to say: its name, its two bars, and any
+     * marks it has picked up. No owner line and no level, since a Pawn is
      * always its summoner's level and is nobody's to swap.
      */
     /* Quieter than a Scoba's plate by its outline rather than by its fill, so
        the two read as the same kind of thing at different ranks. */
-    .bcard.bmote.bplate {
+    .bcard.bpawn.bplate {
       --ink: var(--p-quiet);
-      width: 104px;
+      width: 132px;
       padding: 4px 8px;
       gap: 2px;
     }
-    .bcard.bmote .nm {
+    .bcard.bpawn .nm {
       font-size: 12px;
       width: 100%;
       overflow: hidden;
@@ -190,29 +190,29 @@
       white-space: nowrap;
       text-align: center;
     }
-    .bcard.bmote .bbar { height: 10px; }
+    .bcard.bpawn .bbar { height: 12px; }
     /* The badge is drawn art at 41x17 and is never scaled, here least of all:
        shrinking it for a small card is exactly what would put its outline
        across pixel edges while the Scoba beside it kept a hard one. It sets the
        card's width instead. A second type wraps rather than widening it. */
-    .bcard.bmote .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }
+    .bcard.bpawn .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }
     /* On a narrow screen the slots are only a thumb apart, so the readouts
        shrink to clear each other and the log rather than burying the Scobas
        they belong to. */
     @media (max-width: 560px) {
       .bcard.bplate {
-        width: 104px;
+        width: 128px;
         padding: 2px 4px;
         gap: 2px;
       }
-      .bcard.bplate .nm { font-size: 10px; gap: 4px; }
+      .bcard.bplate .nm { font-size: 12px; gap: 4px; }
       .bcard.bplate .nm .lv { font-size: 10px; }
       .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 10px; }
       .bcard.bplate .own { font-size: 10px; letter-spacing: 0; }
       .bcard.bplate .bbar { height: 10px; }
-      .bcard.bmote.bplate { width: 84px; padding: 2px 4px; }
-      .bcard.bmote .nm { font-size: 10px; }
-      .bcard.bmote .bbar { height: 8px; }
+      .bcard.bpawn.bplate { width: 104px; padding: 2px 4px; }
+      .bcard.bpawn .nm { font-size: 10px; }
+      .bcard.bpawn .bbar { height: 10px; }
     }
 
     /* Catches clicks on the field itself while a move is being aimed. */
@@ -948,7 +948,7 @@
 
     /* Every readout is a plate laid over the scene, and every plate carries its
        own width, so nothing here may set a floor: a `min-width` beats the
-       `width` above it and put a Mote back at a Scoba's size. */
+       `width` above it and put a Pawn back at a Scoba's size. */
     .bcard {
       --fill: var(--p-ink);
       --ink: var(--p-raised);
@@ -1553,7 +1553,17 @@
        rows are all buttons, and a header row of its own would have cost one. */
     .bacts > .aimline { top: -22px; }
 
-    .bactions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+    /* Its own rows are equal too, so a row spanning two of the block's rows
+       gives two rows of buttons the same height rather than two content-sized
+       ones with the leftover underneath. */
+    .bactions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-auto-rows: minmax(0, 1fr);
+      gap: 8px;
+      width: 100%;
+      height: 100%;
+    }
     .aimline { color: var(--p-highlight); font-size: 14px; letter-spacing: 1px; }
     button.act {
       font: inherit;

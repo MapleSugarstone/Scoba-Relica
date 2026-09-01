@@ -9,23 +9,23 @@ import type { Rng } from "./rng";
 
 /**
  * The field is two rows of marks per side. The first are the Scoba slots, one
- * per character, filled from the party and swapped between. The rest are Mote
+ * per character, filled from the party and swapped between. The rest are Pawn
  * slots: nobody starts on them and nothing walks off them, they are filled by
  * summoning alone.
  *
- * Both rows live in the one `active` array, which is what lets a Mote be aimed
+ * Both rows live in the one `active` array, which is what lets a Pawn be aimed
  * at, rolled onto and swept up by a team move without a second code path.
  * These live here rather than in `battle.ts` because `battle.ts` imports this
  * module and not the other way round.
  */
 export const SCOBA_SLOTS = 2;
-export const MOTE_SLOTS = 3;
-export const FIELD_SLOTS = SCOBA_SLOTS + MOTE_SLOTS;
+export const PAWN_SLOTS = 3;
+export const FIELD_SLOTS = SCOBA_SLOTS + PAWN_SLOTS;
 
 /** Every mark on one side, Scoba slots first. */
 export const ALL_SLOTS: number[] = Array.from({ length: FIELD_SLOTS }, (_v, i) => i);
 
-export function isMoteSlot(slot: number): boolean {
+export function isPawnSlot(slot: number): boolean {
   return slot >= SCOBA_SLOTS && slot < FIELD_SLOTS;
 }
 
@@ -107,7 +107,7 @@ export function combatantAt(st: BattleState, ref: TargetRef): Combatant | null {
 const other = (side: 0 | 1): 0 | 1 => (side === 0 ? 1 : 0);
 
 /**
- * Team indices standing on one of the side's marks, Motes included: a Mote is
+ * Team indices standing on one of the side's marks, Pawns included: a Pawn is
  * on the field and is aimed at, rolled onto and swept up like anything else
  * standing there.
  */

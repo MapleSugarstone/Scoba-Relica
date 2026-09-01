@@ -52,20 +52,20 @@ import {
 import {
   candidates,
   combatantAt,
-  isMoteSlot,
+  isPawnSlot,
   needsPick,
   pickError,
   resolveTargets,
   sameRef,
   ALL_SLOTS,
   FIELD_SLOTS,
-  MOTE_SLOTS,
+  PAWN_SLOTS,
   SCOBA_SLOTS,
   type TargetRef,
   type TargetSpec,
 } from "./targeting";
 
-export { ALL_SLOTS, FIELD_SLOTS, MOTE_SLOTS, SCOBA_SLOTS, isMoteSlot };
+export { ALL_SLOTS, FIELD_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, isPawnSlot };
 
 export const START_MANA = 40;
 export const MANA_PER_TURN = 20;
@@ -100,11 +100,11 @@ export interface Combatant {
   /** Called in mid-battle rather than brought from the party. */
   summoned?: boolean;
   /**
-   * Standing on a Mote slot. It fights like anything else on the field and is
+   * Standing on a Pawn slot. It fights like anything else on the field and is
    * aimed at like anything else, but it never switches, never fills a Scoba
    * slot, and never keeps a team alive on its own.
    */
-  mote?: boolean;
+  pawn?: boolean;
 }
 
 /** A character in the shared save. */
@@ -121,12 +121,12 @@ export interface BattleState {
   seed: string;
   turn: number;
   wild: boolean;
-  /** Scoba slots in play. Mote slots are separate and are never "in play". */
+  /** Scoba slots in play. Pawn slots are separate and are never "in play". */
   slots: 1 | 2;
   teams: [Combatant[], Combatant[]];
   /**
    * Who is on each of the side's marks, by team index, -1 for an empty one.
-   * `SCOBA_SLOTS` entries for the Scobas, then `MOTE_SLOTS` for the Motes.
+   * `SCOBA_SLOTS` entries for the Scobas, then `PAWN_SLOTS` for the Pawns.
    */
   active: [number[], number[]];
   /** Side 0 only. Side 1 fields whatever it has, in team order. */
@@ -141,7 +141,7 @@ export interface BattleState {
   fields: [FieldInstance | null, FieldInstance | null];
   /**
    * EZ mode. Kept on the state rather than spent at the opening, because a
-   * Mote called mid-battle has to be given the same leg-up as the Scoba that
+   * Pawn called mid-battle has to be given the same leg-up as the Scoba that
    * called it: without it the court stays at a quarter of everyone's size.
    */
   ez: boolean;
@@ -164,7 +164,7 @@ export function slotOf(owner: OwnerId): 0 | 1 {
   return owner === "A" ? 0 : 1;
 }
 
-/** A mark on the field: a Scoba slot below `SCOBA_SLOTS`, a Mote slot above. */
+/** A mark on the field: a Scoba slot below `SCOBA_SLOTS`, a Pawn slot above. */
 export type Slot = number;
 
 export type Choice =
@@ -229,36 +229,36 @@ export function makeCombatants(team: ScobaInstance[]): Combatant[] {
 }
 
 /**
- * Is anyone playing this slot at all? A Mote slot is only ever in play while
+ * Is anyone playing this slot at all? A Pawn slot is only ever in play while
  * something is standing on it: nobody is fielded there at the opening and
- * nothing walks on to fill it once its Mote falls.
+ * nothing walks on to fill it once its Pawn falls.
  */
 export function slotInPlay(st: BattleState, side: 0 | 1, slot: Slot): boolean {
   if (slot < 0 || slot >= FIELD_SLOTS) return false;
-  if (isMoteSlot(slot)) return (st.active[side][slot] ?? -1) >= 0;
+  if (isPawnSlot(slot)) return (st.active[side][slot] ?? -1) >= 0;
   if (slot >= st.slots) return false;
   return side === 1 || st.slotOwner[slot] !== null;
 }
 
 /** Which character's Scobas may fill this slot, or `"*"` for no restriction. */
 function holderOf(st: BattleState, side: 0 | 1, slot: Slot): SlotHolder {
-  if (side === 1 || isMoteSlot(slot)) return "*";
+  if (side === 1 || isPawnSlot(slot)) return "*";
   return st.slotOwner[slot] ?? null;
 }
 
 /**
  * Team members that side could still send into that slot: standing, not
  * already out, and belonging to the character holding the slot. A Scoba
- * summoned into the fight answers to whoever summoned it. A Mote is on nobody's
+ * summoned into the fight answers to whoever summoned it. A Pawn is on nobody's
  * bench and has no bench of its own: it takes the field by being called and
  * leaves it by falling.
  */
 export function benchFor(st: BattleState, side: 0 | 1, slot: Slot): number[] {
-  if (isMoteSlot(slot) || !slotInPlay(st, side, slot)) return [];
+  if (isPawnSlot(slot) || !slotInPlay(st, side, slot)) return [];
   const holder = holderOf(st, side, slot);
   const out: number[] = [];
   st.teams[side].forEach((c, i) => {
-    if (c.fainted || c.mote || st.active[side].includes(i)) return;
+    if (c.fainted || c.pawn || st.active[side].includes(i)) return;
     if (holder !== "*" && c.scoba.owner !== holder) return;
     out.push(i);
   });
@@ -281,7 +281,7 @@ export function emptySlots(st: BattleState, side: 0 | 1): Slot[] {
   if (st.winner !== -1 || st.outcome !== "") return [];
   return ALL_SLOTS.filter(
     (slot) =>
-      !isMoteSlot(slot) &&
+      !isPawnSlot(slot) &&
       slotInPlay(st, side, slot) &&
       (st.active[side][slot] ?? -1) < 0 &&
       benchFor(st, side, slot).length > 0,
@@ -354,16 +354,16 @@ function emptyField(): number[] {
 
 /**
  * First standing member for each Scoba slot the side is playing, owners
- * respected. Mote slots are left empty: nothing is ever fielded onto one, only
+ * respected. Pawn slots are left empty: nothing is ever fielded onto one, only
  * summoned onto it.
  */
 function fillSlots(st: BattleState, side: 0 | 1): number[] {
   const out = emptyField();
   for (const slot of ALL_SLOTS) {
-    if (isMoteSlot(slot) || !slotInPlay(st, side, slot)) continue;
+    if (isPawnSlot(slot) || !slotInPlay(st, side, slot)) continue;
     const holder = holderOf(st, side, slot);
     out[slot] = st.teams[side].findIndex(
-      (c, i) => !c.fainted && !c.mote && !out.includes(i) && (holder === "*" || c.scoba.owner === holder),
+      (c, i) => !c.fainted && !c.pawn && !out.includes(i) && (holder === "*" || c.scoba.owner === holder),
     );
   }
   return out;
@@ -402,17 +402,17 @@ function combatant(st: BattleState, side: 0 | 1, slot: Slot): Combatant | null {
 
 /**
  * Does this one pick its own actions rather than being told them? An
- * autonomous Mote is nobody's to command: it is offered no action row and its
+ * autonomous Pawn is nobody's to command: it is offered no action row and its
  * choices come out of the same AI the enemy team runs on.
  */
 export function selfRunning(c: Combatant): boolean {
-  return c.mote === true && SPECIES[c.scoba.speciesId]?.autonomous === true;
+  return c.pawn === true && SPECIES[c.scoba.speciesId]?.autonomous === true;
 }
 
-/** The first Mote slot on a side with nothing standing on it. */
-function freeMoteSlot(st: BattleState, side: 0 | 1): Slot | null {
+/** The first Pawn slot on a side with nothing standing on it. */
+function freePawnSlot(st: BattleState, side: 0 | 1): Slot | null {
   for (const slot of ALL_SLOTS) {
-    if (!isMoteSlot(slot)) continue;
+    if (!isPawnSlot(slot)) continue;
     if ((st.active[side][slot] ?? -1) < 0) return slot;
   }
   return null;
@@ -519,11 +519,11 @@ export function choiceError(st: BattleState, c: Choice): string | null {
     // Switching into an emptied slot (after a faint) is how replacements enter.
     // The slot is checked before the Scoba: whether anyone is playing it, and
     // whose it is, decide the move regardless of who was named.
-    if (isMoteSlot(c.slot)) return "A Mote cannot be called back.";
+    if (isPawnSlot(c.slot)) return "A Pawn cannot be called back.";
     if (!slotInPlay(st, c.side, c.slot)) return "Nobody is playing that slot.";
     const target = st.teams[c.side][c.benchIndex];
     if (!target) return "No such team member.";
-    if (target.mote) return "A Mote cannot be sent out.";
+    if (target.pawn) return "A Pawn cannot be sent out.";
     const holder = holderOf(st, c.side, c.slot);
     if (holder !== "*" && target.scoba.owner !== holder) {
       return "That Scoba belongs to the other player.";
@@ -789,14 +789,14 @@ function killed(ctx: Ctx, targetRef: TargetRef, meta: HitMeta): void {
  * battle leaving side 0 with nothing standing, and the next battle would then
  * open with no Scoba to send in.
  *
- * Motes do not hold a side up. A team whose last Scoba falls is beaten even
+ * Pawns do not hold a side up. A team whose last Scoba falls is beaten even
  * with its court still on the field, which is both the right reading of what a
  * summon is and what stops a round from opening with nobody left to pick for.
  */
 function checkWipe(ctx: Ctx): void {
   const st = ctx.st;
   if (st.winner !== -1 || st.outcome !== "") return;
-  const gone = (side: 0 | 1): boolean => st.teams[side].every((c) => c.fainted || c.mote);
+  const gone = (side: 0 | 1): boolean => st.teams[side].every((c) => c.fainted || c.pawn);
   const wiped = [gone(0), gone(1)] as const;
   if (!wiped[0] && !wiped[1]) return;
   st.winner = wiped[0] ? 1 : 0;
@@ -1031,7 +1031,7 @@ function summon(ctx: Ctx, callerRef: TargetRef, speciesId: string, level: number
   if (!sp) return;
   const side = callerRef.side;
   const caller = combatantAt(ctx.st, callerRef);
-  if (sp.mote) return summonMote(ctx, callerRef, speciesId);
+  if (sp.pawn) return summonPawn(ctx, callerRef, speciesId);
   const already = ctx.st.teams[side].filter((c) => c.summoned).length;
   if (already >= MAX_SUMMONS) {
     ctx.events.push({ text: "Nothing else answers the call.", kind: "info" });
@@ -1047,28 +1047,29 @@ function summon(ctx: Ctx, callerRef: TargetRef, speciesId: string, level: number
 }
 
 /**
- * A Mote takes a mark of its own rather than a place on the bench, so it is on
+ * A Pawn takes a mark of its own rather than a place on the bench, so it is on
  * the field the moment it is called and stays there until it falls. It comes
  * out at its summoner's level, since the only thing that ever decides how big
- * a Mote is is who called it.
+ * a Pawn is is who called it.
  */
-function summonMote(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
+function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
   const st = ctx.st;
   const side = callerRef.side;
   const caller = combatantAt(st, callerRef);
   if (!caller) return;
-  const slot = freeMoteSlot(st, side);
+  const slot = freePawnSlot(st, side);
   if (slot === null) {
-    ctx.events.push({ text: "There is no room for another Mote.", kind: "info" });
+    ctx.events.push({ text: "There is no room for another Pawn.", kind: "info" });
     return;
   }
   const scoba = makeWild(
     speciesId, caller.scoba.level,
+    // Label kept through the rename, for the reason given in `ai.ts`.
     rngFrom(`${st.seed}:mote:${st.turn}:${side}:${slot}`),
   );
   scoba.owner = caller.scoba.owner;
   // What it wears is settled where the pixels are. The sim only records who
-  // called it; the art layer keeps whichever of the summoner's marks the Mote's
+  // called it; the art layer keeps whichever of the summoner's marks the Pawn's
   // own palette has a colour for.
   const worn: Summoner = { speciesId: caller.scoba.speciesId };
   if (caller.scoba.tint) worn.tint = caller.scoba.tint;
@@ -1077,7 +1078,7 @@ function summonMote(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
   const [c] = makeCombatants([scoba]);
   if (!c) return;
   c.summoned = true;
-  c.mote = true;
+  c.pawn = true;
   if (st.ez && side === 0) grantEz(c);
   const index = st.teams[side].length;
   st.teams[side].push(c);
@@ -1161,7 +1162,7 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
 
   for (const c of choices) {
     if (c.kind !== "catch") continue;
-    // A snare is thrown at a Scoba, never at somebody's Mote.
+    // A snare is thrown at a Scoba, never at somebody's Pawn.
     const targetSlot = (st.active[1][0] ?? -1) >= 0 ? 0 : 1;
     const target = combatant(st, 1, targetSlot);
     if (!target || target.fainted) continue;
@@ -1368,7 +1369,7 @@ function forEachStanding(st: BattleState, fn: (ref: TargetRef) => void): void {
 function endOfTurn(ctx: Ctx): void {
   const st = ctx.st;
   if (st.winner !== -1) return;
-  // Motes draw on the same bar everything else does, which is what lets one
+  // Pawns draw on the same bar everything else does, which is what lets one
   // save up for a spell that costs the whole of it.
   forEachStanding(st, (ref) => {
     const c = combatantAt(st, ref);

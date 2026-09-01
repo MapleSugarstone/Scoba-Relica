@@ -391,7 +391,7 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
       { trigger: { on: "battle-start" }, charges: 1 }),
 
     // Cottlequeen brings her court out with her, and quickens as she braces.
-    P("cottle-court", "Cottle Court", "Calls up a Cottlecorn Mote the first time she takes the field.",
+    P("cottle-court", "Cottle Court", "Calls up a Cottlecorn Pawn the first time she takes the field.",
       [{ kind: "summon", species: "cottlecorn", level: 1 }],
       { trigger: { on: "switch-in" }, charges: 1 }),
     P("queens-guard", "Queen's Guard", "Bracing pours a tenth of her Magic into her Speed.",

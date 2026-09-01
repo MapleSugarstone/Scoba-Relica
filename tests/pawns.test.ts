@@ -12,8 +12,8 @@ import {
   type BattleState,
   type Combatant,
 } from "../src/sim/battle";
-import { MOTE_SLOTS, SCOBA_SLOTS, candidates, isMoteSlot } from "../src/sim/targeting";
-import { moteChoices } from "../src/sim/ai";
+import { PAWN_SLOTS, SCOBA_SLOTS, candidates, isPawnSlot } from "../src/sim/targeting";
+import { pawnChoices } from "../src/sim/ai";
 import { stacksOf } from "../src/sim/status";
 import { makeWild, passiveStatuses, type ScobaInstance } from "../src/sim/scoba";
 import { SPECIES, rosterSpecies } from "../src/sim/species";
@@ -23,8 +23,8 @@ import { rngFrom } from "../src/sim/rng";
 const wild = (species: string, level: number, seed: string) => makeWild(species, level, rngFrom(seed));
 const owned = (s: ScobaInstance, owner: "A" | "B"): ScobaInstance => ({ ...s, owner });
 
-/** The first Mote mark, which is where a queen's first Cottlecorn lands. */
-const FIRST_MOTE = SCOBA_SLOTS;
+/** The first Pawn mark, which is where a queen's first Cottlecorn lands. */
+const FIRST_PAWN = SCOBA_SLOTS;
 
 /**
  * A queen out with a spare behind her against one enemy, which is the smallest
@@ -42,21 +42,21 @@ function court(opts: { level?: number; enemy?: number; dress?: (q: ScobaInstance
   );
 }
 
-const moteAt = (st: BattleState, slot: number): Combatant | null => {
+const pawnAt = (st: BattleState, slot: number): Combatant | null => {
   const idx = st.active[0][slot] ?? -1;
   return idx >= 0 ? st.teams[0][idx] ?? null : null;
 };
 
-const motesOut = (st: BattleState, side: 0 | 1): number =>
-  st.teams[side].filter((c) => c.mote && !c.fainted).length;
+const pawnsOut = (st: BattleState, side: 0 | 1): number =>
+  st.teams[side].filter((c) => c.pawn && !c.fainted).length;
 
-describe("calling a Mote", () => {
+describe("calling a Pawn", () => {
   it("brings one out with the queen, on a mark of its own", () => {
     const st = court();
-    const mote = moteAt(st, FIRST_MOTE);
-    expect(mote?.scoba.speciesId).toBe("cottlecorn");
-    expect(mote?.mote).toBe(true);
-    expect(isMoteSlot(FIRST_MOTE)).toBe(true);
+    const pawn = pawnAt(st, FIRST_PAWN);
+    expect(pawn?.scoba.speciesId).toBe("cottlecorn");
+    expect(pawn?.pawn).toBe(true);
+    expect(isPawnSlot(FIRST_PAWN)).toBe(true);
   });
 
   it("says so on the opening, so the scene has a call to play", () => {
@@ -69,33 +69,33 @@ describe("calling a Mote", () => {
 
   it("comes out at whoever called it, and answers to them", () => {
     const st = court({ level: 12 });
-    const mote = moteAt(st, FIRST_MOTE)!;
-    expect(mote.scoba.level).toBe(12);
-    expect(mote.scoba.owner).toBe("A");
+    const pawn = pawnAt(st, FIRST_PAWN)!;
+    expect(pawn.scoba.level).toBe(12);
+    expect(pawn.scoba.owner).toBe("A");
   });
 
   it("only ever the once, however many times she takes the field", () => {
     const st = court();
-    expect(motesOut(st, 0)).toBe(1);
+    expect(pawnsOut(st, 0)).toBe(1);
     // Out and back in again: the passive has spent its charge for the battle.
     resolveTurn(st, [{ kind: "switch", side: 0, slot: 0, benchIndex: 1 }]);
     resolveTurn(st, [{ kind: "switch", side: 0, slot: 0, benchIndex: 0 }]);
-    expect(motesOut(st, 0)).toBe(1);
+    expect(pawnsOut(st, 0)).toBe(1);
   });
 
   it("keeps calling until the marks run out, and then says so", () => {
     const st = court();
     const queen = st.teams[0][0]!;
-    for (let i = 0; i < MOTE_SLOTS + 1; i++) {
+    for (let i = 0; i < PAWN_SLOTS + 1; i++) {
       queen.mana = 100;
       queen.cds = {};
       resolveTurn(st, [{ kind: "spell", side: 0, slot: 0, moveId: "court-call", picks: [null] }]);
     }
-    expect(motesOut(st, 0)).toBe(MOTE_SLOTS);
+    expect(pawnsOut(st, 0)).toBe(PAWN_SLOTS);
   });
 });
 
-describe("what a Mote is on the field", () => {
+describe("what a Pawn is on the field", () => {
   it("can be aimed at by an ally and swept up by the enemy line", () => {
     const st = court();
     const ref = { side: 0 as const, index: 2 };
@@ -108,34 +108,34 @@ describe("what a Mote is on the field", () => {
     const st = court();
     expect(benchFor(st, 0, 0)).toEqual([1]);
     expect(choiceError(st, { kind: "switch", side: 0, slot: 0, benchIndex: 2 }))
-      .toBe("A Mote cannot be sent out.");
+      .toBe("A Pawn cannot be sent out.");
   });
 
   it("cannot be called back off its own mark", () => {
     const st = court();
-    expect(benchFor(st, 0, FIRST_MOTE)).toEqual([]);
-    expect(choiceError(st, { kind: "switch", side: 0, slot: FIRST_MOTE, benchIndex: 1 }))
-      .toBe("A Mote cannot be called back.");
+    expect(benchFor(st, 0, FIRST_PAWN)).toEqual([]);
+    expect(choiceError(st, { kind: "switch", side: 0, slot: FIRST_PAWN, benchIndex: 1 }))
+      .toBe("A Pawn cannot be called back.");
   });
 
   it("leaves an empty mark behind it, with nothing waiting to fill it", () => {
     const st = court();
     st.teams[0][2]!.fainted = true;
-    st.active[0][FIRST_MOTE] = -1;
+    st.active[0][FIRST_PAWN] = -1;
     expect(emptySlots(st, 0)).toEqual([]);
   });
 
   it("takes a turn like anything else standing there", () => {
     const st = court();
-    expect(slotsAwaitingChoice(st, 0)).toEqual([0, FIRST_MOTE]);
+    expect(slotsAwaitingChoice(st, 0)).toEqual([0, FIRST_PAWN]);
   });
 
   it("draws on the same mana bar, so it can save for a spell that costs it all", () => {
     const st = court();
-    const mote = moteAt(st, FIRST_MOTE)!;
-    const before = mote.mana;
+    const pawn = pawnAt(st, FIRST_PAWN)!;
+    const before = pawn.mana;
     resolveTurn(st, [{ kind: "block", side: 0, slot: 0 }]);
-    expect(mote.mana).toBeGreaterThan(before);
+    expect(pawn.mana).toBeGreaterThan(before);
   });
 
   it("does not hold a side up once its summoner is gone", () => {
@@ -143,23 +143,23 @@ describe("what a Mote is on the field", () => {
     const st = startBattle("wipe", [queen], [wild("plib", 20, "foe")], {
       slots: 1, owners: ["A", null],
     });
-    expect(motesOut(st, 0)).toBe(1);
+    expect(pawnsOut(st, 0)).toBe(1);
     st.teams[0][0]!.hp = 1;
     resolveTurn(st, [{ kind: "attack", side: 1, slot: 0, picks: [{ side: 0, index: 0 }] }]);
     expect(st.teams[0][0]!.fainted).toBe(true);
-    expect(motesOut(st, 0)).toBe(1);
+    expect(pawnsOut(st, 0)).toBe(1);
     expect(st.winner).toBe(1);
   });
 });
 
-describe("a Mote nobody controls", () => {
+describe("a Pawn nobody controls", () => {
   it("is the one the AI picks for, and the Scobas are not", () => {
     const st = court();
     expect(selfRunning(st.teams[0][2]!)).toBe(true);
     expect(selfRunning(st.teams[0][0]!)).toBe(false);
-    const picks = moteChoices(st, 0);
+    const picks = pawnChoices(st, 0);
     expect(picks).toHaveLength(1);
-    expect(picks[0]!.slot).toBe(FIRST_MOTE);
+    expect(picks[0]!.slot).toBe(FIRST_PAWN);
     expect(picks[0]!.side).toBe(0);
   });
 
@@ -169,11 +169,11 @@ describe("a Mote nobody controls", () => {
     const said: string[] = [];
     let topped = false;
     for (let turn = 0; turn < 15; turn++) {
-      const mote = moteAt(st, FIRST_MOTE);
-      if (!mote) break;
-      if (mote.mana >= 100) topped = true;
-      for (const ev of resolveTurn(st, moteChoices(st, 0))) said.push(ev.text);
-      // The enemy is a punching bag here: the point is the Mote's own bar.
+      const pawn = pawnAt(st, FIRST_PAWN);
+      if (!pawn) break;
+      if (pawn.mana >= 100) topped = true;
+      for (const ev of resolveTurn(st, pawnChoices(st, 0))) said.push(ev.text);
+      // The enemy is a punching bag here: the point is the Pawn's own bar.
       foe.hp = combatantMaxHp(foe);
     }
     expect(topped).toBe(true);
@@ -189,7 +189,7 @@ describe("the Cottle passives", () => {
     for (let i = 0; i < 8; i++) {
       foe.hp = combatantMaxHp(foe);
       resolveTurn(st, [
-        { kind: "attack", side: 0, slot: FIRST_MOTE, picks: [{ side: 1, index: 0 }] },
+        { kind: "attack", side: 0, slot: FIRST_PAWN, picks: [{ side: 1, index: 0 }] },
       ]);
     }
     expect(stacksOf(foe.statuses, "gored")).toBe(6);
@@ -199,11 +199,11 @@ describe("the Cottle passives", () => {
   it("leaves nothing on a target a spell hit, since it is the swing that gores", () => {
     const st = court();
     const foe = st.teams[1][0]!;
-    const mote = moteAt(st, FIRST_MOTE)!;
-    mote.mana = 100;
-    mote.cds = {};
+    const pawn = pawnAt(st, FIRST_PAWN)!;
+    pawn.mana = 100;
+    pawn.cds = {};
     resolveTurn(st, [
-      { kind: "spell", side: 0, slot: FIRST_MOTE, moveId: "mote-dart", picks: [{ side: 1, index: 0 }] },
+      { kind: "spell", side: 0, slot: FIRST_PAWN, moveId: "pawn-dart", picks: [{ side: 1, index: 0 }] },
     ]);
     expect(stacksOf(foe.statuses, "gored")).toBe(0);
   });
@@ -220,14 +220,14 @@ describe("the Cottle passives", () => {
     expect(combatantStats(queen).spd).toBe(Math.floor(spd + mag * 0.2));
   });
 
-  it("gives a Mote one passive and no second, since its pool is empty", () => {
+  it("gives a Pawn one passive and no second, since its pool is empty", () => {
     const corn = wild("cottlecorn", 3, "corn");
     expect(corn.secondaryAbility).toBe("");
     expect(passiveStatuses(corn).map((s) => s.id)).toEqual(["piercing-horn"]);
   });
 });
 
-describe("what a Mote wears", () => {
+describe("what a Pawn wears", () => {
   it("records who called it, and nothing else when she is plain", () => {
     const st = court();
     expect(st.teams[0][2]!.scoba.summoner).toEqual({ speciesId: "cottlequeen" });
@@ -259,7 +259,7 @@ describe("what a Mote wears", () => {
   });
 });
 
-describe("Motes stay out of the roster", () => {
+describe("Pawns stay out of the roster", () => {
   it("is not in the index, the editor's list or the breeding pools", () => {
     const ids = rosterSpecies().map((sp) => sp.id);
     expect(ids).toContain("cottlequeen");
@@ -279,15 +279,15 @@ describe("Motes stay out of the roster", () => {
     const st = startBattle("ez", [queen], [wild("plib", 5, "ez-foe")], {
       slots: 1, owners: ["A", null], ez: true,
     });
-    const mote = moteAt(st, FIRST_MOTE)!;
-    expect(mote.statuses.some((s) => s.id === "ez")).toBe(true);
+    const pawn = pawnAt(st, FIRST_PAWN)!;
+    expect(pawn.statuses.some((s) => s.id === "ez")).toBe(true);
     // The enemy is left where it was, EZ mode or not.
     expect(st.teams[1][0]!.statuses.some((s) => s.id === "ez")).toBe(false);
   });
 
-  it("is a Mote species with an autonomous flag, which is what the AI reads", () => {
-    expect(SPECIES["cottlecorn"]!.mote).toBe(true);
+  it("is a Pawn species with an autonomous flag, which is what the AI reads", () => {
+    expect(SPECIES["cottlecorn"]!.pawn).toBe(true);
     expect(SPECIES["cottlecorn"]!.autonomous).toBe(true);
-    expect(SPECIES["cottlequeen"]!.mote).toBeUndefined();
+    expect(SPECIES["cottlequeen"]!.pawn).toBeUndefined();
   });
 });

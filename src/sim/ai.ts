@@ -5,8 +5,8 @@
 // move the AI reaches for can never resolve to something a player could not
 // have chosen.
 //
-// It also drives the Motes nobody controls. That is the same code on a seed of
-// its own: a Mote picks between its spells exactly the way an enemy does, and
+// It also drives the Pawns nobody controls. That is the same code on a seed of
+// its own: a Pawn picks between its spells exactly the way an enemy does, and
 // which side it stands on changes nothing but who it aims at.
 import type { BattleState, Choice, Combatant, Slot } from "./battle";
 import {
@@ -36,11 +36,14 @@ export function enemyChoices(st: BattleState): Choice[] {
 }
 
 /**
- * The slots on a side that nobody is asked about: the Motes that run
+ * The slots on a side that nobody is asked about: the Pawns that run
  * themselves. Side 1 is already covered by `enemyChoices`, so this is what the
  * player's own court is driven by.
  */
-export function moteChoices(st: BattleState, side: 0 | 1): Choice[] {
+export function pawnChoices(st: BattleState, side: 0 | 1): Choice[] {
+  // The label stays "motes" after the rename. It is a derivation key rather
+  // than a name, and two clients on slightly different builds can pair peer to
+  // peer, so changing it would change every roll one of them made.
   return pickFor(st, side, rngFrom(`${st.seed}:motes:${side}:${st.turn}`), selfRunning);
 }
 
@@ -151,7 +154,7 @@ function aim(st: BattleState, user: TargetRef, move: Move | null, rng: Rng): (Ta
         ? [...options].sort((a, b) => share(st, a) - share(st, b))
         : options;
     // A heal aims at whoever needs it rather than rolling among the top two:
-    // spreading it around is how a Mote wastes its bar on a full ally.
+    // spreading it around is how a Pawn wastes its bar on a full ally.
     const spread = mending ? 1 : 2;
     picks.push(pool[Math.floor(rng() * Math.min(spread, pool.length))] ?? pool[0]!);
   }
