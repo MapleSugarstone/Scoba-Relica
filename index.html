@@ -14,17 +14,80 @@
   <title>Scoba Relica</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /*
+     * The palette, in one place. Every role is named for the job it does
+     * rather than for its colour, so a panel that wants to be quieter asks for
+     * the quiet fill instead of picking a darker blue of its own, which is how
+     * the sheet ended up with four near-identical slates.
+     *
+     * There is no ramp per role because there does not need to be one: `--lit`
+     * and `--shade` below derive the light and dark faces of whatever fill a
+     * component sets, so a swatch carrying a player's own colour is shaded the
+     * same way the confirm button is.
+     */
+    :root {
+      --p-ink: #171b2c;
+      /* What a shaded face mixes toward. Cool rather than black, so a shadow
+         stays part of the picture instead of going grey. */
+      --p-deep: #0c0f1c;
+      /* What a lit face mixes toward. Warm, for the same reason inverted. */
+      --p-lit: #fff3d0;
+
+      --p-ground: #2a3049;
+      /* The ground with a little light on it, which is what the weave below
+         is drawn in. Derived rather than picked, so it cannot drift away from
+         the ground it belongs to. */
+      --p-ground2: color-mix(in srgb, var(--p-ground) 97%, var(--p-lit));
+      --p-panel: #363d5e;
+      --p-quiet: #2f3556;
+      --p-raised: #46507e;
+      --p-dead: #242a40;
+
+      --p-text: #f3f2c0;
+      --p-dim: #9aa0c3;
+      /* Text on a fill that is already light: the sub-label under a coloured
+         button, a stat line inside a card. */
+      --p-dim2: #c9c4ee;
+      --p-dead-text: #7a80a6;
+
+      --p-action: #5c4e92;
+      --p-action-down: #473b74;
+      --p-confirm: #7aa74a;
+      --p-confirm-down: #5f843a;
+      --p-highlight: #eae178;
+
+      --p-mana: #7c9df0;
+      --p-mana-trail: #d3e2ff;
+      --p-hp-trail: #f2e3b0;
+      --p-warning: #e7a03c;
+      --p-danger: #d9553f;
+      --p-danger-text: #e8a0a0;
+
+      --p-doll: #ded9ee;
+
+      /*
+       * The ground under every menu. Two tones on a 16 px grid, drawn as four
+       * axis-aligned hard-stop gradients so no edge is ever a curve or a
+       * blend: a flat fill behind a screen of panels reads as an unpainted
+       * page, and this is the least that stops it without becoming pattern.
+       */
+      --weave:
+        repeating-linear-gradient(90deg, var(--p-ground2) 0 2px, #0000 2px 16px),
+        repeating-linear-gradient(0deg, var(--p-ground2) 0 2px, #0000 2px 16px);
+    }
+
     html, body {
       height: 100%;
       overflow: hidden;
-      background: #2a3049;
+      background: var(--p-ground);
       touch-action: none;
       overscroll-behavior: none;
       -webkit-user-select: none;
       user-select: none;
       -webkit-tap-highlight-color: transparent;
       font-family: ui-rounded, "Segoe UI", system-ui, sans-serif;
-      color: #f3f2c0;
+      color: var(--p-text);
       /* Hard-edged glyphs: no greyscale or subpixel blending anywhere. */
       -webkit-font-smoothing: none;
       -moz-osx-font-smoothing: grayscale;
@@ -56,7 +119,8 @@
       justify-content: safe center;
       gap: 16px;
       padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-      background: #2a3049;
+      background-color: var(--p-ground);
+      background-image: var(--weave);
       overflow-y: auto;
     }
     /* A battle draws its own scene on the canvas, so the screen over it is
@@ -111,7 +175,7 @@
      * always its summoner's level and is nobody's to swap.
      */
     .bcard.bmote.bplate {
-      --fill: #2f3450;
+      --fill: var(--p-quiet);
       width: 104px;
       padding: 4px 8px;
       gap: 2px;
@@ -172,9 +236,71 @@
       gap: 8px;
       width: 100%;
     }
-    .screen h1 { font-size: clamp(28px, 9vw, 52px); letter-spacing: 2px; text-shadow: 3px 3px 0 #171b2c; }
-    .screen h2 { font-size: 20px; }
-    .screen .sub { color: #9aa0c3; font-size: 14px; }
+    /*
+     * The game's name, cut rather than written: an ink edge on all four sides
+     * and a drop below it, which is the same light the panels take. Larger
+     * text on its own floats, and floating is what a title screen cannot do.
+     */
+    .screen h1 {
+      font-size: clamp(28px, 9vw, 52px);
+      letter-spacing: 2px;
+      line-height: 1.1;
+      text-align: center;
+      color: var(--p-highlight);
+      text-shadow:
+        3px 0 0 var(--p-ink), -3px 0 0 var(--p-ink),
+        0 3px 0 var(--p-ink), 0 -3px 0 var(--p-ink),
+        3px 3px 0 var(--p-ink), -3px 3px 0 var(--p-ink),
+        3px -3px 0 var(--p-ink), -3px -3px 0 var(--p-ink),
+        0 7px 0 var(--p-deep);
+    }
+    /*
+     * Every screen opens with the same header, so a player knows what kind of
+     * screen they are on before they have read it: the name in small caps over
+     * a rule the width of the block, and the line of explanation under both.
+     */
+    .screen h2 {
+      font-size: 20px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      text-align: center;
+      color: var(--p-highlight);
+      text-shadow: 0 3px 0 var(--p-ink);
+    }
+    .screen h2::after {
+      content: "";
+      display: block;
+      width: 100%;
+      min-width: 120px;
+      height: 3px;
+      margin-top: 8px;
+      background: var(--p-ink);
+      box-shadow: 0 3px 0 var(--p-raised);
+    }
+    .screen .sub { color: var(--p-dim); font-size: 14px; text-align: center; }
+    /* The pair reads as one block, so the rule belongs to the line under it. */
+    .screen h2 + .sub { margin-top: -8px; }
+
+    /*
+     * Screens are assembled rather than switched on: each block fades up from
+     * a few pixels down, one after the next. Only the arrival moves. A resting
+     * position never does, so nothing a player is aiming at can shift.
+     *
+     * Stepped rather than eased, because a smooth fade renders part-opaque
+     * pixels and every other edge in this game is hard.
+     */
+    @keyframes riseIn { from { opacity: 0; transform: translateY(6px); } }
+    .screen:not(.stage) > * {
+      animation: riseIn 200ms steps(4) both;
+    }
+    .screen:not(.stage) > :nth-child(2) { animation-delay: 40ms; }
+    .screen:not(.stage) > :nth-child(3) { animation-delay: 80ms; }
+    .screen:not(.stage) > :nth-child(4) { animation-delay: 120ms; }
+    .screen:not(.stage) > :nth-child(5) { animation-delay: 160ms; }
+    .screen:not(.stage) > :nth-child(n+6) { animation-delay: 200ms; }
+    @media (prefers-reduced-motion: reduce) {
+      @keyframes riseIn { from { opacity: 0; } }
+    }
 
 
     /*
@@ -184,16 +310,51 @@
      * border-radius corner is a curve the browser has to antialias, and a
      * rectangle edge never is. The steps run 4, 2, 1, 1, 0 px in from the
      * corner, which reads as a radius without ever softening a pixel.
+     *
+     * Over the fill sit two more pairs of rectangles: a 2 px lit face along
+     * the inside top and left, and a 2 px shaded face along the inside bottom
+     * and right. That is the whole light model, and it is the difference
+     * between a panel and a rectangle. One light source, up and to the left,
+     * everywhere in the game, so a raised thing and a sunken thing are told
+     * apart at a glance rather than read.
+     *
+     * `--lit` and `--shade` are mixed from whatever `--fill` the component
+     * set, so nothing has to carry three colours: a swatch holding a colour a
+     * player chose gets shaded the same way the confirm button does. The
+     * highlight mixes toward a warm near-white and the shadow toward a cool
+     * near-black, because a shadow that only darkens goes grey and drops out
+     * of the picture.
+     *
+     * Every layer is anchored from the top left with `calc()` sizes. A
+     * percentage in `background-position` resolves against the difference
+     * between the box and the layer rather than against the box, so an offset
+     * written from the right edge would move as the box changed width. The
+     * bottom and right faces are cut by the gradient's own hard stop instead.
      */
     .card, button.big, button.act, button.starter, button.thumb, .pill, .swatch,
     #bagBtn, #bagMenu button, #actBtn, #dialog, .bcard, .blog, .mgbar, .dollWrap, #toast,
     .list .item, #stick, #stickKnob, .card input[type="text"],
-    label.custom input[type="color"] {
-      --ink: #171b2c;
-      --fill: #363d5e;
+    label.custom input[type="color"],
+    .bxPanel, .bxCell, .bxName, .bxChip, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
+    .bxSwap, .bxCard, .bxPortrait, .bxSlot, .bxNote, .bxCardBack, .bxGrid,
+    .plinth, button.starter .stage {
+      --ink: var(--p-ink);
+      --fill: var(--p-panel);
+      --lit: color-mix(in srgb, var(--fill) 76%, var(--p-lit));
+      --shade: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      /* What a hover lays over the face. It has to be a layer of its own
+         rather than a lighter `--fill`, because a rule computing `--fill` from
+         `--fill` is a cycle and leaves the property with no value at all. */
+      --gloss: #0000;
       border: 0;
       border-radius: 0;
       background:
+        linear-gradient(var(--gloss) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
+        linear-gradient(var(--gloss) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+        linear-gradient(var(--lit) 0 0) 7px 3px / calc(100% - 14px) 2px no-repeat,
+        linear-gradient(var(--lit) 0 0) 3px 7px / 2px calc(100% - 14px) no-repeat,
+        linear-gradient(to top, var(--shade) 0 2px, #0000 2px) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+        linear-gradient(to left, var(--shade) 0 2px, #0000 2px) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
         linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
         linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
         linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
@@ -203,22 +364,95 @@
         linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
         linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
     }
+    /*
+     * A box light falls into rather than off: the two faces swap, so the top
+     * and left are the ones in shadow. Text fields, bar tracks, scrolling
+     * wells and the stage behind a portrait are all sunken, and a button being
+     * pressed becomes sunken for as long as it is held, which is what makes a
+     * press read without anything moving.
+     */
+    .sunk {
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+    }
     /* Selection reads as a second frame rather than a soft glow. */
-    .sel { outline: 3px solid #f3f2c0; outline-offset: -3px; }
+    .sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
+    /*
+     * Where a keyboard or a gamepad is. It has to survive a selected cell and
+     * a coloured fill, so it is the highlight rather than the text colour and
+     * it is drawn inside the frame like every other second frame here.
+     */
+    :focus-visible { outline: 3px solid var(--p-highlight); outline-offset: -3px; }
+    /*
+     * A pointer that can hover is a mouse, so the lift is only offered there.
+     * On a touch screen the state sticks after the finger has gone and leaves
+     * the last thing tapped looking chosen.
+     */
+    @media (hover: hover) {
+      button.big:hover:not(:disabled),
+      button.act:hover:not(:disabled),
+      button.starter:hover:not(.taken),
+      button.thumb:hover,
+      .pill:hover:not(:disabled),
+      #bagMenu button:hover,
+      #bagBtn:hover,
+      .bxCell:hover:not(:disabled),
+      .bxWide:hover:not(:disabled),
+      .bxSlot:hover,
+      .bxArrow:hover,
+      .bxSwap:hover,
+      .bxOwnerBtn:hover,
+      .bxCardBack:hover,
+      .swatch:hover {
+        --gloss: color-mix(in srgb, #0000 84%, var(--p-lit));
+      }
+    }
+    /*
+     * Pressed. The faces swap and the label drops by the width of one face, so
+     * the button goes down into the page rather than changing colour at it.
+     * A transform is used rather than padding, so nothing around it moves.
+     */
+    button.big:active:not(:disabled),
+    button.act:active:not(:disabled),
+    button.starter:active:not(.taken),
+    button.thumb:active,
+    .pill:active:not(:disabled),
+    #bagMenu button:active,
+    #bagBtn:active,
+    .bxCell:active:not(:disabled),
+    .bxWide:active:not(:disabled),
+    .bxSlot:active,
+    .bxArrow:active,
+    .bxSwap:active,
+    .bxOwnerBtn:active,
+    .bxCardBack:active,
+    .swatch:active {
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+      transform: translateY(2px);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      button.big:active, button.act:active, button.starter:active,
+      button.thumb:active, .pill:active, #bagMenu button:active, #bagBtn:active,
+      .bxCell:active, .bxWide:active, .bxSlot:active, .bxArrow:active,
+      .bxSwap:active, .bxOwnerBtn:active, .bxCardBack:active, .swatch:active {
+        transform: none;
+      }
+    }
 
     button.big {
       font: inherit;
       font-size: 16px;
       padding: 12px 24px;
       width: min(100%, 260px);
-      --fill: #5c4e92;
-      color: #f3f2c0;
+      --fill: var(--p-action);
+      color: var(--p-text);
       cursor: pointer;
     }
-    button.big:active { --fill: #473b74; }
-    button.big:disabled { opacity: 0.45; }
-    button.big.primary { --fill: #7aa74a; }
-    button.big.primary:active { --fill: #5f843a; }
+    button.big:active { --fill: var(--p-action-down); }
+    button.big.primary { --fill: var(--p-confirm); }
+    button.big.primary:active { --fill: var(--p-confirm-down); }
+    button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: default; }
 
     .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
     /*
@@ -238,7 +472,7 @@
     .choices.wide { grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); }
     .choices > .pill { width: 100%; }
     .card {
-      --fill: #363d5e;
+      --fill: var(--p-panel);
       padding: 16px;
       display: flex;
       flex-direction: column;
@@ -247,15 +481,45 @@
       max-width: 420px;
       width: min(100%, 420px);
     }
-    .card label { font-size: 12px; color: #9aa0c3; align-self: flex-start; }
+    /*
+     * A card that opens with a name gets that name as a band across its top in
+     * the outline colour, rather than as bold text floating over its contents.
+     * The band is held 4 px in from the border box so the frame's own stepped
+     * corners still read around it.
+     */
+    .card > strong:first-child,
+    .card > .cardHead:first-child {
+      align-self: stretch;
+      margin: -12px -12px 0;
+      padding: 4px 12px;
+      background: var(--p-ink);
+      color: var(--p-highlight);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      text-align: left;
+    }
+    /* The same band, for a card whose name has something standing beside it. */
+    .card > .cardHead:first-child { display: flex; align-items: center; gap: 8px; }
+    .card label {
+      font-size: 10px;
+      color: var(--p-dim);
+      align-self: flex-start;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
     .card input[type="text"] {
       font: inherit;
       font-size: 16px;
       width: 100%;
       padding: 8px 8px;
-      --fill: #2a3049;
-      color: #f3f2c0;
+      --fill: var(--p-ground);
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+      color: var(--p-text);
     }
+    .card input[type="text"]::placeholder { color: var(--p-dead-text); }
     .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
     .swatch {
       width: 34px; height: 34px;
@@ -265,11 +529,11 @@
     .pill {
       font: inherit; font-size: 14px;
       padding: 8px 16px;
-      --fill: #2a3049;
-      color: #f3f2c0;
+      --fill: var(--p-ground);
+      color: var(--p-text);
       cursor: pointer;
     }
-    .pill.sel { --fill: #7aa74a; }
+    .pill.sel { --fill: var(--p-confirm); }
 
     /* Something that stops setting up working, said on the screen rather than
        in a toast: a toast is gone in two seconds and gets overwritten by the
@@ -279,7 +543,7 @@
       width: min(100%, 420px);
       font-size: 12px;
       line-height: 1.5;
-      color: #e8a0a0;
+      color: var(--p-danger-text);
       text-align: center;
     }
     .lobbyProblem[hidden] { display: none; }
@@ -288,36 +552,62 @@
        legible enough to read off a screenshot when something has gone wrong. */
     .buildTag {
       font-size: 12px;
-      color: #6b7196;
+      color: var(--p-dead-text);
       letter-spacing: 1px;
-      margin-top: 4px;
     }
+
+    /*
+     * The title screen. The name, the line under it and the Scoba the game is
+     * named for read as one block rather than as three stacked things, so the
+     * screen has a top half that is the game and a bottom half that is the way
+     * in. The three ways in are one group at one width, and the rarely used
+     * door beside the build tag is a rank below them.
+     */
+    .crest {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    /* The stage the art stands on. Sunken and darker than the ground, so the
+       Scoba reads as a specimen in a case rather than as a stray image. */
+    .plinth {
+      --fill: var(--p-doll);
+      --ink: var(--p-ink);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 8px 16px 4px;
+      margin-top: 8px;
+    }
+    .plinth canvas { image-rendering: pixelated; display: block; }
+    .ways { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 
     /* Diagnostics. Read off a screenshot as often as off a screen, so the
        label and value sit on one line each and the value is the one that
        wraps, keeping the labels a scannable column. */
-    .card.diag { --fill: #2f3450; }
+    .card.diag { --fill: var(--p-quiet); }
     .diagRows { display: flex; flex-direction: column; gap: 3px; width: 100%; }
     .diagRow {
       display: flex; gap: 8px; align-items: baseline;
       font-size: 12px; line-height: 1.45;
     }
-    .diagName { color: #9aa0c3; flex: 0 0 84px; }
-    .diagVal { color: #f3f2c0; flex: 1 1 auto; word-break: break-word; }
+    .diagName { color: var(--p-dim); flex: 0 0 84px; }
+    .diagVal { color: var(--p-text); flex: 1 1 auto; word-break: break-word; }
     /* Something that will stop a feature working, marked so it survives a
        small screenshot without needing the text read closely. */
-    .diagRow.bad .diagVal { color: #e8a0a0; }
-    .diagRow.bad .diagName::after { content: " !"; color: #e8a0a0; }
+    .diagRow.bad .diagVal { color: var(--p-danger-text); }
+    .diagRow.bad .diagName::after { content: " !"; color: var(--p-danger-text); }
 
     /* The home-screen nudge. Quieter fill than a .card that holds the screen's
        actual work, so it reads as an aside under the title buttons. */
-    .card.install { --fill: #2f3450; gap: 8px; margin-top: 8px; }
-    .card.install strong { font-size: 14px; }
+    .card.install { --fill: var(--p-quiet); gap: 8px; margin-top: 8px; }
+    .card.install > strong:first-child { font-size: 12px; }
     .card.install .dim { align-self: center; text-align: center; line-height: 1.5; }
     .card.install .steps {
       display: flex; align-items: center; justify-content: center;
       flex-wrap: wrap; gap: 8px;
-      font-size: 12px; color: #f3f2c0;
+      font-size: 12px; color: var(--p-text);
     }
     .card.install .steps svg {
       width: 16px; height: 16px;
@@ -334,8 +624,8 @@
     }
     button.starter {
       font: inherit;
-      color: #f3f2c0;
-      --fill: #363d5e;
+      color: var(--p-text);
+      --fill: var(--p-panel);
       padding: 8px 4px 8px;
       display: flex;
       flex-direction: column;
@@ -343,12 +633,23 @@
       gap: 4px;
       cursor: pointer;
     }
-    button.starter.taken { opacity: 0.4; cursor: default; }
+    button.starter.taken, button.starter:disabled { opacity: 0.4; cursor: default; }
+    /*
+     * The face sits in a sunken well rather than on the button's own fill: on
+     * the fill a portrait reads as a picture printed on the panel, and in a
+     * well it reads as the thing the button is for.
+     */
     button.starter .stage {
+      --fill: var(--p-ground);
+      --ink: var(--p-ink);
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
       height: 68px;
+      width: 100%;
       display: flex;
       align-items: flex-end;
       justify-content: center;
+      padding-bottom: 2px;
     }
     button.starter .nm { font-size: 12px; }
     canvas.critter { image-rendering: pixelated; display: block; }
@@ -365,15 +666,15 @@
     .tbadge {
       font-size: 12px;
       font-weight: 700;
-      color: #171b2c;
+      color: var(--p-ink);
       padding: 2px 8px;
     }
-    .card .dim { color: #9aa0c3; font-size: 12px; align-self: flex-start; }
+    .card .dim { color: var(--p-dim); font-size: 12px; align-self: flex-start; }
     .flip { display: block; line-height: 0; transform: scaleX(-1); }
 
     /* Character creator */
     .dollWrap {
-      --fill: #ded9ee;
+      --fill: var(--p-doll);
       padding: 8px 16px 4px;
     }
     canvas.doll {
@@ -419,7 +720,7 @@
     button.thumb {
       padding: 4px;
       line-height: 0;
-      --fill: #ded9ee;
+      --fill: var(--p-doll);
       cursor: pointer;
     }
     button.thumb canvas { image-rendering: pixelated; display: block; }
@@ -427,7 +728,7 @@
     .pill.chan i {
       display: block;
       width: 14px; height: 14px;
-      border: 2px solid #171b2c;
+      border: 2px solid var(--p-ink);
     }
     label.custom {
       display: flex;
@@ -435,13 +736,13 @@
       gap: 8px;
       align-self: flex-start;
       font-size: 12px;
-      color: #9aa0c3;
+      color: var(--p-dim);
       cursor: pointer;
     }
     label.custom input[type="color"] {
       width: 42px; height: 32px;
       padding: 0;
-      --fill: #2a3049;
+      --fill: var(--p-ground);
       cursor: pointer;
     }
 
@@ -459,14 +760,14 @@
     #bagBtn {
       width: 46px; height: 46px;
       padding: 8px;
-      --fill: #363d5e;
-      color: #f3f2c0;
+      --fill: var(--p-panel);
+      color: var(--p-text);
       display: block;
     }
     /* Rects only, and crisp edges on them, so the bag never softens a pixel
        the way the rest of the interface never does. */
     #bagBtn svg { display: block; width: 100%; height: 100%; fill: currentColor; }
-    #bagBtn.on { --fill: #7aa74a; }
+    #bagBtn.on { --fill: var(--p-confirm); }
     #bagMenu {
       display: flex;
       flex-direction: column;
@@ -480,7 +781,7 @@
     .code {
       font: inherit; font-size: 20px;
       letter-spacing: 0.22em;
-      color: #eae178;
+      color: var(--p-highlight);
       padding: 8px 4px;
       flex: 1;
     }
@@ -490,16 +791,16 @@
       padding: 8px 16px;
       width: 176px;
       text-align: center;
-      --fill: #363d5e;
-      color: #f3f2c0;
+      --fill: var(--p-panel);
+      color: var(--p-text);
     }
     #actBtn {
       position: absolute;
       bottom: max(26px, env(safe-area-inset-bottom));
       right: max(22px, env(safe-area-inset-right));
       width: 74px; height: 74px;
-      --fill: #7aa74a;
-      color: #f3f2c0;
+      --fill: var(--p-confirm);
+      color: var(--p-text);
       font: inherit; font-size: 16px;
       display: none;
     }
@@ -507,8 +808,8 @@
     #stick {
       position: absolute;
       width: 110px; height: 110px;
-      --ink: #f3f2c0;
-      --fill: #2a3049;
+      --ink: var(--p-text);
+      --fill: var(--p-ground);
       opacity: 0.55;
       display: none;
       pointer-events: none;
@@ -516,8 +817,8 @@
     #stickKnob {
       position: absolute;
       width: 44px; height: 44px;
-      --ink: #f3f2c0;
-      --fill: #9aa0c3;
+      --ink: var(--p-text);
+      --fill: var(--p-dim);
       left: 33px; top: 33px;
     }
 
@@ -527,21 +828,21 @@
       transform: translateX(-50%);
       bottom: max(20px, env(safe-area-inset-bottom));
       width: min(94vw, 560px);
-      --ink: #5c4e92;
-      --fill: #171b2c;
+      --ink: var(--p-action);
+      --fill: var(--p-ink);
       padding: 16px 16px;
       font-size: 16px;
       line-height: 1.45;
       display: none;
     }
-    #dialog .who { color: #eae178; font-size: 12px; margin-bottom: 4px; }
-    #dialog .next { color: #9aa0c3; font-size: 12px; text-align: right; margin-top: 8px; }
+    #dialog .who { color: var(--p-highlight); font-size: 12px; margin-bottom: 4px; }
+    #dialog .next { color: var(--p-dim); font-size: 12px; text-align: right; margin-top: 8px; }
 
     /* Every readout is a plate laid over the scene, and every plate carries its
        own width, so nothing here may set a floor: a `min-width` beats the
        `width` above it and put a Mote back at a Scoba's size. */
     .bcard {
-      --fill: #363d5e;
+      --fill: var(--p-panel);
       position: relative;
       padding: 8px 12px;
       display: flex;
@@ -549,24 +850,28 @@
       gap: 4px;
       align-items: center;
     }
-    .bcard.target { outline: 3px solid #eae178; outline-offset: -3px; cursor: pointer; }
+    .bcard.target { outline: 3px solid var(--p-highlight); outline-offset: -3px; cursor: pointer; }
     /* Whose turn it is to pick, so two players never lose track of the order. */
-    .bcard.acting { outline: 3px solid #7c9df0; outline-offset: -3px; }
-    .bcard .own { font-size: 12px; color: #9aa0c3; letter-spacing: 1px; text-transform: uppercase; }
-    .bcard.empty { --fill: #2f3450; justify-content: center; min-height: 62px; }
-    .bcard.empty .sub { color: #9aa0c3; font-size: 12px; }
+    .bcard.acting { outline: 3px solid var(--p-mana); outline-offset: -3px; }
+    .bcard .own { font-size: 12px; color: var(--p-dim); letter-spacing: 1px; text-transform: uppercase; }
+    .bcard.empty { --fill: var(--p-quiet); justify-content: center; min-height: 62px; }
+    .bcard.empty .sub { color: var(--p-dim); font-size: 12px; }
     .bcard canvas { image-rendering: pixelated; }
     .bcard .nm { font-size: 14px; display: flex; gap: 8px; align-items: baseline; }
-    .bcard .nm .lv { color: #9aa0c3; font-size: 12px; }
+    .bcard .nm .lv { color: var(--p-dim); font-size: 12px; }
     /* Too short for stepped corners: a square 2 px frame stays just as sharp. */
-    .bbar { position: relative; width: 100%; height: 14px; border: 2px solid #171b2c; background: #2a3049; overflow: hidden; }
-    .bbar i { display: block; height: 100%; background: #7aa74a; }
+    .bbar { position: relative; width: 100%; height: 14px; border: 2px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
+    .bbar i {
+      display: block;
+      height: 100%;
+      background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px);
+    }
     /* What the bar just lost or gained, sitting past the fill or over it. */
-    .bbar b { position: absolute; top: 0; bottom: 0; background: #f2e3b0; }
+    .bbar b { position: absolute; top: 0; bottom: 0; background: var(--p-hp-trail); }
     /* What the move under the pointer would spend, dimmed off the fill's end. */
-    .bbar u { position: absolute; top: 0; bottom: 0; background: #46507e; }
-    .bbar.mp i { background: #7c9df0; }
-    .bbar.mp b { background: #d3e2ff; }
+    .bbar u { position: absolute; top: 0; bottom: 0; background: var(--p-raised); }
+    .bbar.mp i { background: linear-gradient(color-mix(in srgb, var(--p-mana) 62%, var(--p-lit)) 0 2px, var(--p-mana) 2px); }
+    .bbar.mp b { background: var(--p-mana-trail); }
     /*
      * The footer under the bars: what the bars cannot say on the left, the
      * mana share on the right. It holds its line whether or not there is a
@@ -582,8 +887,8 @@
       width: 100%;
       min-height: 1.2em;
     }
-    .bnum { font-size: 12px; color: #9aa0c3; }
-    .bpct { font-size: 12px; color: #9aa0c3; margin-left: auto; }
+    .bnum { font-size: 12px; color: var(--p-dim); }
+    .bpct { font-size: 12px; color: var(--p-dim); margin-left: auto; }
     /*
      * One line at a time, saying what is happening right now rather than
      * keeping a history. It holds its box whether or not it has anything to
@@ -603,14 +908,14 @@
     }
     .blog.on {
       visibility: visible;
-      --ink: #5c4e92;
-      --fill: #171b2c;
+      --ink: var(--p-action);
+      --fill: var(--p-ink);
     }
-    .blog.ev-win { color: #eae178; }
-    .blog.ev-faint { color: #e8a0a0; }
-    .blog.ev-heal { color: #7aa74a; }
-    .blog.ev-status { color: #e7a03c; }
-    .blog.ev-field { color: #eae178; }
+    .blog.ev-win { color: var(--p-highlight); }
+    .blog.ev-faint { color: var(--p-danger-text); }
+    .blog.ev-heal { color: var(--p-confirm); }
+    .blog.ev-status { color: var(--p-warning); }
+    .blog.ev-field { color: var(--p-highlight); }
     /*
      * Statuses a Scoba is carrying, under its bars: drawn sigils, never scaled,
      * the same rule the type badges keep. They sit ghosted, because what the
@@ -650,8 +955,8 @@
       line-height: 26px;
       text-align: center;
       text-transform: uppercase;
-      color: #171b2c;
-      background: #9aa0c3;
+      color: var(--p-ink);
+      background: var(--p-dim);
     }
     /* Stacks, in the corner of the sigil rather than beside it. */
     .bcard .mark .sx {
@@ -661,8 +966,8 @@
       font-size: 10px;
       line-height: 1;
       padding: 0 2px;
-      color: #f3f2c0;
-      background: #171b2c;
+      color: var(--p-text);
+      background: var(--p-ink);
     }
     /*
      * The window over a sigil. It hangs off the mark, so it travels with the
@@ -670,8 +975,8 @@
      * belongs to is out at the edge of the screen.
      */
     .bcard .mark .sigtip {
-      --ink: #5c4e92;
-      --fill: #171b2c;
+      --ink: var(--p-action);
+      --fill: var(--p-ink);
       --nudge: 0px;
       position: absolute;
       left: 50%;
@@ -700,9 +1005,9 @@
         linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
     }
     .bcard .mark:hover .sigtip, .bcard .mark:focus-within .sigtip { display: flex; }
-    .bcard .mark .sigtip strong { font-size: 12px; color: #eae178; }
+    .bcard .mark .sigtip strong { font-size: 12px; color: var(--p-highlight); }
     .bcard .mark .sigtip span { font-size: 12px; }
-    .bcard .mark .sigtip .dim { color: #9aa0c3; }
+    .bcard .mark .sigtip .dim { color: var(--p-dim); }
 
     /*
      * The Scoba browser: search down the left, faces in the middle, the scroll
@@ -724,8 +1029,7 @@
     .bxInfo { grid-area: info; }
     .bxFoot { grid-area: foot; display: flex; }
     .bxPanel {
-      border: 3px solid #171b2c;
-      background: #363d5e;
+      --fill: var(--p-panel);
       padding: 8px;
       display: flex;
       flex-direction: column;
@@ -733,13 +1037,15 @@
       min-width: 0;
     }
     .bxGrid {
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px;
       align-content: start;
       height: 300px;
       overflow-y: auto;
-      background: #2a3049;
+      --fill: var(--p-ground);
       padding: 8px;
       /* The column on the right is the scrollbar; the browser's own is noise. */
       scrollbar-width: none;
@@ -747,8 +1053,7 @@
     .bxGrid::-webkit-scrollbar { width: 0; height: 0; }
     .bxCell {
       font: inherit;
-      border: 3px solid #171b2c;
-      background: #46507e;
+      --fill: var(--p-raised);
       height: 84px;
       display: flex;
       align-items: center;
@@ -756,77 +1061,76 @@
       cursor: pointer;
       padding: 0;
     }
-    .bxCell.sel { outline: 3px solid #f3f2c0; outline-offset: -3px; }
+    .bxCell.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
     .bxCell:disabled { cursor: default; }
     .bxFace { display: flex; align-items: flex-end; justify-content: center; }
     .bxFace canvas { image-rendering: pixelated; display: block; }
-    .bxEmpty { grid-column: 1 / -1; color: #9aa0c3; font-size: 12px; padding: 8px 4px; }
+    .bxEmpty { grid-column: 1 / -1; color: var(--p-dim); font-size: 12px; padding: 8px 4px; }
 
     /* Search panel. */
     .bxName {
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
       font: inherit;
       font-size: 14px;
       width: 100%;
       padding: 8px 8px;
-      border: 3px solid #171b2c;
-      background: #2a3049;
-      color: #f3f2c0;
+      --fill: var(--p-ground);
+      color: var(--p-text);
       text-align: center;
     }
     .bxTypes { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
     .bxChip {
-      border: 3px solid #171b2c;
-      background: #2a3049;
+      --fill: var(--p-ground);
       padding: 0;
       line-height: 0;
       cursor: pointer;
       opacity: 0.55;
     }
-    .bxChip.sel { opacity: 1; outline: 3px solid #f3f2c0; outline-offset: -3px; }
+    .bxChip.sel { opacity: 1; outline: 3px solid var(--p-text); outline-offset: -3px; }
     .bxStat { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-    .bxStatName { width: 30px; color: #f3f2c0; }
-    .bxStatNum { width: 26px; text-align: right; color: #9aa0c3; }
+    .bxStatName { width: 30px; color: var(--p-text); }
+    .bxStatNum { width: 26px; text-align: right; color: var(--p-dim); }
     .setBar { display: flex; align-items: center; gap: 8px; font-size: 14px; }
-    .setBarName { width: 62px; color: #f3f2c0; }
-    .setBarNum { width: 42px; text-align: right; color: #9aa0c3; }
+    .setBarName { width: 62px; color: var(--p-text); }
+    .setBarNum { width: 42px; text-align: right; color: var(--p-dim); }
     .bxStat input[type="range"], .setBar input[type="range"] {
       -webkit-appearance: none;
       appearance: none;
       flex: 1;
       min-width: 0;
       height: 12px;
-      background: #2a3049;
-      border: 3px solid #171b2c;
+      background: var(--p-ground);
+      border: 2px solid var(--p-ink);
     }
     .bxStat input[type="range"]::-webkit-slider-thumb,
     .setBar input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
       width: 13px; height: 18px;
-      background: #f3f2c0;
-      border: 3px solid #171b2c;
+      background: var(--p-text);
+      border: 3px solid var(--p-ink);
     }
     .bxStat input[type="range"]::-moz-range-thumb,
     .setBar input[type="range"]::-moz-range-thumb {
       width: 13px; height: 18px;
-      background: #f3f2c0;
-      border: 3px solid #171b2c;
+      background: var(--p-text);
+      border: 3px solid var(--p-ink);
       border-radius: 0;
     }
     .bxWide {
       font: inherit;
       font-size: 14px;
       padding: 8px 8px;
-      border: 3px solid #171b2c;
-      background: #5c4e92;
-      color: #f3f2c0;
+      --fill: var(--p-action);
+      color: var(--p-text);
       cursor: pointer;
       width: 100%;
     }
-    .bxWide:disabled { background: #3f4a66; color: #6b7196; cursor: default; }
+    .bxWide:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: default; }
 
     /* Readout under the search panel. */
     .bxRead { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 110px; justify-content: center; }
-    .bxReadName { font-size: 14px; color: #f3f2c0; }
+    .bxReadName { font-size: 14px; color: var(--p-text); }
 
     /* Whose party the strip is showing, and the scroll column. */
     .bxOwner { display: flex; flex-direction: column; gap: 4px; width: 84px; }
@@ -834,49 +1138,47 @@
       font: inherit;
       font-size: 12px;
       padding: 4px 2px;
-      border: 3px solid #171b2c;
-      background: #2a3049;
-      color: #9aa0c3;
+      --fill: var(--p-ground);
+      color: var(--p-dim);
       cursor: pointer;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .bxOwnerBtn.sel { background: #7aa74a; color: #171b2c; }
+    .bxOwnerBtn.sel { --fill: var(--p-confirm); color: var(--p-ink); }
     .bxArrow {
       font: inherit;
       font-size: 14px;
       padding: 8px 0;
-      border: 3px solid #171b2c;
-      background: #46507e;
-      color: #f3f2c0;
+      --fill: var(--p-raised);
+      color: var(--p-text);
       cursor: pointer;
     }
     .bxTrack {
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
       flex: 1;
       min-height: 40px;
       position: relative;
-      border: 3px solid #171b2c;
-      background: #2a3049;
+      --fill: var(--p-ground);
       touch-action: none;
       cursor: pointer;
     }
-    .bxThumb { position: absolute; left: 2px; right: 2px; top: 0; height: 100%; background: #9aa0c3; }
-    .bxThumb.held { background: #f3f2c0; }
+    .bxThumb { position: absolute; left: 2px; right: 2px; top: 0; height: 100%; background: var(--p-dim); }
+    .bxThumb.held { background: var(--p-text); }
 
     /* The strip under the grid. */
     .bxParty { flex: 1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
     .bxPartyRow { display: flex; align-items: center; gap: 4px; }
     .bxParty .bxCell { width: 78px; position: relative; }
     /* Says a Scoba on the other character's strip is one of yours, on loan. */
-    .bxLent { position: absolute; top: 2px; right: 3px; font-size: 10px; color: #f3f2c0; }
+    .bxLent { position: absolute; top: 2px; right: 3px; font-size: 10px; color: var(--p-text); }
     .bxLendNote { flex-basis: 100%; text-align: center; font-size: 12px; }
     .bxSwap {
       font: inherit;
       font-size: 12px;
       padding: 2px 4px;
-      border: 3px solid #171b2c;
-      background: #46507e;
-      color: #f3f2c0;
+      --fill: var(--p-raised);
+      color: var(--p-text);
       cursor: pointer;
     }
     .bxOps { display: flex; flex-direction: column; gap: 4px; width: 84px; }
@@ -888,8 +1190,7 @@
      */
     .bxCard {
       width: min(100%, 620px);
-      border: 3px solid #171b2c;
-      background: #363d5e;
+      --fill: var(--p-panel);
       padding: 8px;
       display: flex;
       flex-direction: column;
@@ -897,10 +1198,11 @@
     }
     .bxCardHead { display: flex; gap: 12px; align-items: stretch; }
     .bxPortrait {
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
       width: 100px;
       min-height: 100px;
-      border: 3px solid #171b2c;
-      background: #2a3049;
+      --fill: var(--p-ground);
       display: flex;
       align-items: flex-end;
       justify-content: center;
@@ -911,17 +1213,16 @@
     .bxFactsTop { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
     .bxWho { min-width: 0; }
     .bxCardName { font-size: 20px; overflow-wrap: anywhere; }
-    .bxCorner { text-align: right; font-size: 12px; color: #9aa0c3; flex: none; }
-    .bxStatList { display: flex; flex-direction: column; font-size: 14px; color: #f3f2c0; }
+    .bxCorner { text-align: right; font-size: 12px; color: var(--p-dim); flex: none; }
+    .bxStatList { display: flex; flex-direction: column; font-size: 14px; color: var(--p-text); }
     .bxCardTail { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
     .bxCardWhere { font-size: 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
     .bxCardBack {
       font: inherit;
       font-size: 12px;
       padding: 4px 16px;
-      border: 3px solid #171b2c;
-      background: #46507e;
-      color: #f3f2c0;
+      --fill: var(--p-raised);
+      color: var(--p-text);
       cursor: pointer;
       flex: none;
     }
@@ -931,26 +1232,26 @@
       font: inherit;
       font-size: 14px;
       padding: 8px 8px;
-      border: 3px solid #171b2c;
-      background: #46507e;
-      color: #f3f2c0;
+      --fill: var(--p-raised);
+      color: var(--p-text);
       cursor: pointer;
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 2px;
     }
-    .bxSlot.sel { background: #5c4e92; outline: 3px solid #f3f2c0; outline-offset: -3px; }
-    .bxSlot.typed { color: #171b2c; }
-    .bxSlot.typed .bxSlotCost { color: #171b2c; opacity: 0.72; }
+    .bxSlot.sel { --fill: var(--p-action); outline: 3px solid var(--p-text); outline-offset: -3px; }
+    .bxSlot.typed { color: var(--p-ink); }
+    .bxSlot.typed .bxSlotCost { color: var(--p-ink); opacity: 0.72; }
     /* The outline is what marks a coloured slot, since its fill is spoken for. */
-    .bxSlot.typed.sel { outline: 3px solid #f3f2c0; outline-offset: -3px; }
+    .bxSlot.typed.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
     .bxSlotName { overflow-wrap: anywhere; }
-    .bxSlotCost { font-size: 12px; color: #9aa0c3; }
-    .bxSlot.sel .bxSlotCost { color: #d3cff0; }
+    .bxSlotCost { font-size: 12px; color: var(--p-dim); }
+    .bxSlot.sel .bxSlotCost { color: var(--p-dim2); }
     .bxNote {
-      border: 3px solid #171b2c;
-      background: #2a3049;
+      --fill: var(--p-ground);
+      --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+      --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
       padding: 8px 8px;
       min-height: 62px;
       font-size: 14px;
@@ -958,7 +1259,7 @@
       flex-direction: column;
       gap: 2px;
     }
-    .bxNote .dim { color: #9aa0c3; font-size: 12px; }
+    .bxNote .dim { color: var(--p-dim); font-size: 12px; }
     .bxNoteHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
     @media (max-width: 620px) {
@@ -991,22 +1292,22 @@
     }
     .xscoba { align-items: stretch; gap: 8px; text-align: left; }
     .xscoba .nm { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-    .xstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #c9c4ee; }
-    .xpass { display: flex; gap: 8px; font-size: 12px; color: #9aa0c3; }
-    .xpass strong { color: #eae178; }
+    .xstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--p-dim2); }
+    .xpass { display: flex; gap: 8px; font-size: 12px; color: var(--p-dim); }
+    .xpass strong { color: var(--p-highlight); }
     .xinfo { font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; gap: 2px; }
     .xinfo:empty { display: none; }
     .xhead { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-    .xinfo .dim { color: #9aa0c3; font-size: 12px; }
-    .xinfo .good { color: #7aa74a; }
+    .xinfo .dim { color: var(--p-dim); font-size: 12px; }
+    .xinfo .good { color: var(--p-confirm); }
     /*
      * Damage reads by colour: physical warm, magic cool, true colourless.
      * Elemental text takes its own type colour inline.
      */
     .dmg { font-weight: bold; }
-    .dmg.physical { color: #e7a03c; }
-    .dmg.magic { color: #7c9df0; }
-    .dmg.true { color: #c8cbe0; }
+    .dmg.physical { color: var(--p-warning); }
+    .dmg.magic { color: var(--p-mana); }
+    .dmg.true { color: var(--p-dim2); }
 
     /* Action rows stack so the small ones sit under the main row. */
     .bacts {
@@ -1043,7 +1344,7 @@
       min-height: 32px;
       font-size: 12px;
     }
-    .bactions.bconfirm { color: #eae178; }
+    .bactions.bconfirm { color: var(--p-highlight); }
     /*
      * The secondary row: the pages and the way out, kept small so switching
      * between them never resizes the row of actions above.
@@ -1075,7 +1376,7 @@
       width: 100%;
     }
     .bgrid > button.act { width: 100%; }
-    button.act.slot-empty { --fill: #262b42; color: #6e7496; opacity: 1; }
+    button.act.slot-empty { --fill: var(--p-dead); color: var(--p-dead-text); opacity: 1; }
     button.act.slot-empty:disabled { opacity: 1; }
 
     /*
@@ -1112,7 +1413,7 @@
     .bacts > .aimline { top: -22px; }
 
     .bactions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
-    .aimline { color: #eae178; font-size: 14px; letter-spacing: 1px; }
+    .aimline { color: var(--p-highlight); font-size: 14px; letter-spacing: 1px; }
     button.act {
       font: inherit;
       display: flex;
@@ -1128,31 +1429,31 @@
       line-height: 1.15;
       text-align: center;
       overflow-wrap: anywhere;
-      --fill: #5c4e92;
-      color: #f3f2c0;
+      --fill: var(--p-action);
+      color: var(--p-text);
       cursor: pointer;
     }
-    button.act:active { --fill: #473b74; }
+    button.act:active { --fill: var(--p-action-down); }
     button.act:disabled { opacity: 0.4; }
-    button.act .sub { font-size: 12px; color: #c9c4ee; }
+    button.act .sub { font-size: 12px; color: var(--p-dim2); }
     .bgrid > button.act .sub { min-height: 1.2em; }
-    button.act.alt { --fill: #3f4a66; }
+    button.act.alt { --fill: var(--p-panel); }
     /* A move button is coloured by what the move is. */
-    button.act.typed { color: #171b2c; }
-    button.act.typed .sub { color: #171b2c; opacity: 0.72; }
+    button.act.typed { color: var(--p-ink); }
+    button.act.typed .sub { color: var(--p-ink); opacity: 0.72; }
 
-    .mgbar { position: relative; width: min(88vw, 420px); height: 26px; --ink: #5c4e92; --fill: #171b2c; }
-    .mgzone { position: absolute; top: 0; bottom: 0; background: #7aa74a55; border-left: 2px solid #7aa74a; border-right: 2px solid #7aa74a; }
-    .mgmark { position: absolute; width: 7px; top: -5px; bottom: -5px; background: #f3f2c0; }
+    .mgbar { position: relative; width: min(88vw, 420px); height: 26px; --ink: var(--p-action); --fill: var(--p-ink); }
+    .mgzone { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--p-confirm) 33%, transparent); border-left: 2px solid var(--p-confirm); border-right: 2px solid var(--p-confirm); }
+    .mgmark { position: absolute; width: 7px; top: -5px; bottom: -5px; background: var(--p-text); }
 
     .meter { width: 100%; }
-    .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: #9aa0c3; margin-bottom: 4px; }
-    .meter .bar { height: 12px; border: 2px solid #171b2c; background: #2a3049; overflow: hidden; }
-    .meter .bar i { display: block; height: 100%; background: #7aa74a; }
-    .badge { font-size: 12px; background: #d9553f; padding: 2px 8px; color: #171b2c; }
+    .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--p-dim); margin-bottom: 4px; }
+    .meter .bar { height: 12px; border: 2px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
+    .meter .bar i { display: block; height: 100%; background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px); }
+    .badge { font-size: 12px; background: var(--p-danger); padding: 2px 8px; color: var(--p-ink); }
     .list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
-    .list .item { display: flex; justify-content: space-between; font-size: 14px; --fill: #2a3049; padding: 8px 12px; }
-    .list .item .dim { color: #9aa0c3; font-size: 12px; }
+    .list .item { display: flex; justify-content: space-between; font-size: 14px; --fill: var(--p-ground); padding: 8px 12px; }
+    .list .item .dim { color: var(--p-dim); font-size: 12px; }
     .list .item .who { gap: 8px; }
     /* A box with more in it than fits scrolls inside its own card. */
     .list.scroll { max-height: 42vh; overflow-y: auto; }
@@ -1170,19 +1471,19 @@
     }
     .pface canvas { image-rendering: pixelated; display: block; }
     .pname { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-    .pname .dim { color: #9aa0c3; font-size: 12px; }
+    .pname .dim { color: var(--p-dim); font-size: 12px; }
     .pnameLine { display: flex; align-items: center; gap: 8px; }
     .ops { display: flex; align-items: center; gap: 4px; }
     .pill.tiny { font-size: 12px; padding: 4px 8px; }
-    .pill:disabled { color: #6b7196; cursor: default; }
+    .pill:disabled { color: var(--p-dead-text); cursor: default; }
 
     /* Dev-mode editor panel */
     #devPanel {
       position: absolute;
       top: 0; right: 0; bottom: 0;
       width: 300px;
-      background: #1b2033f2;
-      border-left: 3px solid #171b2c;
+      background: color-mix(in srgb, var(--p-ink) 95%, transparent);
+      border-left: 3px solid var(--p-ink);
       overflow-y: auto;
       padding: 8px;
       display: flex;
@@ -1193,36 +1494,36 @@
     #devPanel .devHead { display: flex; justify-content: space-between; align-items: center; }
     #devPanel .devTabs { display: flex; flex-wrap: wrap; gap: 4px; }
     #devPanel .devTabs .pill { font-size: 12px; padding: 4px 8px; }
-    #devPanel .devStatus { color: #9aa0c3; font-size: 12px; line-height: 1.4; }
+    #devPanel .devStatus { color: var(--p-dim); font-size: 12px; line-height: 1.4; }
     #devPanel .devBody { display: flex; flex-direction: column; gap: 8px; }
-    #devPanel .devHint { color: #9aa0c3; font-size: 12px; line-height: 1.45; }
+    #devPanel .devHint { color: var(--p-dim); font-size: 12px; line-height: 1.45; }
     #devPanel .devList { display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto; }
     #devPanel .devItem {
       font: inherit; font-size: 12px;
       text-align: left;
-      color: #f3f2c0;
-      background: #2a3049;
-      border: 2px solid #171b2c;
+      color: var(--p-text);
+      background: var(--p-ground);
+      border: 2px solid var(--p-ink);
       padding: 4px 8px;
       cursor: pointer;
     }
-    #devPanel .devItem.sel { border-color: #f3f2c0; }
+    #devPanel .devItem.sel { border-color: var(--p-text); }
     #devPanel .devCard {
-      border: 2px solid #171b2c;
-      background: #232941;
+      border: 2px solid var(--p-ink);
+      background: var(--p-dead);
       padding: 8px;
       display: flex;
       flex-direction: column;
       gap: 8px;
     }
     #devPanel .devField { display: flex; flex-direction: column; gap: 4px; }
-    #devPanel .devField label { color: #9aa0c3; font-size: 12px; }
+    #devPanel .devField label { color: var(--p-dim); font-size: 12px; }
     #devPanel input[type="text"], #devPanel input[type="number"],
     #devPanel textarea, #devPanel select {
       font: inherit; font-size: 12px;
-      color: #f3f2c0;
-      background: #2a3049;
-      border: 2px solid #171b2c;
+      color: var(--p-text);
+      background: var(--p-ground);
+      border: 2px solid var(--p-ink);
       padding: 4px 8px;
       width: 100%;
     }
@@ -1230,18 +1531,18 @@
     #devPanel .row { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-start; }
     #devPanel .row input[type="number"] { width: 64px; }
     #devPanel .row select { flex: 1; width: auto; min-width: 0; }
-    #devPanel .pill.warn { --fill: #d9553f; }
+    #devPanel .pill.warn { --fill: var(--p-danger); }
     #devPanel .pill:disabled { opacity: 0.4; }
-    #devPanel .palGroup { color: #9aa0c3; font-size: 12px; }
+    #devPanel .palGroup { color: var(--p-dim); font-size: 12px; }
     #devPanel .tilePal { display: flex; flex-wrap: wrap; gap: 4px; }
     #devPanel .tileBtn {
       padding: 0;
       line-height: 0;
-      background: #2a3049;
-      border: 2px solid #171b2c;
+      background: var(--p-ground);
+      border: 2px solid var(--p-ink);
       cursor: pointer;
     }
-    #devPanel .tileBtn.sel { border-color: #f3f2c0; }
+    #devPanel .tileBtn.sel { border-color: var(--p-text); }
     #devPanel .tileBtn canvas { display: block; width: 30px; height: 30px; image-rendering: pixelated; }
     /* The 3x3 collision grid sits on the tile it belongs to, so a rail is set
        by clicking the subcells the art draws it in. */
@@ -1249,7 +1550,7 @@
     #devPanel .maskEdit > canvas, #devPanel .maskBlank {
       display: block; width: 72px; height: 72px; image-rendering: pixelated;
     }
-    #devPanel .maskBlank { background: #2a3049; }
+    #devPanel .maskBlank { background: var(--p-ground); }
     #devPanel .maskGrid {
       position: absolute; inset: 0;
       display: grid;
@@ -1258,11 +1559,11 @@
     #devPanel .maskCell {
       padding: 0;
       background: transparent;
-      border: 1px solid #171b2c88;
+      border: 1px solid var(--p-ink)88;
       cursor: pointer;
     }
-    #devPanel .maskCell.on { background: #d9553fcc; }
-    .bcard .nm .shiny, .pnameLine .shiny { color: #d9553f; font-size: 12px; line-height: 1; flex: none; }
+    #devPanel .maskCell.on { background: var(--p-danger)cc; }
+    .bcard .nm .shiny, .pnameLine .shiny { color: var(--p-danger); font-size: 12px; line-height: 1; flex: none; }
 
     #devPanel .layerRow { display: flex; gap: 4px; align-items: stretch; }
     #devPanel .layerRow .devItem { flex: 1; min-width: 0; }
@@ -1291,8 +1592,8 @@
       top: max(14px, env(safe-area-inset-top));
       left: 50%;
       transform: translateX(-50%);
-      --ink: #5c4e92;
-      --fill: #171b2c;
+      --ink: var(--p-action);
+      --fill: var(--p-ink);
       padding: 8px 16px;
       font-size: 14px;
       opacity: 0;

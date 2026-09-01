@@ -318,6 +318,7 @@ function bigBtn(label: string, onClick: () => void, primary = false): HTMLButton
 
 export function titleScreen(
   ui: UI,
+  art: Art,
   opts: {
     hasSave: boolean;
     onContinue: () => void;
@@ -327,15 +328,42 @@ export function titleScreen(
   },
 ): void {
   ui.screen((s) => {
-    s.appendChild(el("h1", undefined, "Scoba Relica"));
-    s.appendChild(el("div", "sub", "A two-player Scoba adventure."));
-    if (opts.hasSave) s.appendChild(bigBtn("Continue", opts.onContinue, true));
+    // The name over the game's own art rather than over an empty page. The
+    // Scoba the game is named for stands on a plate under the title, which is
+    // the one place a player meets the art before they have chosen anything.
+    const crest = el("div", "crest");
+    crest.appendChild(el("h1", undefined, "Scoba Relica"));
+    crest.appendChild(el("div", "sub", "A two-player Scoba adventure."));
+    const plinth = el("div", "plinth");
+    // Three whole art pixels to the screen pixel. A whole step only, since
+    // half of one would put the sprite's outline across pixel edges.
+    const face = critterPortrait(art, SPECIAL);
+    face.style.width = `${face.width * 3}px`;
+    face.style.height = `${face.height * 3}px`;
+    plinth.appendChild(face);
+    crest.appendChild(plinth);
+    s.appendChild(crest);
+
+    // One way in stands ahead of the others, so the screen has a first button
+    // rather than four of equal weight. Which one it is depends on whether
+    // there is anything to come back to.
+    const ways = el("div", "ways");
+    if (opts.hasSave) ways.appendChild(bigBtn("Continue", opts.onContinue, true));
     // The two ways in. Which one you pick decides which character you are, so
     // two people setting up separately can no longer both end up as the same
     // one and spend the evening unable to see each other.
-    s.appendChild(bigBtn("Start new adventure", opts.onNew, !opts.hasSave));
-    s.appendChild(bigBtn("Join someone's adventure", opts.onJoin));
-    s.appendChild(bigBtn("Import Save", opts.onImport));
+    ways.appendChild(bigBtn("Start new adventure", opts.onNew, !opts.hasSave));
+    ways.appendChild(bigBtn("Join someone's adventure", opts.onJoin));
+    s.appendChild(ways);
+
+    // A rarely used door, kept at the weight it deserves rather than at the
+    // weight of the three routes into the game.
+    const imp = el("button", "pill", "Import a save");
+    imp.addEventListener("click", () => {
+      sfx.confirm();
+      opts.onImport();
+    });
+    s.appendChild(imp);
     // Small and out of the way, but on screen: a tester saying "it broke" is
     // worth much more when they can also say which build broke.
     s.appendChild(el("div", "buildTag", `v${PROTOCOL_VERSION} · ${BUILD_VERSION}`));
@@ -1082,7 +1110,7 @@ export function relicaScreen(
     const render = (): void => {
       card.innerHTML = "";
       const c = save.special;
-      const head = el("div", "row");
+      const head = el("div", "cardHead");
       head.appendChild(el("strong", undefined, `${SPECIAL.name} · care lv ${careLevel(c)}`));
       if (c.hibernating) head.appendChild(el("span", "badge", "hibernating"));
       card.appendChild(head);

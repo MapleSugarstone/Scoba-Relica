@@ -192,7 +192,7 @@ function showTitle(): void {
   partnerWaiting = false;
   ui.hud(false);
   const existing = loadSave();
-  titleScreen(ui, {
+  titleScreen(ui, art, {
     hasSave: existing !== null,
     onContinue: () => {
       const s = loadSave();
