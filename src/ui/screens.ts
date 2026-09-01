@@ -1112,7 +1112,7 @@ export function relicaScreen(
       const c = save.special;
       const head = el("div", "cardHead");
       head.appendChild(el("strong", undefined, `${SPECIAL.name} · care lv ${careLevel(c)}`));
-      if (c.hibernating) head.appendChild(el("span", "badge", "hibernating"));
+      if (c.hibernating) head.appendChild(el("span", "badge warn", "hibernating"));
       card.appendChild(head);
       card.appendChild(meter("Hunger", c.hunger));
       card.appendChild(meter("Clean", c.clean));
@@ -1190,28 +1190,38 @@ export function indexScreen(ui: UI, art: Art, save: SaveData, onBack: () => void
     s.appendChild(el("h2", undefined, "Index"));
     s.appendChild(el("div", "sub", `${owned.size} kept · ${seen.size} met · ${all.length} in all`));
     const card = el("div", "card");
-    const list = el("div", "list");
-    for (const sp of all) {
-      const item = el("div", "item");
-      const left = el("div");
-      const head = el("div", "who");
-      if (seen.has(sp.id)) {
-        head.appendChild(el("span", undefined, sp.name));
-        head.appendChild(typeIcons(sp));
-        if (owned.has(sp.id)) head.appendChild(el("span", "badge", "kept"));
-        left.appendChild(head);
-        left.appendChild(el("div", "dim", owned.has(sp.id)
+    const list = el("div", "ixList");
+    all.forEach((sp, i) => {
+      const met = seen.has(sp.id);
+      const kept = owned.has(sp.id);
+      // Every entry keeps its number and its cell whether or not it has been
+      // met, so the list reads as a set with gaps in it rather than as a short
+      // list of what you happen to have.
+      const row = el("div", `ixRow${met ? "" : " blank"}`);
+      row.appendChild(el("div", "ixNo", String(i + 1).padStart(3, "0")));
+      const face = el("div", "ixFace sunk");
+      if (met) face.appendChild(critterPortrait(art, sp));
+      else face.appendChild(el("span", "ixQ", "?"));
+      row.appendChild(face);
+
+      const body = el("div", "ixBody");
+      const name = el("div", "ixName");
+      name.appendChild(el("span", "ixWho", met ? sp.name : "??????"));
+      if (met) name.appendChild(typeIcons(sp));
+      body.appendChild(name);
+      body.appendChild(el("div", "ixLine", !met
+        ? "Not met yet."
+        : kept
           ? `Str ${sp.genes.str} · Def ${sp.genes.def} · Res ${sp.genes.res} · Mag ${sp.genes.mag} · Spd ${sp.genes.spd}`
           : "Met in the wild. Keep one to read its numbers."));
-      } else {
-        head.appendChild(el("span", "dim", "??????"));
-        left.appendChild(head);
-        left.appendChild(el("div", "dim", "Not met yet."));
-      }
-      item.appendChild(left);
-      if (seen.has(sp.id)) item.appendChild(critterPortrait(art, sp));
-      list.appendChild(item);
-    }
+      row.appendChild(body);
+      // The mark holds its cell empty, so no row is a different height from
+      // its neighbours and the column of faces stays a column.
+      const mark = el("div", "ixMark");
+      if (kept) mark.appendChild(el("span", "badge", "kept"));
+      row.appendChild(mark);
+      list.appendChild(row);
+    });
     card.appendChild(list);
     s.appendChild(card);
     s.appendChild(bigBtn("Back", onBack, true));

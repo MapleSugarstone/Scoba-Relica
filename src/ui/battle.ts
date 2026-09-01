@@ -512,7 +512,15 @@ function runBattle(
     const w = `${Math.round(Math.min((window.innerWidth / zoom) * 0.94, BAR_MAX_W))}px`;
     if (bar.style.height !== h) bar.style.height = h;
     if (bar.style.getPropertyValue("--bw") !== w) bar.style.setProperty("--bw", w);
-    stage.setSafeBottom(bar.getBoundingClientRect().height);
+    // The readouts hang under their fighters and the block is opaque, so the
+    // room the scene is left has to cover a plate's height as well as the
+    // block's. Measured rather than guessed: a plate is a different height on
+    // a narrow screen, and a Mote's is shorter than a Scoba's.
+    const plateRoom = plates.reduce(
+      (tallest, p) => Math.max(tallest, p.node.getBoundingClientRect().height),
+      0,
+    );
+    stage.setSafeBottom(bar.getBoundingClientRect().height + plateRoom);
   };
 
   const positionPlates = (): void => {
@@ -782,7 +790,7 @@ function runBattle(
       }, { alt: true, small: true }),
       act("Extra", "", () => renderExtra(slot), { alt: true, small: true }),
     );
-    return rows([wrap, minor], stepBack());
+    return rows([wrap, minor], stepBack(), `What will ${displayName(me.scoba)} do?`);
   };
 
   /** Stacks the action rows, with the step back floated above their corner. */
@@ -935,7 +943,7 @@ function runBattle(
       for (const { c, i } of mine) list.appendChild(scobaPanel(c, { side: 0, index: i }, slot));
       s.appendChild(list);
 
-      const row = el("div", "bactions");
+      const row = el("div", "xrow");
       if (benchFor(st, 0, slot).length > 0) {
         row.appendChild(act("Swap", "send another out", () => renderSwap(slot, () => renderExtra(slot)), { alt: true }));
       }
@@ -950,7 +958,7 @@ function runBattle(
     const wrap = el("div", "card xscoba");
     const sp = SPECIES[c.scoba.speciesId]!;
     const out = st.active[0].includes(ref.index);
-    const nm = el("div", "nm");
+    const nm = el("div", "nm cardHead");
     nm.appendChild(el("strong", undefined, displayName(c.scoba)));
     nm.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
     nm.appendChild(typeIcons(sp));
@@ -1105,7 +1113,7 @@ function runBattle(
   const renderSwap = (slot: number, back: () => void = render): void => {
     ui.screen((s) => {
       s.appendChild(el("h2", undefined, `${nameOf(st.slotOwner[slot] ?? null)}: send out`));
-      const row = el("div", "bactions");
+      const row = el("div", "xrow");
       for (const i of benchFor(st, 0, slot)) {
         const c = st.teams[0][i]!;
         row.appendChild(act(displayName(c.scoba), `Lv ${c.scoba.level} · ${c.hp}/${combatantMaxHp(c)}`, () => pick({ kind: "switch", side: 0, slot, benchIndex: i })));

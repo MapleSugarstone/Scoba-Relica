@@ -153,7 +153,7 @@
       width: 136px;
       transform-origin: top left;
     }
-    .bcard.bplate .nm { font-size: 12px; width: 100%; justify-content: center; }
+    .bcard.bplate .nm { font-size: 14px; width: 100%; justify-content: center; gap: 4px; }
     /* The one part that gives: everything beside it is a fixed reading. */
     .bcard.bplate .nm strong {
       min-width: 0;
@@ -174,8 +174,10 @@
      * marks it has picked up. No owner line and no level, since a Mote is
      * always its summoner's level and is nobody's to swap.
      */
+    /* Quieter than a Scoba's plate by its outline rather than by its fill, so
+       the two read as the same kind of thing at different ranks. */
     .bcard.bmote.bplate {
-      --fill: var(--p-quiet);
+      --ink: var(--p-quiet);
       width: 104px;
       padding: 4px 8px;
       gap: 2px;
@@ -227,8 +229,22 @@
     .screen.stage > .baim { pointer-events: none; }
     .screen.stage .bcard.bplate { pointer-events: auto; }
     .screen.stage > .baim.on { pointer-events: auto; cursor: crosshair; }
-    /* The log and the buttons sit above both layers. */
-    .screen.stage > .bbottom { position: relative; z-index: 3; }
+    /*
+     * The log and the buttons sit above both layers, on a band of their own.
+     *
+     * The band is what makes the bottom of a fight a place rather than a set
+     * of buttons over open floor: it is the full width of the screen, it is
+     * the darkest thing on it, and it carries a 3 px rule along its top edge
+     * so the scene ends somewhere. Its height comes from `sizeActionBar`,
+     * which also tells the scene to keep its cast clear of it.
+     */
+    .screen.stage > .bbottom {
+      position: relative;
+      z-index: 3;
+      background:
+        linear-gradient(var(--p-raised) 0 0) 0 0 / 100% 3px no-repeat,
+        linear-gradient(color-mix(in srgb, var(--p-ink) 93%, transparent) 0 0) 0 3px / 100% calc(100% - 3px) no-repeat;
+    }
     .bbottom {
       display: flex;
       flex-direction: column;
@@ -337,7 +353,7 @@
     label.custom input[type="color"],
     .bxPanel, .bxCell, .bxName, .bxChip, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
     .bxSwap, .bxCard, .bxPortrait, .bxSlot, .bxNote, .bxCardBack, .bxGrid,
-    .plinth, button.starter .stage {
+    .plinth, button.starter .stage, .ixRow, .ixFace {
       --ink: var(--p-ink);
       --fill: var(--p-panel);
       --lit: color-mix(in srgb, var(--fill) 76%, var(--p-lit));
@@ -375,6 +391,35 @@
       --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
       --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
     }
+    /*
+     * Scrollbars. The browser's own is a rounded grey capsule, which is the
+     * one piece of soft geometry the interface cannot otherwise get rid of.
+     * Drawn instead as a square thumb in the raised fill on a sunken track,
+     * so a scrolling box says so in the same language as everything else.
+     */
+    .screen, .ixList, .list.scroll, .xlist, #bagMenu, .bxCard, .devList {
+      scrollbar-width: thin;
+      scrollbar-color: var(--p-raised) var(--p-ground);
+    }
+    .screen::-webkit-scrollbar,
+    .ixList::-webkit-scrollbar,
+    .list.scroll::-webkit-scrollbar,
+    .xlist::-webkit-scrollbar,
+    #bagMenu::-webkit-scrollbar { width: 10px; height: 10px; }
+    .screen::-webkit-scrollbar-track,
+    .ixList::-webkit-scrollbar-track,
+    .list.scroll::-webkit-scrollbar-track,
+    .xlist::-webkit-scrollbar-track,
+    #bagMenu::-webkit-scrollbar-track { background: var(--p-ground); }
+    .screen::-webkit-scrollbar-thumb,
+    .ixList::-webkit-scrollbar-thumb,
+    .list.scroll::-webkit-scrollbar-thumb,
+    .xlist::-webkit-scrollbar-thumb,
+    #bagMenu::-webkit-scrollbar-thumb {
+      background: var(--p-raised);
+      border: 2px solid var(--p-ink);
+    }
+
     /* Selection reads as a second frame rather than a soft glow. */
     .sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
     /*
@@ -615,6 +660,69 @@
       display: block;
     }
 
+    /*
+     * The index. Every Scoba there is, numbered, with one cell per face
+     * whether or not that face has been met: a set with gaps in it reads as
+     * something to fill, and a short list of what you happen to have does not.
+     *
+     * Laid out as four columns rather than as a row of things, so the numbers
+     * line up down one edge, the faces down another, and the names start at
+     * the same place on every row however long the number or the name is.
+     */
+    .ixList {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 100%;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    .ixRow {
+      --fill: var(--p-ink);
+      --ink: var(--p-raised);
+      display: grid;
+      grid-template-columns: 32px 64px minmax(0, 1fr) 48px;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 8px;
+    }
+    /* An entry with nothing behind it yet: present, numbered, and plainly not
+       filled in. The outline goes quiet rather than the row going away. */
+    .ixRow.blank { --ink: var(--p-quiet); }
+    .ixNo {
+      font-size: 12px;
+      color: var(--p-dead-text);
+      text-align: right;
+      letter-spacing: 1px;
+    }
+    /* One box for every face, so the column of faces is a column. The art is
+       bottom aligned inside it and never scaled. */
+    .ixFace {
+      --fill: var(--p-ground);
+      width: 64px;
+      height: 64px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .ixFace canvas { image-rendering: pixelated; display: block; }
+    .ixQ { align-self: center; font-size: 24px; color: var(--p-dead-text); }
+    .ixBody { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    /* The name is what the row is looked up by, so it is the largest thing in
+       it by two steps rather than by weight alone. */
+    .ixName { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .ixWho {
+      font-size: 20px;
+      line-height: 1.1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ixRow.blank .ixWho { color: var(--p-dead-text); }
+    .ixLine { font-size: 12px; color: var(--p-dim); }
+    .ixMark { display: flex; justify-content: flex-end; }
+
     /* Starter picker */
     .starters {
       display: grid;
@@ -842,7 +950,8 @@
        own width, so nothing here may set a floor: a `min-width` beats the
        `width` above it and put a Mote back at a Scoba's size. */
     .bcard {
-      --fill: var(--p-panel);
+      --fill: var(--p-ink);
+      --ink: var(--p-raised);
       position: relative;
       padding: 8px 12px;
       display: flex;
@@ -854,13 +963,13 @@
     /* Whose turn it is to pick, so two players never lose track of the order. */
     .bcard.acting { outline: 3px solid var(--p-mana); outline-offset: -3px; }
     .bcard .own { font-size: 12px; color: var(--p-dim); letter-spacing: 1px; text-transform: uppercase; }
-    .bcard.empty { --fill: var(--p-quiet); justify-content: center; min-height: 62px; }
+    .bcard.empty { --ink: var(--p-quiet); justify-content: center; min-height: 62px; }
     .bcard.empty .sub { color: var(--p-dim); font-size: 12px; }
     .bcard canvas { image-rendering: pixelated; }
-    .bcard .nm { font-size: 14px; display: flex; gap: 8px; align-items: baseline; }
+    .bcard .nm { font-size: 16px; display: flex; gap: 8px; align-items: baseline; }
     .bcard .nm .lv { color: var(--p-dim); font-size: 12px; }
     /* Too short for stepped corners: a square 2 px frame stays just as sharp. */
-    .bbar { position: relative; width: 100%; height: 14px; border: 2px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
+    .bbar { position: relative; width: 100%; height: 14px; border: 2px solid var(--p-deep); background: var(--p-deep); overflow: hidden; }
     .bbar i {
       display: block;
       height: 100%;
@@ -1290,7 +1399,41 @@
       max-height: 62vh;
       overflow-y: auto;
     }
-    .xscoba { align-items: stretch; gap: 8px; text-align: left; }
+    /*
+     * A group of choices standing on a screen of its own rather than inside
+     * the battle's action block. The block takes its width from `--bw`, so a
+     * bare `.bactions` outside it inherits the whole viewport instead: that is
+     * how the Extra window's Back button came out a third of the screen wide
+     * and hard against the left edge.
+     */
+    .xrow {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+      width: min(100%, 420px);
+    }
+    .xrow > button.act { width: 100%; min-height: 48px; }
+
+    /* Full width of the list it sits in, so a column of one card is centred
+       under the heading rather than hanging off the left of a wider box. */
+    .xscoba {
+      align-items: stretch;
+      gap: 8px;
+      text-align: left;
+      width: 100%;
+      max-width: none;
+    }
+    /* A Scoba's own name rather than a section label, so the band keeps the
+       name at reading size and in the case it was written in. */
+    .card.xscoba > .cardHead {
+      font-size: 12px;
+      text-transform: none;
+      letter-spacing: 0;
+      color: var(--p-dim);
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+    .card.xscoba > .cardHead strong { font-size: 16px; color: var(--p-text); }
     .xscoba .nm { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
     .xstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--p-dim2); }
     .xpass { display: flex; gap: 8px; font-size: 12px; color: var(--p-dim); }
@@ -1376,8 +1519,6 @@
       width: 100%;
     }
     .bgrid > button.act { width: 100%; }
-    button.act.slot-empty { --fill: var(--p-dead); color: var(--p-dead-text); opacity: 1; }
-    button.act.slot-empty:disabled { opacity: 1; }
 
     /*
      * The bottom block holds one height for every page, with the banner
@@ -1434,7 +1575,10 @@
       cursor: pointer;
     }
     button.act:active { --fill: var(--p-action-down); }
-    button.act:disabled { opacity: 0.4; }
+    button.act:disabled { --fill: var(--p-dead); --ink: var(--p-ink); color: var(--p-dead-text); opacity: 1; }
+    /* A move slot with nothing in it, which is empty for good rather than
+       disabled for the moment a round is playing. Darker than either. */
+    button.act.slot-empty:disabled { --fill: var(--p-deep); }
     button.act .sub { font-size: 12px; color: var(--p-dim2); }
     .bgrid > button.act .sub { min-height: 1.2em; }
     button.act.alt { --fill: var(--p-panel); }
@@ -1450,9 +1594,25 @@
     .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--p-dim); margin-bottom: 4px; }
     .meter .bar { height: 12px; border: 2px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
     .meter .bar i { display: block; height: 100%; background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px); }
-    .badge { font-size: 12px; background: var(--p-danger); padding: 2px 8px; color: var(--p-ink); }
+    /* A mark saying a thing is done, kept or won. Green, because all three of
+       the places it is used report something good; `warn` is the one that
+       reports a state to look at. */
+    .badge {
+      font-size: 12px;
+      background: var(--p-confirm);
+      padding: 2px 8px;
+      color: var(--p-ink);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .badge.warn { background: var(--p-warning); }
     .list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
-    .list .item { display: flex; justify-content: space-between; font-size: 14px; --fill: var(--p-ground); padding: 8px 12px; }
+    .list .item {
+      display: flex; justify-content: space-between; font-size: 14px;
+      --fill: var(--p-ink);
+      --ink: var(--p-raised);
+      padding: 8px 12px;
+    }
     .list .item .dim { color: var(--p-dim); font-size: 12px; }
     .list .item .who { gap: 8px; }
     /* A box with more in it than fits scrolls inside its own card. */
