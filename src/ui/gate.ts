@@ -20,6 +20,14 @@ const SALT = "scoba-relica lock v1: ";
 /** What a browser that has already been let in remembers. */
 const KEY = "scoba-lock-v1";
 
+/**
+ * Whether this build has a lock at all. The one way to turn it off is
+ * `VITE_NO_LOCK=1` in `.env.local`, which is gitignored: this machine has that
+ * file and a checkout of the repository does not, so a clone asks for the
+ * password in `npm run dev` the same way the published site does.
+ */
+const LOCKED = import.meta.env.VITE_NO_LOCK !== "1";
+
 const el = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
   cls?: string,
@@ -47,18 +55,18 @@ function remembered(): boolean {
 }
 
 /**
- * Holds the boot until the password is in. Returns straight away for a browser
- * that has been let in before, in a dev build, and on an origin without Web
- * Crypto. `?lock` puts the screen up anyway, which is how it gets looked at
- * while working on it.
+ * Holds the boot until the password is in. Returns straight away for a build
+ * without a lock and for a browser that has been let in before. `?lock` puts
+ * the screen up anyway, which is how it gets looked at while working on it.
  */
 export async function unlock(ui: UI): Promise<void> {
   const forced = new URLSearchParams(location.search).has("lock");
-  if (!forced && (import.meta.env.DEV || remembered())) return;
-  // Only a secure origin has Web Crypto, so this is a phone reading a preview
-  // build off the machine's LAN address rather than the published site.
-  if (!globalThis.crypto?.subtle) return;
-
+  if (!forced) {
+    // Said out loud, so a build that went out without its lock is visible in
+    // the console rather than only in whoever walks in.
+    if (!LOCKED) console.warn("Scoba Relica: no password on this build.");
+    if (!LOCKED || remembered()) return;
+  }
   await new Promise<void>((resolve) => {
     let field: HTMLInputElement;
     let note: HTMLElement;
@@ -66,6 +74,16 @@ export async function unlock(ui: UI): Promise<void> {
 
     const submit = async (): Promise<void> => {
       if (go.disabled) return;
+      // Web Crypto is only on a secure origin, and without it there is nothing
+      // to check the password against. The published site is always https, so
+      // this is a LAN test or somebody serving the downloaded files, and
+      // neither gets in.
+      if (!globalThis.crypto?.subtle) {
+        sfx.back();
+        note.textContent = "Open this over https to play.";
+        note.hidden = false;
+        return;
+      }
       go.disabled = true;
       const typed = await digest(field.value.trim());
       go.disabled = false;

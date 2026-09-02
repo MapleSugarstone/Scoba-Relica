@@ -146,7 +146,9 @@ Push to `main`. The workflow in `.github/workflows/deploy.yml` builds the site a
 
 The published site asks for a password before it will play. Set yours with `node tools/set-password.mjs "the new password"`, which writes the hash of that word into `src/ui/gate.ts` and leaves the word itself out of the repository. Push, and the site asks for the new one. Anyone already let in stays in, because their browser remembers the old hash.
 
-Local `npm run dev` never asks. Add `?lock` to the address to see the screen anyway. This keeps passers by out and nothing more: the game is already downloaded by the time the lock is drawn. See `claude-notes/password-lock.md`.
+Nothing on this machine asks, because `.env.local` in the project root holds `VITE_NO_LOCK=1`, and that is the only switch there is. The file is gitignored, so `npm run dev` and `npm run build` here are unlocked while a clone of the repository asks for the password in both. On a fresh checkout of your own, write that one line into `.env.local` again. Add `?lock` to the address to put the screen up on an unlocked build.
+
+The bar this clears is a passer by, not a determined reader. The repository is public, so anyone who opens `src/ui/gate.ts` can see how to turn the lock off, and the game is downloaded before the lock is drawn either way. See `claude-notes/password-lock.md`.
 
 ## Art
 
