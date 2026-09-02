@@ -24,6 +24,7 @@ import { registerServiceWorker, requestDurableStorage } from "./pwa";
 import { Session } from "./net/session";
 import { knock } from "./net/joining";
 import { lobbyScreen } from "./ui/lobbyscreen";
+import { unlock } from "./ui/gate";
 import type { BattleNet, PendingBattle } from "./net/battlelink";
 import { relayUrl } from "./net/relay";
 import { disableReminders, enableReminders, reminderState } from "./net/push";
@@ -663,6 +664,9 @@ async function boot(): Promise<void> {
   // Read once at boot so a `?relay=` override is captured even on a launch
   // that never opens a room, which is how it gets set in the first place.
   relayUrl();
+  // Before anything else loads: a published build asks for its password, and
+  // the boot waits here until it has it.
+  await unlock(ui);
   // The page starts covered, so nothing shows until the art is actually in.
   art = await loadArt();
   showTitle();

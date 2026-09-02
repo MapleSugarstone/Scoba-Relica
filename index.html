@@ -349,7 +349,7 @@
      */
     .card, button.big, button.act, button.starter, button.thumb, .pill, .swatch,
     #bagBtn, #bagMenu button, #actBtn, #dialog, .bcard, .blog, .mgbar, .dollWrap, #toast,
-    .list .item, #stick, #stickKnob, .card input[type="text"],
+    .list .item, #stick, #stickKnob, .card input[type="text"], .card input[type="password"],
     label.custom input[type="color"],
     .bxPanel, .bxCell, .bxName, .bxChip, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
     .bxSwap, .bxCard, .bxPortrait, .bxSlot, .bxNote, .bxCardBack, .bxGrid,
@@ -554,7 +554,7 @@
       letter-spacing: 1px;
       text-transform: uppercase;
     }
-    .card input[type="text"] {
+    .card input[type="text"], .card input[type="password"] {
       font: inherit;
       font-size: 16px;
       width: 100%;
@@ -564,7 +564,8 @@
       --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
       color: var(--p-text);
     }
-    .card input[type="text"]::placeholder { color: var(--p-dead-text); }
+    .card input[type="text"]::placeholder,
+    .card input[type="password"]::placeholder { color: var(--p-dead-text); }
     .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
     .swatch {
       width: 34px; height: 34px;

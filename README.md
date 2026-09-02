@@ -142,6 +142,12 @@ cannot push to, which fails quietly and looks like a phone that never buzzed.
 
 Push to `main`. The workflow in `.github/workflows/deploy.yml` builds the site and publishes it to Pages. In the repo settings, set Pages > Source to "GitHub Actions" once.
 
+## The password
+
+The published site asks for a password before it will play. Set yours with `node tools/set-password.mjs "the new password"`, which writes the hash of that word into `src/ui/gate.ts` and leaves the word itself out of the repository. Push, and the site asks for the new one. Anyone already let in stays in, because their browser remembers the old hash.
+
+Local `npm run dev` never asks. Add `?lock` to the address to see the screen anyway. This keeps passers by out and nothing more: the game is already downloaded by the time the lock is drawn. See `claude-notes/password-lock.md`.
+
 ## Art
 
 Every sprite in the game is original and lives in `assets/`: character doll layers, Scoba portraits, and the island tileset. Nothing is drawn from an outside pack.
