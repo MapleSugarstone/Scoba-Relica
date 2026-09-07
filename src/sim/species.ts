@@ -89,7 +89,6 @@ export interface Move {
 export interface Ability {
   id: string;
   name: string;
-  desc: string;
   statuses?: string[];
 }
 
@@ -305,50 +304,46 @@ export const MOVES: Record<string, Move> = Object.fromEntries(
 export const ABILITIES: Record<string, Ability> = Object.fromEntries(
   (
     [
-      { id: "swift", name: "Swift", desc: "Spd +20%." },
-      { id: "brawn", name: "Brawn", desc: "Str +15%." },
-      { id: "thick-coat", name: "Thick Coat", desc: "Def +20%." },
-      { id: "warded", name: "Warded", desc: "Res +20%." },
-      { id: "mystic", name: "Mystic", desc: "Mag +15%." },
-      { id: "hearty", name: "Hearty", desc: "HP +15%." },
-      { id: "moss-skin", name: "Moss Skin", desc: "Heals a little each turn." },
-      { id: "old-soul", name: "Old Soul", desc: "Mag +15%." },
-      { id: "sun-heart", name: "Sun Heart", desc: "Sun moves +25%." },
-      { id: "flux-heart", name: "Flux Heart", desc: "Flux moves +25%." },
-      { id: "moss-heart", name: "Moss Heart", desc: "Moss moves +25%." },
+      { id: "swift", name: "Swift" },
+      { id: "brawn", name: "Brawn" },
+      { id: "thick-coat", name: "Thick Coat" },
+      { id: "warded", name: "Warded" },
+      { id: "mystic", name: "Mystic" },
+      { id: "hearty", name: "Hearty" },
+      { id: "moss-skin", name: "Moss Skin" },
+      { id: "old-soul", name: "Old Soul" },
+      { id: "sun-heart", name: "Sun Heart" },
+      { id: "flux-heart", name: "Flux Heart" },
+      { id: "moss-heart", name: "Moss Heart" },
       // Starter passives.
-      { id: "moonlit", name: "Moonlit", desc: "Moon moves +25%." },
-      { id: "shifting", name: "Shifting", desc: "Spd +15%, Res +10%." },
-      { id: "rooted", name: "Rooted", desc: "Def +10% and heals a little each turn." },
-      { id: "encrypted", name: "Encrypted", desc: "Res +25%." },
-      { id: "far-sight", name: "Far Sight", desc: "Mag +20%." },
-      { id: "sweet-tooth", name: "Sweet Tooth", desc: "HP +20%." },
-      { id: "lucky", name: "Lucky", desc: "Fortuna moves +25%." },
-      { id: "plainspoken", name: "Plainspoken", desc: "Str +15%, Def +10%." },
+      { id: "moonlit", name: "Moonlit" },
+      { id: "shifting", name: "Shifting" },
+      { id: "rooted", name: "Rooted" },
+      { id: "encrypted", name: "Encrypted" },
+      { id: "far-sight", name: "Far Sight" },
+      { id: "sweet-tooth", name: "Sweet Tooth" },
+      { id: "lucky", name: "Lucky" },
+      { id: "plainspoken", name: "Plainspoken" },
       // The wilds. Each carries two of these: a signature primary, and a
       // secondary its pool always hands over, so every one of the line has
       // both halves of what it is.
-      { id: "thirst", name: "Thirst", desc: "A basic attack drinks back its Magic in HP." },
-      { id: "restless", name: "Restless", desc: "Spd and Str +10%." },
+      { id: "thirst", name: "Thirst" },
+      { id: "restless", name: "Restless" },
       {
         id: "moonwane", name: "Moonwane",
-        desc: "Magic damage cuts the target's Res by 5%, ten times over.",
       },
-      { id: "moonwell", name: "Moonwell", desc: "Starts a battle with 10 extra mana." },
+      { id: "moonwell", name: "Moonwell" },
       {
         id: "sun-bloom", name: "Sun Bloom",
-        desc: "Calls Sunblessed up over both sides for 5 turns, once a battle.",
       },
-      { id: "sun-ward", name: "Sun Ward", desc: "Shrugs off one Sun hit a battle." },
+      { id: "sun-ward", name: "Sun Ward" },
       // The Cottle line: a queen who brings her court, and the court itself.
       {
         id: "cottle-court", name: "Cottle Court",
-        desc: "Calls up a Cottlecorn Pawn the first time she takes the field.",
       },
-      { id: "queens-guard", name: "Queen's Guard", desc: "Bracing pours a tenth of her Magic into her Speed." },
+      { id: "queens-guard", name: "Queen's Guard" },
       {
         id: "piercing-horn", name: "Piercing Horn",
-        desc: "A basic attack cuts the target's Res by 5%, six times over.",
       },
     ] as Ability[]
   ).map((a) => [a.id, a]),

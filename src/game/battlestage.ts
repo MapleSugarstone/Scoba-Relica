@@ -12,6 +12,7 @@ import { ART } from "../engine/renderer";
 import { DOLL_W, worldSprite } from "../engine/paperdoll";
 import { sfx } from "../engine/sfx";
 import { Actor, MOTIONS } from "./actors";
+import { stagePace } from "./pace";
 import { critterLook, critterBounds, type CritterBounds } from "./critters";
 import type { BattleEvent, BattleState } from "../sim/battle";
 import { animOf, vfxOf, MOVES, SPECIES, type CasterAnim, type MoveVfx } from "../sim/species";
@@ -137,11 +138,11 @@ interface Step {
 const TRAIL_EASE = 5;
 
 /**
- * How fast the stage plays, against the clock the rest of the game runs on.
- * Every duration, ease and walk on the stage reads its time through this, so
- * the one number paces the whole fight.
+ * How long the whole stage stops for on the frame a blow lands, in real
+ * seconds. It is taken off the real clock rather than the paced one, so a
+ * player who has turned the battle speed up still gets the same beat.
  */
-const STAGE_PACE = 0.7;
+const HIT_STOP = 0.07;
 
 /** Longest a step will wait for a walk that is running late. */
 const HOLD_CAP = 4;
@@ -186,8 +187,15 @@ const RANK = {
   front: 0.71,
   /** The enemy trainer, opposite and a little behind their Scobas. */
   trainer: 0.65,
-  castBack: 0.80,
-  castFront: 0.87,
+  /**
+   * The two characters, between the back Scoba rank and the court. They are up
+   * off the floor rather than down on it because the Pawn cards hang below the
+   * court and reach back across the corner the pair stand in, and they can go
+   * no higher because the back Scoba's own readout hangs into that corner from
+   * above on a narrow view.
+   */
+  castBack: 0.77,
+  castFront: 0.83,
   /**
    * The court gathers at the very front of its own side, in a row down at the
    * bottom corner beside the buttons. Far enough back off the action bar that
@@ -230,6 +238,13 @@ const SCOBA_ACROSS = [0.28, 0.62];
  * Half a doll and a little air, so nobody is drawn off the side of the view.
  */
 const EDGE = DOLL_W / (2 * ART) + 3;
+/**
+ * How far out from the first character the second one stands, in world units.
+ * Enough that the pair read as two people, and no more: the corner they share
+ * is narrow, with the back Scoba's readout hanging into it from above and the
+ * Pawn cards reaching back into it from below.
+ */
+const CAST_STAGGER = 20;
 /**
  * The least the Pawn row ever spreads, in world units, for the frames before a
  * card has been measured.
@@ -290,6 +305,42 @@ const FIELD_WASH_FLAT = 0.17;
 /** How a Scoba nobody is controlling this moment is drawn. */
 const WAITING_TINT = "brightness(0.4) saturate(0.7)";
 
+/**
+ * The levels a sprite or a readout is ever drawn at. Fractional opacity is the
+ * one soft edge a scene that never antialiases can still let in, so the eased
+ * value is kept for timing and only what reaches the screen is stepped.
+ */
+const ALPHA_LEVELS = [0, 0.33, 0.67, 1];
+
+/** Puts a continuous alpha on the nearest level. */
+function stepAlpha(a: number): number {
+  const i = Math.round(Math.max(0, Math.min(1, a)) * (ALPHA_LEVELS.length - 1));
+  return ALPHA_LEVELS[i] ?? 1;
+}
+
+/**
+ * The scene's ground. Each band has its own lip along the top of it and its own
+ * darker tone, which is what the mark under a pair of feet is drawn in.
+ */
+const GROUND = {
+  sky: "#2a3049",
+  far: "#232941",
+  farLip: "#2f3450",
+  farMark: "#1a1f31",
+  near: "#363d5e",
+  nearLip: "#3f4767",
+  nearMark: "#282e46",
+};
+
+/** How wide a mark is against the drawn width of whoever stands on it. */
+const MARK_SHARE = 0.8;
+/** How deep a mark is against its own width. */
+const MARK_SQUASH = 0.34;
+/** How much of a doll's canvas the body it holds actually fills. */
+const DOLL_FILL = 0.42;
+/** How far apart the dither pixels along the horizon stand, in world units. */
+const HORIZON_STEP = 3;
+
 export class BattleStage {
   private fighters: Fighter[] = [];
   /** The two characters, and the enemy trainer when there is one. */
@@ -326,8 +377,17 @@ export class BattleStage {
    * nothing is allowed to move, such as while a transition holds the scene.
    */
   onFrame: (() => void) | null = null;
+  /**
+   * Called when the set of fighters or the marks they stand on changed, so the
+   * readouts can be rebuilt. A Scoba switched in mid-round and a replacement
+   * sent on between rounds both arrive long after the page was drawn, and the
+   * plates are built from whoever the stage has at the moment they are built.
+   */
+  onRoster: (() => void) | null = null;
   /** Skips every duration, for tests and for the fast-forward hook. */
   instant = false;
+  /** Real seconds the stage is frozen for, so a landed blow reads. */
+  private hold = 0;
   /** True while the opening is running, so the readouts hold off. */
   private opening = false;
   /** False until a frame has been drawn, so the view size is real. */
@@ -451,7 +511,7 @@ export class BattleStage {
     // under the back Scoba, which on a narrow view reach the left edge.
     const base = Math.max(EDGE, mid - half - 30);
     return {
-      x: base + (slot === 0 ? 26 : 0),
+      x: base + (slot === 0 ? CAST_STAGGER : 0),
       y: this.rankY(slot === 0 ? RANK.castFront : RANK.castBack),
     };
   }
@@ -489,6 +549,7 @@ export class BattleStage {
    * summon, so the stage follows the battle rather than tracking it twice.
    */
   sync(): void {
+    const before = this.rosterKey();
     const wanted: Fighter[] = [];
     for (const side of [0, 1] as const) {
       for (const slot of ALL_SLOTS) {
@@ -541,6 +602,12 @@ export class BattleStage {
       wanted.push(f);
     }
     this.fighters = wanted;
+    if (this.rosterKey() !== before) this.onRoster?.();
+  }
+
+  /** Who is on the field and which mark each stands on, as one string. */
+  private rosterKey(): string {
+    return this.fighters.map((f) => `${f.side}.${f.index}.${f.slot}`).join(",");
   }
 
   private static key(side: 0 | 1, index: number): string {
@@ -775,8 +842,15 @@ export class BattleStage {
   }
 
   update(real: number): void {
+    // A landed blow stops the whole stage together: the queue, the offsets, the
+    // effects and the trails all hold, so nothing drifts on through the pause.
+    if (this.hold > 0) {
+      this.hold -= real;
+      if (this.hold > 0) return;
+      this.hold = 0;
+    }
     // Everything on the stage runs on this clock, so one number paces it all.
-    const dt = real * STAGE_PACE;
+    const dt = real * stagePace();
     if (Math.abs(this.safeWant - this.safeBottom) > 0.05) {
       this.safeBottom += (this.safeWant - this.safeBottom) * Math.min(1, real * 9);
       // Every mark moved with it, so put back anyone who is meant to be on one.
@@ -1150,6 +1224,9 @@ export class BattleStage {
           run: (k) => {
             if (struck || k < travel / (travel + land)) return;
             struck = true;
+            // The freeze is what makes the blow read, so it lands on the same
+            // frame the flash and the shake do.
+            if (!this.instant) this.hold = HIT_STOP;
             target.hurt = 1;
             target.shake = 2.2;
             const b = this.posOf(target);
@@ -1443,7 +1520,9 @@ export class BattleStage {
 
   slotAlpha(side: 0 | 1, slot: number): number {
     const f = this.fighters.find((k) => k.side === side && k.slot === slot);
-    if (f) return f.plate;
+    // Stepped on the way out, the same as a sprite: a readout easing through
+    // fractional opacity is the same soft edge in the interface.
+    if (f) return stepAlpha(f.plate);
     return this.opening ? 0 : 1;
   }
 
@@ -1453,7 +1532,7 @@ export class BattleStage {
    * snap its readout back to full rather than letting it fade out with it.
    */
   fighterAlpha(side: 0 | 1, index: number): number {
-    return this.fighters.find((k) => k.side === side && k.index === index)?.plate ?? 0;
+    return stepAlpha(this.fighters.find((k) => k.side === side && k.index === index)?.plate ?? 0);
   }
 
   /**
@@ -1623,6 +1702,34 @@ export class BattleStage {
 
   // --- drawing ---
 
+  /**
+   * The mark under a pair of feet: a stepped ellipse of stacked rectangles in a
+   * darker tone of whichever ground band they stand on. It shrinks with how
+   * visible its owner is, so a Scoba fading out takes its mark with it.
+   */
+  private groundMark(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    width: number,
+    alpha: number,
+  ): void {
+    if (alpha <= 0) return;
+    const rows = alpha >= 1 ? 4 : 3;
+    const u = 1 / ART;
+    const w = Math.max(2, Math.round(width * alpha * ART));
+    const rowH = Math.max(1, Math.round((w * MARK_SQUASH) / rows));
+    const x = Math.round(cx * ART);
+    const y = Math.round(cy * ART) - Math.round((rowH * rows) / 2);
+    ctx.fillStyle = cy >= this.rankY(RANK.step) ? GROUND.nearMark : GROUND.farMark;
+    for (let i = 0; i < rows; i++) {
+      const dy = ((i + 0.5) / rows - 0.5) * 2;
+      const half = Math.round((w / 2) * Math.sqrt(Math.max(0, 1 - dy * dy)));
+      if (half <= 0) continue;
+      ctx.fillRect((x - half) * u, (y + i * rowH) * u, half * 2 * u, rowH * u);
+    }
+  }
+
   draw(r: Renderer): void {
     const resized = this.view.w !== r.width || this.view.h !== r.height;
     this.view = { w: r.width, h: r.height };
@@ -1642,20 +1749,29 @@ export class BattleStage {
     // never end up standing in the sky.
     const sky = Math.round(h * SKY_SHARE);
     const step = Math.round(this.rankY(RANK.step));
-    ctx.fillStyle = "#2a3049";
+    ctx.fillStyle = GROUND.sky;
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = "#232941";
+    ctx.fillStyle = GROUND.far;
     ctx.fillRect(0, sky, w, h - sky);
-    ctx.fillStyle = "#2f3450";
+    ctx.fillStyle = GROUND.farLip;
     ctx.fillRect(0, sky, w, 1);
-    ctx.fillStyle = "#363d5e";
+    // A dithered row over the horizon, so the sky and the ground behind
+    // everybody do not meet on a bare flat edge.
+    for (let x = 0; x < w; x += HORIZON_STEP) ctx.fillRect(x, sky - 1, 1, 1);
+    ctx.fillStyle = GROUND.near;
     ctx.fillRect(0, step, w, h - step);
-    ctx.fillStyle = "#3f4767";
+    ctx.fillStyle = GROUND.nearLip;
     ctx.fillRect(0, step, w, 1);
 
     const items: { baseY: number; draw: () => void }[] = [];
     for (const p of this.people) {
-      items.push({ baseY: p.actor.depthY, draw: () => p.actor.draw(ctx, 0, 0) });
+      items.push({
+        baseY: p.actor.depthY,
+        draw: () => {
+          this.groundMark(ctx, p.actor.x, p.actor.y, (DOLL_W / ART) * DOLL_FILL, 1);
+          p.actor.draw(ctx, 0, 0);
+        },
+      });
     }
     for (const f of this.fighters) {
       const at = this.posOf(f);
@@ -1666,11 +1782,15 @@ export class BattleStage {
         // shuffle it past whoever it is standing beside.
         baseY: f.actor.depthY,
         draw: () => {
-          if (f.alpha <= 0.02) return;
+          // Anything the move cannot reach fades back while it is being aimed.
+          const alpha = stepAlpha(Math.min(f.alpha, this.aim && !target ? 0.4 : 1));
+          // The mark stays on the ground under the body while the sprite
+          // floats, lunges or rises, which is the whole point of drawing it.
+          this.groundMark(ctx, f.actor.x + f.ox, f.actor.y, f.bounds.width * MARK_SHARE, alpha);
+          if (alpha <= 0) return;
           const jitter = f.shake > 0.05 ? (Math.random() - 0.5) * f.shake : 0;
           ctx.save();
-          // Anything the move cannot reach fades back while it is being aimed.
-          ctx.globalAlpha = Math.min(f.alpha, this.aim && !target ? 0.4 : 1);
+          ctx.globalAlpha = alpha;
           // Standing by while another Scoba is picked for: darkened rather
           // than faded, so it still reads as one standing on the field.
           if (waiting) ctx.filter = WAITING_TINT;

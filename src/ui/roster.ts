@@ -72,8 +72,9 @@ const pill = (label: string, onClick: (() => void) | null, cls = ""): HTMLButton
 
 const bigBtn = (label: string, onClick: () => void, primary = false): HTMLButtonElement => {
   const b = el("button", `big${primary ? " primary" : ""}`, label);
+  const sound = label === "Back" ? sfx.back : sfx.tap;
   b.addEventListener("click", () => {
-    sfx.tap();
+    sound();
     onClick();
   });
   return b;

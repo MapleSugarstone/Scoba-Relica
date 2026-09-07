@@ -137,7 +137,6 @@ export type InflictScope =
 export interface StatusDef {
   id: string;
   name: string;
-  desc: string;
   /** Which half of a cleanse strips it. */
   polarity: StatusPolarity;
   trigger: StatusTrigger;
@@ -181,11 +180,11 @@ const S = (def: StatusDef): StatusDef => def;
  * and a spell leave the same kind of mark and are read the same way.
  */
 const P = (
-  id: string, name: string, desc: string,
+  id: string, name: string,
   effects: StatusEffect[],
   extra: { trigger?: StatusTrigger; charges?: number } = {},
 ): StatusDef => ({
-  id, name, desc,
+  id, name,
   polarity: "good",
   trigger: extra.trigger ?? { on: "passive" },
   duration: null,
@@ -215,7 +214,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "ez",
       name: "EZ Mode",
-      desc: `Every level is worth ${EZ_STAT_BONUS + 1} to each stat instead of 1, for this battle.`,
       polarity: "good",
       trigger: { on: "passive" },
       duration: null,
@@ -228,7 +226,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "fire",
       name: "Fire",
-      desc: "Burns for Sun magic at the end of each turn. Stacks.",
       polarity: "bad",
       trigger: { on: "turn-end" },
       duration: 3,
@@ -252,7 +249,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "fragile",
       name: "Fragile",
-      desc: "Every hit taken costs a tenth of its pool, three times over.",
       polarity: "bad",
       trigger: { on: "hit-any" },
       duration: 5,
@@ -276,7 +272,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "rage",
       name: "Rage",
-      desc: "Strength +25% per stack, up to six. Lost on switching out.",
       polarity: "good",
       trigger: { on: "passive" },
       duration: null,
@@ -289,7 +284,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "guard",
       name: "Guard",
-      desc: "Defense +25% while it lasts.",
       polarity: "good",
       trigger: { on: "passive" },
       duration: 3,
@@ -302,7 +296,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "moonward",
       name: "Moonward",
-      desc: "Shrugs off Moon damage entirely.",
       polarity: "good",
       trigger: { on: "passive" },
       duration: 2,
@@ -315,7 +308,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "marked",
       name: "Marked",
-      desc: "Takes half again as much Cipher damage.",
       polarity: "bad",
       trigger: { on: "passive" },
       duration: 3,
@@ -328,7 +320,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "second-wind",
       name: "Second Wind",
-      desc: "Heals a tenth of its pool when it drops below half.",
       polarity: "good",
       trigger: { on: "hp-below", frac: 0.5 },
       duration: null,
@@ -341,7 +332,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "spite",
       name: "Spite",
-      desc: "Passes everything it is carrying to whoever struck it down.",
       polarity: "good",
       trigger: { on: "death" },
       duration: null,
@@ -353,61 +343,61 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     }),
 
     // --- what an ability hangs on the Scoba that has it ---
-    P("swift", "Swift", "Speed +20%.", [scale("spd", 1.2)]),
-    P("brawn", "Brawn", "Strength +15%.", [scale("str", 1.15)]),
-    P("thick-coat", "Thick Coat", "Defense +20%.", [scale("def", 1.2)]),
-    P("warded", "Warded", "Resistance +20%.", [scale("res", 1.2)]),
-    P("mystic", "Mystic", "Magic +15%.", [scale("mag", 1.15)]),
-    P("hearty", "Hearty", "HP +15%.", [scale("hp", 1.15)]),
-    P("old-soul", "Old Soul", "Magic +15%.", [scale("mag", 1.15)]),
-    P("shifting", "Shifting", "Speed +15%, Resistance +10%.", [scale("spd", 1.15), scale("res", 1.1)]),
-    P("encrypted", "Encrypted", "Resistance +25%.", [scale("res", 1.25)]),
-    P("far-sight", "Far Sight", "Magic +20%.", [scale("mag", 1.2)]),
-    P("sweet-tooth", "Sweet Tooth", "HP +20%.", [scale("hp", 1.2)]),
-    P("plainspoken", "Plainspoken", "Strength +15%, Defense +10%.", [scale("str", 1.15), scale("def", 1.1)]),
-    P("moss-skin", "Moss Skin", "Heals a sixteenth of its pool each turn.",
+    P("swift", "Swift", [scale("spd", 1.2)]),
+    P("brawn", "Brawn", [scale("str", 1.15)]),
+    P("thick-coat", "Thick Coat", [scale("def", 1.2)]),
+    P("warded", "Warded", [scale("res", 1.2)]),
+    P("mystic", "Mystic", [scale("mag", 1.15)]),
+    P("hearty", "Hearty", [scale("hp", 1.15)]),
+    P("old-soul", "Old Soul", [scale("mag", 1.15)]),
+    P("shifting", "Shifting", [scale("spd", 1.15), scale("res", 1.1)]),
+    P("encrypted", "Encrypted", [scale("res", 1.25)]),
+    P("far-sight", "Far Sight", [scale("mag", 1.2)]),
+    P("sweet-tooth", "Sweet Tooth", [scale("hp", 1.2)]),
+    P("plainspoken", "Plainspoken", [scale("str", 1.15), scale("def", 1.1)]),
+    P("moss-skin", "Moss Skin",
       [regen(1 / 16)], { trigger: { on: "turn-end" } }),
-    P("rooted", "Rooted", "Defense +10%, and heals a little each turn.",
+    P("rooted", "Rooted",
       [scale("def", 1.1), regen(1 / 16)], { trigger: { on: "turn-end" } }),
-    P("sun-heart", "Sun Heart", "Sun moves +25%.", [typePower("sun", 1.25)]),
-    P("flux-heart", "Flux Heart", "Flux moves +25%.", [typePower("flux", 1.25)]),
-    P("moss-heart", "Moss Heart", "Moss moves +25%.", [typePower("moss", 1.25)]),
-    P("moonlit", "Moonlit", "Moon moves +25%.", [typePower("moon", 1.25)]),
-    P("lucky", "Lucky", "Fortuna moves +25%.", [typePower("fortuna", 1.25)]),
+    P("sun-heart", "Sun Heart", [typePower("sun", 1.25)]),
+    P("flux-heart", "Flux Heart", [typePower("flux", 1.25)]),
+    P("moss-heart", "Moss Heart", [typePower("moss", 1.25)]),
+    P("moonlit", "Moonlit", [typePower("moon", 1.25)]),
+    P("lucky", "Lucky", [typePower("fortuna", 1.25)]),
 
     // Catsquito drinks what it hits, and never sits still.
-    P("thirst", "Thirst", "A basic attack drinks back its Magic in HP.",
+    P("thirst", "Thirst",
       [{ kind: "heal", basis: "holder-mag", frac: 1 }],
       { trigger: { on: "basic-attack" } }),
-    P("restless", "Restless", "Speed and Strength +10%.",
+    P("restless", "Restless",
       [scale("spd", 1.1), scale("str", 1.1)]),
 
     // Meepa wears magic defence down and opens with more mana.
-    P("moonwane", "Moonwane", "Magic damage thins what the target holds it off with.",
+    P("moonwane", "Moonwane",
       [{ kind: "inflict", status: "wane", scope: "other" }],
       { trigger: { on: "deal-magic" } }),
-    P("moonwell", "Moonwell", "Starts the battle with 10 extra mana.",
+    P("moonwell", "Moonwell",
       [{ kind: "mana", amount: 10 }],
       { trigger: { on: "battle-start" }, charges: 1 }),
 
     // Cottlequeen brings her court out with her, and quickens as she braces.
-    P("cottle-court", "Cottle Court", "Calls up a Cottlecorn Pawn the first time she takes the field.",
+    P("cottle-court", "Cottle Court",
       [{ kind: "summon", species: "cottlecorn", level: 1 }],
       { trigger: { on: "switch-in" }, charges: 1 }),
-    P("queens-guard", "Queen's Guard", "Bracing pours a tenth of her Magic into her Speed.",
+    P("queens-guard", "Queen's Guard",
       [{ kind: "inflict", status: "quickstep", scope: "self" }],
       { trigger: { on: "block" } }),
 
     // Cottlecorn wears its horn down on whatever it hits.
-    P("piercing-horn", "Piercing Horn", "A basic attack thins what the target holds magic off with.",
+    P("piercing-horn", "Piercing Horn",
       [{ kind: "inflict", status: "gored", scope: "other" }],
       { trigger: { on: "basic-attack" } }),
 
     // Cactunny blesses the whole field and eats one Sun hit.
-    P("sun-bloom", "Sun Bloom", "Calls up Sunblessed over both sides, once a battle.",
+    P("sun-bloom", "Sun Bloom",
       [{ kind: "field", field: "sunblessed", scope: "both" }],
       { trigger: { on: "switch-in" }, charges: 1 }),
-    P("sun-ward", "Sun Ward", "Shrugs off one Sun hit, once a battle.",
+    P("sun-ward", "Sun Ward",
       [{ kind: "ward", element: "sun" }],
       { charges: 1 }),
 
@@ -415,7 +405,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "wane",
       name: "Waning",
-      desc: "Resistance -5% per stack, up to ten. Lost on switching out.",
       polarity: "bad",
       trigger: { on: "passive" },
       duration: null,
@@ -428,7 +417,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "quickstep",
       name: "Quickstep",
-      desc: "Speed up by a tenth of Magic per stack, up to six. Lost on switching out.",
       polarity: "good",
       trigger: { on: "passive" },
       duration: null,
@@ -441,7 +429,6 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     S({
       id: "gored",
       name: "Gored",
-      desc: "Resistance -5% per stack, up to six.",
       polarity: "bad",
       trigger: { on: "passive" },
       duration: null,
@@ -479,7 +466,6 @@ export type FieldEffect =
 export interface FieldDef {
   id: string;
   name: string;
-  desc: string;
   /** Turns it holds. null stands until something replaces it. */
   duration: number | null;
   /** The wash laid over the half of the screen its side stands on. */
@@ -503,7 +489,6 @@ export const FIELDS: Record<string, FieldDef> = {
   sunblessed: {
     id: "sunblessed",
     name: "Sunblessed",
-    desc: "+25% damage to Sun moves.",
     duration: 5,
     tint: "#e7a03c",
     onset: "Sunlight pours over the field.",

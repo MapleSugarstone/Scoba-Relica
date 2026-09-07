@@ -15,7 +15,7 @@ import { MAX_BREED_COUNT } from "../sim/breeding";
 import { STATUSES } from "../sim/status";
 import { moveCost, passiveStatuses, statsAt, maxHp, type ScobaInstance } from "../sim/scoba";
 import { ABILITIES, MOVES, SPECIES, typesOf, type Move } from "../sim/species";
-import { TARGET_LABELS } from "../sim/targeting";
+import { describeAbility, describeMoveEffects } from "../sim/describe";
 import { STAT_LABELS, TYPES, TYPE_COLORS, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
 import type { UI } from "./screens";
 import { typeIcon, typeIcons } from "./typeicon";
@@ -48,8 +48,9 @@ const el = <K extends keyof HTMLElementTagNameMap>(
 
 const button = (cls: string, label: string, onClick: () => void): HTMLButtonElement => {
   const b = el("button", cls, label);
+  const sound = label === "Back" ? sfx.back : sfx.tap;
   b.addEventListener("click", () => {
-    sfx.tap();
+    sound();
     onClick();
   });
   return b;
@@ -476,7 +477,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       for (const id of [sp?.primaryAbility, s.secondaryAbility]) {
         const ability = id ? ABILITIES[id] : undefined;
         if (!ability) continue;
-        slot(ability.name, "passive", { name: ability.name, note: "passive", desc: ability.desc });
+        slot(ability.name, "passive", { name: ability.name, note: "passive", desc: describeAbility(ability.id) });
       }
       for (const id of s.moves) {
         const move = MOVES[id];
@@ -499,22 +500,9 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
   build();
 }
 
-/** What a move does, in the words the ability readout would use. */
+/** What a move does. The cost is on the slot beside it, so the line leaves it off. */
 function moveLine(move: Move): string {
-  const parts: string[] = [];
-  if (move.kind === "heal") parts.push(`Heals ${Math.round(move.scale * 100)}% of the target's pool.`);
-  else if (move.kind !== "utility") {
-    parts.push(`${Math.round(move.scale * 100)}% ${move.kind === "physical" ? "Strength" : "Magic"}.`);
-  }
-  parts.push(`Aimed at ${TARGET_LABELS[move.targets[0]?.mode ?? "any-enemy"]}.`);
-  if (move.cooldown > 0) parts.push(`${move.cooldown} turn cooldown.`);
-  for (const effect of move.effects ?? []) {
-    if (effect.kind === "status") parts.push(`Leaves ${STATUSES[effect.status]?.name ?? effect.status}.`);
-    if (effect.kind === "cleanse") parts.push("Clears what ails it.");
-    if (effect.kind === "summon") parts.push("Calls something in.");
-    if (effect.kind === "grant-item") parts.push("Turns something up.");
-  }
-  return parts.join(" ");
+  return describeMoveEffects(move);
 }
 
 /**

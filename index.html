@@ -298,24 +298,18 @@
     .screen h2 + .sub { margin-top: -8px; }
 
     /*
-     * Screens are assembled rather than switched on: each block fades up from
-     * a few pixels down, one after the next. Only the arrival moves. A resting
-     * position never does, so nothing a player is aiming at can shift.
-     *
-     * Stepped rather than eased, because a smooth fade renders part-opaque
-     * pixels and every other edge in this game is hard.
+     * A screen arrives as one object: everything on it is drawn in full from
+     * the first frame and drops the last 6 px into place in three 2 px steps.
+     * Nothing fades. A part-opaque pixel is a soft edge, and a screen whose
+     * pieces turn up one after another reads as a page loading rather than a
+     * window opening. Only the arrival moves, and closing is instant.
      */
-    @keyframes riseIn { from { opacity: 0; transform: translateY(6px); } }
+    @keyframes dropIn { from { transform: translateY(6px); } }
     .screen:not(.stage) > * {
-      animation: riseIn 200ms steps(4) both;
+      animation: dropIn 100ms steps(3, end) both;
     }
-    .screen:not(.stage) > :nth-child(2) { animation-delay: 40ms; }
-    .screen:not(.stage) > :nth-child(3) { animation-delay: 80ms; }
-    .screen:not(.stage) > :nth-child(4) { animation-delay: 120ms; }
-    .screen:not(.stage) > :nth-child(5) { animation-delay: 160ms; }
-    .screen:not(.stage) > :nth-child(n+6) { animation-delay: 200ms; }
     @media (prefers-reduced-motion: reduce) {
-      @keyframes riseIn { from { opacity: 0; } }
+      .screen:not(.stage) > * { animation: none; }
     }
 
 
@@ -348,7 +342,7 @@
      * bottom and right faces are cut by the gradient's own hard stop instead.
      */
     .card, button.big, button.act, button.starter, button.thumb, .pill, .swatch,
-    #bagBtn, #bagMenu button, #actBtn, #dialog, .bcard, .blog, .mgbar, .dollWrap, #toast,
+    #bagBtn, #bagMenu button, #actBtn, #dialog, .bcard, .bmsg, .mgbar, .dollWrap, #toast,
     .list .item, #stick, #stickKnob, .card input[type="text"], .card input[type="password"],
     label.custom input[type="color"],
     .bxPanel, .bxCell, .bxName, .bxChip, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
@@ -579,7 +573,8 @@
       color: var(--p-text);
       cursor: pointer;
     }
-    .pill.sel { --fill: var(--p-confirm); }
+    /* Ink on the confirm green: the text colour is too close to it to read. */
+    .pill.sel { --fill: var(--p-confirm); color: var(--p-ink); }
 
     /* Something that stops setting up working, said on the screen rather than
        in a toast: a toast is gone in two seconds and gets overwritten by the
@@ -724,13 +719,17 @@
     .ixLine { font-size: 12px; color: var(--p-dim); }
     .ixMark { display: flex; justify-content: flex-end; }
 
-    /* Starter picker */
+    /* Starter picker. Nine of them, so three by three: an auto-fit grid put
+       four on a row and left the ninth on a row of its own. */
     .starters {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(98px, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
       width: min(100%, 420px);
     }
+    /* Holds its height before and after a pick, so choosing one never moves
+       the grid the choice was made on. */
+    .card.pick { min-height: 168px; justify-content: center; }
     button.starter {
       font: inherit;
       color: var(--p-text);
@@ -1000,13 +999,25 @@
     .bnum { font-size: 12px; color: var(--p-dim); }
     .bpct { font-size: 12px; color: var(--p-dim); margin-left: auto; }
     /*
-     * One line at a time, saying what is happening right now rather than
-     * keeping a history. It holds its box whether or not it has anything to
-     * say, so the buttons under it never move.
+     * The message box: the first row of the action block on every page. It
+     * asks the question while a choice is being made and says what is
+     * happening while the round plays, one line at a time rather than a
+     * history. It is always there, so the buttons under it never move, and
+     * the round has a text box the size its text deserves rather than a strip
+     * floating over open floor.
      */
-    .blog {
-      width: min(94vw, 560px);
-      min-height: 2.6em;
+    .bhead {
+      grid-row: 1;
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      min-height: 0;
+    }
+    .bmsg {
+      --ink: var(--p-action);
+      --fill: var(--p-ink);
+      flex: 1;
+      min-width: 0;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1014,18 +1025,24 @@
       padding: 8px 16px;
       font-size: 16px;
       line-height: 1.3;
-      visibility: hidden;
+      overflow: hidden;
     }
-    .blog.on {
-      visibility: visible;
-      --ink: var(--p-action);
-      --fill: var(--p-ink);
+    .bmsg.prompt { color: var(--p-highlight); }
+    .bmsg.ev-win { color: var(--p-highlight); }
+    .bmsg.ev-faint { color: var(--p-danger-text); }
+    .bmsg.ev-heal { color: var(--p-confirm); }
+    .bmsg.ev-status { color: var(--p-warning); }
+    .bmsg.ev-field { color: var(--p-highlight); }
+    /* The way back off a page sits at the end of the message row rather than
+       taking a row of buttons, and it is the only Back a page ever shows. */
+    .bhead > button.act {
+      flex: none;
+      width: 96px;
+      height: auto;
+      min-height: 32px;
+      padding: 4px 8px;
+      font-size: 12px;
     }
-    .blog.ev-win { color: var(--p-highlight); }
-    .blog.ev-faint { color: var(--p-danger-text); }
-    .blog.ev-heal { color: var(--p-confirm); }
-    .blog.ev-status { color: var(--p-warning); }
-    .blog.ev-field { color: var(--p-highlight); }
     /*
      * Statuses a Scoba is carrying, under its bars: drawn sigils, never scaled,
      * the same rule the type badges keep. They sit ghosted, because what the
@@ -1461,38 +1478,15 @@
       width: var(--bw, 100%);
       height: 100%;
       display: grid;
-      grid-template-rows: repeat(3, minmax(0, 1fr));
+      /* The message row, then two rows of buttons. The message row is a
+         little shorter, since a line of text wants less height than a button
+         with a label and a sub-line. */
+      grid-template-rows: minmax(0, 0.8fr) repeat(2, minmax(0, 1fr));
       gap: 8px;
-      /* Rows pack to the bottom, so a page with two of them ends where a page
-         with three does and only ever grows upward into open floor. */
+      /* Button rows pack to the bottom, so a page with one of them leaves its
+         slack under the message rather than at the foot of the block. */
       align-content: end;
     }
-    /*
-     * The step back to the other character hangs off the top right corner,
-     * out of flow: slotting it into a row shuffled everything beside it every
-     * time the second picker's turn came round.
-     */
-    button.act.stepback {
-      position: absolute;
-      bottom: calc(100% + 6px);
-      right: 0;
-      /* Out of flow, so the full-height every other button takes would be
-         measured against the whole block rather than against its own label. */
-      height: auto;
-    }
-    /* Compounded with .small, which is defined later and would otherwise win
-       on source order at equal specificity. */
-    button.act.small.tiny {
-      padding: 4px 8px;
-      width: 96px;
-      min-height: 32px;
-      font-size: 12px;
-    }
-    .bactions.bconfirm { color: var(--p-highlight); }
-    /*
-     * The secondary row: the pages and the way out, kept small so switching
-     * between them never resizes the row of actions above.
-     */
     /*
      * The two rows of the main page are laid out rather than flowed: three
      * across and two down, whatever the screen is. Wrapping made the block
@@ -1522,37 +1516,13 @@
     .bgrid > button.act { width: 100%; }
 
     /*
-     * The bottom block holds one height for every page, with the banner
-     * pinned to its top and the buttons to its bottom, so moving between
-     * pages never shifts either of them.
-     */
-    /*
-     * The block keeps one height for every page, so the scene laid out above
-     * it never shifts between them. The buttons sit at the top of it and the
-     * banner is taken out of flow over the same spot: the two are never up at
-     * once, since a round that is playing has no buttons to press, and leaving
-     * the banner a reserved band of its own only pushed the buttons a row's
-     * worth away from the cast.
-     */
-    /*
-     * The block is exactly three rows of buttons tall, and its height is set
-     * from the viewport rather than from what is in it, so every page fills the
-     * same box. Moving between them shifts neither the buttons nor the scene
-     * laid out above, and a row of targets is a row of targets whether there
-     * are two of them or nine.
+     * The block is exactly three rows tall, one of text and two of buttons,
+     * and its height is set from the viewport rather than from what is in it,
+     * so every page fills the same box. Moving between them shifts neither the
+     * buttons nor the scene laid out above, and a row of targets is a row of
+     * targets whether there are two of them or six.
      */
     .bbottom { justify-content: flex-end; padding-top: 8px; }
-    .bbottom > .blog,
-    .bacts > .aimline {
-      position: absolute;
-      top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      white-space: nowrap;
-    }
-    /* The prompt floats just clear of the block, over open floor: the three
-       rows are all buttons, and a header row of its own would have cost one. */
-    .bacts > .aimline { top: -22px; }
 
     /* Its own rows are equal too, so a row spanning two of the block's rows
        gives two rows of buttons the same height rather than two content-sized
@@ -1565,7 +1535,6 @@
       width: 100%;
       height: 100%;
     }
-    .aimline { color: var(--p-highlight); font-size: 14px; letter-spacing: 1px; }
     button.act {
       font: inherit;
       display: flex;
@@ -1590,7 +1559,13 @@
     /* A move slot with nothing in it, which is empty for good rather than
        disabled for the moment a round is playing. Darker than either. */
     button.act.slot-empty:disabled { --fill: var(--p-deep); }
-    button.act .sub { font-size: 12px; color: var(--p-dim2); }
+    button.act .sub {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--p-dim2);
+    }
     .bgrid > button.act .sub { min-height: 1.2em; }
     button.act.alt { --fill: var(--p-panel); }
     /* A move button is coloured by what the move is. */
@@ -1768,7 +1743,6 @@
       padding: 8px 16px;
       font-size: 14px;
       opacity: 0;
-      transition: opacity 0.25s;
       white-space: nowrap;
     }
   </style>

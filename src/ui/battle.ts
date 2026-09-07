@@ -1,6 +1,6 @@
 import type { Art } from "../engine/assets";
 import { sfx } from "../engine/sfx";
-import { STAT_LABELS, TYPE_COLORS, type ElementType } from "../sim/types";
+import { STAT_LABELS, TYPE_COLORS, TYPE_LABELS, type ElementType } from "../sim/types";
 import {
   startBattle,
   resolveTurn,
@@ -34,14 +34,15 @@ import {
 import {
   ALL_SLOTS, TARGET_LABELS, isPawnSlot, needsPick, sameRef, type TargetRef, type TargetSpec,
 } from "../sim/targeting";
-import { STATUSES, statusName, type StatusInstance } from "../sim/status";
+import { statusName, type StatusInstance } from "../sim/status";
+import { describeAbility, describeMoveEffects } from "../sim/describe";
 import { fieldSigilText, sigilText, sigilUrl, type SigilText } from "./sigil";
 import { enemyChoices, pawnChoices } from "../sim/ai";
 import { PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
 import { rngFrom } from "../sim/rng";
 import { gainXp, MAX_LEVEL, maxHp, moveCost, moveName, settleCaught, type ScobaInstance } from "../sim/scoba";
 import { AETUS_PER_TRAINER, AETUS_PER_WILD } from "../sim/growth";
-import { ABILITIES, abilityStatuses, MAX_MOVES, MOVES, SPECIES, typeLabel, type Move } from "../sim/species";
+import { ABILITIES, abilityStatuses, MAX_MOVES, MOVES, SPECIES, type Move } from "../sim/species";
 import { BattleStage } from "../game/battlestage";
 import { uiZoom } from "../engine/renderer";
 import { typeIcon, typeIcons } from "./typeicon";
@@ -107,8 +108,9 @@ const OTHER: Record<OwnerId, OwnerId> = { A: "B", B: "A" };
  * moving the buttons or the scene above them. Wide and shallow: a button that
  * is as tall as it is broad reads as a tile rather than as something to press.
  */
-/** How many rows of buttons the action block is, on every page. */
+/** How many rows the action block is, on every page: one of text, two of buttons. */
 const ACT_ROWS = 3;
+const BUTTON_ROWS = ACT_ROWS - 1;
 const BAR_SHARE = 0.26;
 const BAR_MAX_W = 1120;
 
@@ -193,6 +195,7 @@ function runBattle(
     trainer: setup.trainerName !== undefined,
   });
   stage.onFrame = () => positionPlates();
+  stage.onRoster = () => rebuildPlates();
   liveStage = stage;
 
   const participated = new Set<number>();
@@ -487,6 +490,13 @@ function runBattle(
         }
         if (!built) continue;
         built.node.classList.add("bplate");
+        // A rebuild lands mid-round, so a readout for a Scoba that is still
+        // walking on starts hidden and fades in on its own plate alpha rather
+        // than appearing over an empty mark for a frame.
+        const alpha = c && index !== null
+          ? stage.fighterAlpha(side, index)
+          : stage.slotAlpha(side, slot);
+        if (alpha <= 0.02) built.node.style.visibility = "hidden";
         layer.appendChild(built.node);
         plates.push({ side, slot, index: c ? index : null, node: built.node, refresh: built.refresh });
       }
@@ -563,6 +573,21 @@ function runBattle(
         `translate(${Math.round(at.x / z)}px, ${Math.round(at.y / z) + 6}px) translateX(-50%)`;
       p.refresh();
     }
+  };
+
+  /**
+   * Rebuilds the readout layer alone, in place. A Scoba switched in mid-round
+   * and a replacement sent on between rounds both arrive long after the page
+   * was drawn, and a plate is built from whoever the stage has at the moment it
+   * is built, so without this they fight the rest of the round with no readout.
+   * Only the layer is replaced: re-rendering the screen from here would take
+   * the action row out from under whoever is pressing it.
+   */
+  const rebuildPlates = (): void => {
+    const layer = document.querySelector(".screen.stage > .bplates");
+    if (!(layer instanceof HTMLElement)) return;
+    layer.replaceWith(buildPlates());
+    positionPlates();
   };
 
   /** Outlines a readout and makes it clickable while a target is being chosen. */
@@ -645,13 +670,9 @@ function runBattle(
       s.appendChild(buildAimLayer());
 
       // The readouts pin to the top and bottom edges; the band between them
-      // is left clear for the scene on the canvas behind. The banner and the
-      // buttons share one fixed block, so neither resizes the other.
+      // is left clear for the scene on the canvas behind. The message box and
+      // the buttons share one fixed block, so neither resizes the other.
       const bottom = el("div", "bbottom");
-      logEl = el("div", `blog${busy ? " on" : ""}`);
-      logEl.textContent = busy ? lastLine.text : "";
-      if (busy && lastLine.kind) logEl.classList.add(`ev-${lastLine.kind}`);
-      bottom.appendChild(logEl);
       bottom.appendChild(buildActions());
       s.appendChild(bottom);
     });
@@ -663,12 +684,16 @@ function runBattle(
     label: string,
     sub: string,
     onPick: () => void,
-    opts: { disabled?: boolean; alt?: boolean; small?: boolean; type?: ElementType } = {},
+    opts: { disabled?: boolean; alt?: boolean; small?: boolean; type?: ElementType; badge?: ElementType } = {},
   ): HTMLButtonElement => {
     const b = el("button", `act${opts.alt ? " alt" : ""}${opts.small ? " small" : ""}${opts.type ? " typed" : ""}`) as HTMLButtonElement;
     if (opts.type) b.style.setProperty("--fill", TYPE_COLORS[opts.type]);
     b.appendChild(el("span", undefined, label));
-    if (sub) b.appendChild(el("span", "sub", sub));
+    if (sub || opts.badge) {
+      const line = el("span", "sub", sub);
+      if (opts.badge) line.appendChild(typeIcon(opts.badge));
+      b.appendChild(line);
+    }
     b.disabled = !!opts.disabled || busy;
     b.addEventListener("click", () => {
       if (busy) return;
@@ -699,9 +724,10 @@ function runBattle(
     if (waiting !== undefined) return buildSendIn(waiting);
     const wrap = el("div", "bactions");
     const slot = roundSlots[pickIndex];
-    if (slot === undefined) return wrap;
-    const me = at(0, slot);
-    if (!me) return wrap;
+    const me = slot === undefined ? null : at(0, slot);
+    // Nobody to ask, which is the round playing out: the block is only its
+    // message box, saying what is happening.
+    if (slot === undefined || !me) return rows([]);
 
     const backToMain = act("Back", "", () => {
       menu = "main";
@@ -719,20 +745,18 @@ function runBattle(
     };
 
     /**
-     * The step back to the other character. It hangs above the top right of
-     * the buttons rather than joining a row: dropping it in shuffled
+     * The step back to the other character. It sits at the end of the message
+     * row rather than joining a row of buttons: dropping it in shuffled
      * everything beside it every time the second picker came around.
      */
     const stepBack = (): HTMLElement | null => {
       if (pickIndex === 0 || menu !== "main") return null;
-      const b = act("Back", "", () => {
+      return act("Back", "", () => {
         staged.pop();
         pickIndex -= 1;
         menu = "main";
         render();
       }, { alt: true, small: true });
-      b.classList.add("tiny", "stepback");
-      return b;
     };
 
     if (menu === "abilities") {
@@ -753,7 +777,7 @@ function runBattle(
         grid.appendChild(abilityButton(me, move, () =>
           startAiming({ kind: "spell", side: 0, slot, moveId: move.id, picks: [] })));
       }
-      return rows([grid, minorRow(backToMain)]);
+      return rows([grid], backToMain, askLine(me));
     }
 
     if (menu === "flee") {
@@ -776,17 +800,18 @@ function runBattle(
           pick({ kind: "catch", side: 0, slot });
         }, { disabled: held <= 0 }));
       }
-      if (usable.length === 0) wrap.appendChild(el("div", "aimline", "Nothing here to use."));
-      return rows([wrap, minorRow(backToMain)]);
+      return rows([wrap], backToMain,
+        usable.length === 0 ? "Nothing here to use." : `What will ${displayName(me.scoba)} use?`);
     }
 
     // What this Scoba does with its turn. Three, always, so the row never
     // changes shape whatever it knows, and three columns wide however narrow
     // the screen is, so it never reflows into two rows and back either.
-    // The basic attack has no move behind it, and lands as Plain, so that is
-    // the colour it wears.
+    // The basic attack has no move behind it. It lands as Plain, which its
+    // sub-line says with the badge: wearing Plain's beige as a fill made the
+    // first button on the row look like the disabled one.
     wrap.appendChild(act("Basic attack", "100% Str",
-      () => startAiming({ kind: "attack", side: 0, slot, picks: [] }), { type: "plain" }));
+      () => startAiming({ kind: "attack", side: 0, slot, picks: [] }), { badge: "plain" }));
     wrap.appendChild(act("Abilities", `${me.scoba.moves.length} known`, () => {
       menu = "abilities";
       render();
@@ -804,10 +829,12 @@ function runBattle(
       }, { alt: true, small: true }),
       act("Extra", "", () => renderExtra(slot), { alt: true, small: true }),
     );
-    return rows([wrap, minor], stepBack(), `What will ${displayName(me.scoba)} do?`);
+    return rows([wrap, minor], stepBack(), askLine(me));
   };
 
-  /** Stacks the action rows, with the step back floated above their corner. */
+  /** The question the message box asks while this Scoba's choice is made. */
+  const askLine = (me: Combatant): string => `What will ${displayName(me.scoba)} do?`;
+
   /**
    * Buttons laid across the block three to a row, so a list of any length is
    * rows of standard buttons rather than one row wrapping into smaller ones.
@@ -823,33 +850,40 @@ function runBattle(
   };
 
   /**
-   * A page of the action block. Every one of them is the same three rows tall,
-   * so moving between them shifts neither the buttons nor the scene laid out
-   * above them. `head` is a prompt hung over the top of the block out of flow,
-   * the same place the banner uses, since the two are never up together.
+   * A page of the action block. Row one is always the message box: the
+   * question in `head` while a choice is being made, or the line the round is
+   * on while it plays. `corner` is the one way back off the page, at the end
+   * of that row. The parts fill the two rows under it, packed to the bottom,
+   * so every page is the same three rows tall and moving between them shifts
+   * neither the buttons nor the scene laid out above.
    */
   const rows = (parts: HTMLElement[], corner?: HTMLElement | null, head?: string): HTMLElement => {
     const box = el("div", "bacts");
-    if (head) box.appendChild(el("div", "aimline", head));
-    if (corner) box.appendChild(corner);
-    // How many of the block's rows a part is worth. The move grid is always
+    const top = el("div", "bhead");
+    logEl = el("div", "bmsg");
+    if (busy) {
+      logEl.textContent = lastLine.text;
+      if (lastLine.kind) logEl.classList.add(`ev-${lastLine.kind}`);
+    } else {
+      logEl.classList.add("prompt");
+      logEl.textContent = head ?? "";
+    }
+    top.appendChild(logEl);
+    if (corner) top.appendChild(corner);
+    box.appendChild(top);
+    // How many of the button rows a part is worth. The move grid is always
     // 2x2; an action row is three across, so six buttons are two rows of it.
+    // A longer list still spans two and shares them out inside itself.
     const span = (p: HTMLElement): number =>
       p.classList.contains("bgrid")
         ? 2
         : p.classList.contains("bactions")
-          ? Math.min(ACT_ROWS, Math.ceil(p.childElementCount / 3))
+          ? Math.min(BUTTON_ROWS, Math.ceil(p.childElementCount / 3))
           : 1;
-    // Placed against the bottom of the block rather than the top. Auto
-    // placement fills from row one, which left the main page's two rows of
-    // buttons sitting in the top two thirds and a whole dead row under them.
-    // Ending the group at the last row instead puts a short page's slack up
-    // against the open floor, where the prompt already floats, and keeps every
-    // button exactly one row tall on every page.
-    const total = parts.reduce((n, p) => n + span(p), 0);
-    let at = Math.max(1, ACT_ROWS + 1 - total);
+    const total = Math.min(BUTTON_ROWS, parts.reduce((n, p) => n + span(p), 0));
+    let at = ACT_ROWS + 1 - total;
     for (const part of parts) {
-      const n = span(part);
+      const n = Math.max(1, Math.min(span(part), ACT_ROWS + 1 - at));
       part.style.gridRow = `${at} / span ${n}`;
       at += n;
       box.appendChild(part);
@@ -872,11 +906,14 @@ function runBattle(
     const sub = `${cost}% mana${move.cooldown ? ` · cd${move.cooldown}` : ""}${cd > 0 ? ` · wait ${cd}` : ""} · ${aimNote}`;
     const b = act(move.name, sub, onPick, { disabled: !ready.ok, type: move.type });
     // Reaching for a move marks its cost on the caster's bar, so what it
-    // would leave behind is visible before it is picked. Keyboard focus does
-    // the same, since a pointer is not the only way through the list.
+    // would leave behind is visible before it is picked, and puts a line on
+    // what it does in the message box. Keyboard focus does the same, since a
+    // pointer is not the only way through the list.
     const index = st.teams[0].indexOf(me);
     const show = (on: boolean): void => {
       costPreview = on && index >= 0 ? { index, cost } : null;
+      if (busy || !logEl.isConnected) return;
+      logEl.textContent = on ? moveLine(move) : askLine(me);
     };
     b.addEventListener("pointerenter", () => show(true));
     b.addEventListener("pointerleave", () => show(false));
@@ -885,7 +922,16 @@ function runBattle(
     return b;
   };
 
+  /** One line on a move, for the message box while the move is under the pointer. */
+  const moveLine = (move: Move): string => `${move.name}: ${describeMoveEffects(move)}`;
+
   // --- aiming ---
+
+  /** What is being aimed, for the question over the target list. */
+  const aimTitle = (action: Choice): string =>
+    action.kind === "spell"
+      ? MOVES[action.moveId]?.name ?? "Aim"
+      : action.kind === "attack" ? "Basic attack" : "Aim";
 
   /** The menu the spec being aimed at right now offers. */
   const aimOptions = (): TargetRef[] => {
@@ -955,11 +1001,11 @@ function runBattle(
       const sub = `${c.hp}/${combatantMaxHp(c)}${benched ? " · benched" : ""}`;
       picks.push(act(displayName(c.scoba), sub, () => choose(ref), { alt: ref.side === 0 }));
     }
-    picks.push(act("Cancel", "", () => {
+    const cancel = act("Cancel", "", () => {
       aiming = null;
       render();
-    }, { alt: true }));
-    return rows(grid(picks), null, `${label}${step}`);
+    }, { alt: true, small: true });
+    return rows(grid(picks), cancel, `${aimTitle(a.action)}: ${label}${step}`);
   };
 
   /**
@@ -1015,7 +1061,7 @@ function runBattle(
       if (!ab) continue;
       const row = el("div", "xpass");
       row.appendChild(el("strong", undefined, ab.name));
-      row.appendChild(el("span", undefined, ab.desc));
+      row.appendChild(el("span", undefined, describeAbility(ab.id)));
       // A passive with charges left to spend says how many are left.
       const spent = abilityStatuses(id)
         .map((sid) => c.statuses.find((held) => held.id === sid))
@@ -1062,13 +1108,9 @@ function runBattle(
     }
     box.appendChild(head);
 
-    if (preview && preview.stat && preview.scale > 0) {
-      const cat = preview.category === "physical" ? "physical" : "magic";
-      const line = el("div");
-      line.appendChild(document.createTextNode("Scales "));
-      line.appendChild(dmgSpan(`${Math.round(preview.scale * 100)}% ${STAT_LABELS[preview.stat]}`, cat));
-      box.appendChild(line);
-    }
+    // The rule's own line first, then what it comes to against whoever is
+    // standing there right now.
+    box.appendChild(el("div", undefined, describeMoveEffects(move)));
     if (preview && preview.damage !== null) {
       const cat = preview.category === "physical" ? "physical" : "magic";
       const line = el("div");
@@ -1080,68 +1122,12 @@ function runBattle(
     }
     if (preview && preview.heal !== null) {
       const line = el("div");
-      line.appendChild(document.createTextNode("Restores "));
+      line.appendChild(document.createTextNode("Would restore "));
       line.appendChild(el("span", "good", `${preview.heal} HP`));
-      line.appendChild(document.createTextNode(` (${Math.round(move.scale * 100)}% of its pool)`));
       box.appendChild(line);
-    }
-
-    box.appendChild(el("div", "dim", `Aims at ${move.targets.map((t) => TARGET_LABELS[t.mode]).join(", then ")}.`));
-
-    for (const effect of move.effects ?? []) {
-      box.appendChild(explainEffect(effect, move));
     }
     void slot;
     return box;
-  };
-
-  const explainEffect = (effect: NonNullable<Move["effects"]>[number], move: Move): HTMLElement => {
-    const line = el("div");
-    switch (effect.kind) {
-      case "status": {
-        const def = STATUSES[effect.status];
-        line.appendChild(document.createTextNode("Leaves "));
-        line.appendChild(el("strong", undefined, def?.name ?? effect.status));
-        line.appendChild(document.createTextNode(`: ${def?.desc ?? ""}`));
-        break;
-      }
-      case "transfer": {
-        line.appendChild(document.createTextNode(`Takes ${Math.round(effect.frac * 100)}% of target ${effect.from + 1}'s HP and `));
-        line.appendChild(effect.deliver === "heal"
-          ? el("span", "good", `heals target ${effect.to + 1} with it`)
-          : dmgSpan(`spends it on target ${effect.to + 1}`, "true"));
-        break;
-      }
-      case "cleanse":
-        line.textContent = `Clears ${effect.polarity === "bad" ? "ailments" : "blessings"} from target ${effect.target + 1}.`;
-        break;
-      case "copy-statuses":
-        line.textContent = `Copies target ${effect.from + 1}'s marks onto target ${effect.to + 1}.`;
-        break;
-      case "summon": {
-        const called = SPECIES[effect.species];
-        // A Pawn comes out at whoever called it, so naming a level would be a
-        // number the move never uses.
-        line.textContent = called?.pawn
-          ? `Calls up a ${called.name} Pawn at the caster's own level.`
-          : `Calls a level ${effect.level} ${called?.name ?? effect.species} to your side.`;
-        break;
-      }
-      case "grant-item":
-        line.textContent = `Finds ${effect.count} ${effect.item}.`;
-        break;
-      case "damage": {
-        line.appendChild(document.createTextNode("Also strikes target "));
-        line.appendChild(dmgSpan(`${effect.target + 1} for ${Math.round(effect.scale * 100)}% Strength`, "physical"));
-        break;
-      }
-      case "heal":
-        line.appendChild(document.createTextNode("Also restores "));
-        line.appendChild(el("span", "good", `${Math.round(effect.frac * 100)}% of target ${effect.target + 1}'s pool`));
-        break;
-    }
-    void move;
-    return line;
   };
 
   /** `back` is where its Back button goes, since Swap is reached from Extra. */
@@ -1163,7 +1149,7 @@ function runBattle(
   const say = (text: string, kind: string): void => {
     lastLine = { text, kind };
     if (!logEl.isConnected) return;
-    logEl.className = `blog on ev-${kind}`;
+    logEl.className = `bmsg ev-${kind}`;
     logEl.textContent = text;
   };
 
@@ -1511,6 +1497,7 @@ function runBattle(
     net?.send({ t: "battle-close", battleId: net.battleId, outcome: result.outcome });
     void ui.transition(() => {
       stage.onFrame = null;
+      stage.onRoster = null;
       liveStage = null;
       livePeer = null;
       writeSave(save);
@@ -1530,9 +1517,22 @@ function runBattle(
     return null;
   }
   // The opening walks everyone on, then plays whatever the opening triggers
-  // had to say, which is where a passive that calls up a Pawn goes off.
-  render();
+  // had to say, which is where a passive that calls up a Pawn goes off. The
+  // message box has something to say from the first frame rather than sitting
+  // empty through the walk-on.
+  const first = enemies[0];
+  lastLine = {
+    text: net?.adopted
+      ? "You join the fight!"
+      : setup.trainerName
+        ? `${setup.trainerName} wants to battle!`
+        : first
+          ? `A wild ${displayName(first)} appears!`
+          : "A wild Scoba appears!",
+    kind: "info",
+  };
   busy = true;
+  render();
   // Adopting a fight means walking into one already happening, so the opening
   // is somebody arriving rather than everybody starting.
   const opening = net?.adopted

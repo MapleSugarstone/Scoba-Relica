@@ -26,6 +26,7 @@ import { makeWild, moveCost, statsAt, maxHp } from "../sim/scoba";
 import { critterPortrait } from "../game/critters";
 import { typeIcons } from "./typeicon";
 import { ABILITIES, MOVES, SPECIAL, SPECIES, STARTER_IDS, rosterSpecies } from "../sim/species";
+import { describeAbility } from "../sim/describe";
 import type { StarterTurn } from "../net/lobby";
 import { rngFrom } from "../sim/rng";
 import {
@@ -41,6 +42,7 @@ import { PROTOCOL_VERSION } from "../net/protocol";
 export { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
 import { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
 import { mountInstallCard } from "./install";
+import { PACES, setStagePace, stagePace } from "../game/pace";
 
 export interface DialogLine {
   who?: string;
@@ -203,7 +205,8 @@ export class UI {
     // The tests and the fast-forward hook skip the wait entirely.
     if ((window as { __scobaFast?: boolean }).__scobaFast) ms = 0;
     return new Promise((resolve) => {
-      this.fadeEl.style.transition = ms > 0 ? `opacity ${ms}ms linear` : "none";
+      // Stepped, so the black lifts in six flat bands rather than a blend.
+      this.fadeEl.style.transition = ms > 0 ? `opacity ${ms}ms steps(6, end)` : "none";
       this.fadeEl.classList.remove("on");
       // The scene starts moving the moment the black starts clearing; only
       // the pointer stays blocked until it is fully gone.
@@ -309,8 +312,10 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 
 function bigBtn(label: string, onClick: () => void, primary = false): HTMLButtonElement {
   const b = el("button", `big${primary ? " primary" : ""}`, label);
+  // Leaving a screen sounds different from choosing something on it.
+  const sound = label === "Back" ? sfx.back : sfx.confirm;
   b.addEventListener("click", () => {
-    sfx.confirm();
+    sound();
     onClick();
   });
   return b;
@@ -683,7 +688,7 @@ function starterScreen(
     s.appendChild(sub);
 
     const grid = el("div", "starters");
-    const detail = el("div", "card");
+    const detail = el("div", "card pick");
     const confirm = bigBtn("Choose", () => {
       if (chosen && myTurn) onPick(chosen);
     }, true);
@@ -701,7 +706,7 @@ function starterScreen(
       detail.appendChild(head);
       if (sp.blurb) detail.appendChild(el("div", "sub", sp.blurb));
       const ability = ABILITIES[sp.primaryAbility];
-      if (ability) detail.appendChild(el("div", "dim", `Passive: ${ability.name} — ${ability.desc}`));
+      if (ability) detail.appendChild(el("div", "dim", `Passive: ${ability.name}. ${describeAbility(ability.id)}`));
       const g = sp.genes;
       detail.appendChild(el("div", "dim",
         `HP ${g.hp} · Str ${g.str} · Def ${g.def} · Res ${g.res} · Mag ${g.mag} · Spd ${g.spd}`));
@@ -1349,6 +1354,27 @@ export function settingsScreen(
 
     const play = el("div", "card");
     play.appendChild(el("strong", undefined, "Playing"));
+    // How fast a round plays is a matter of taste rather than of the
+    // campaign, so it is kept on the machine the way the sound level is.
+    play.appendChild(el("label", undefined, "Battle speed"));
+    const paceRow = el("div", "choices");
+    const renderPace = (): void => {
+      paceRow.innerHTML = "";
+      for (const [name, value] of Object.entries(PACES)) {
+        const sel = Math.abs(stagePace() - value) < 0.01;
+        const b = el("button", `pill${sel ? " sel" : ""}`, name === "fast" ? "Fast" : "Normal");
+        b.addEventListener("click", () => {
+          sfx.tap();
+          setStagePace(value);
+          renderPace();
+        });
+        paceRow.appendChild(b);
+      }
+    };
+    renderPace();
+    play.appendChild(paceRow);
+    play.appendChild(el("div", "dim", "Fast plays every hit, walk and call at twice the pace."));
+    play.appendChild(el("label", undefined, "EZ mode"));
     const ezRow = el("div", "row");
     const ezB = el("button", "pill", save.ez ? "EZ Mode on" : "EZ Mode off");
     ezB.addEventListener("click", () => {

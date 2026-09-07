@@ -106,7 +106,7 @@ describe("statuses in a battle", () => {
     // A raw +100 to Strength, applied before the scale, so Rage takes a
     // quarter of the new total rather than a quarter of the old one.
     STATUSES["flat"] = {
-      id: "flat", name: "Flat", desc: "", polarity: "good", trigger: { on: "passive" },
+      id: "flat", name: "Flat", polarity: "good", trigger: { on: "passive" },
       duration: null, charges: null, stacks: false, maxStacks: 1, persists: true,
       effects: [{ kind: "stat-add", stat: "str", amount: 100 }],
     };

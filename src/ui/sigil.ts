@@ -8,6 +8,7 @@
 // back to the placeholder, so a new status turns up as a mark it can be
 // hovered rather than as a gap.
 import { FIELDS, STATUSES } from "../sim/status";
+import { describeField, describeStatus } from "../sim/describe";
 
 const FILES = import.meta.glob("../../assets/Sigils/*.png", {
   eager: true, query: "?url", import: "default",
@@ -61,7 +62,9 @@ export function sigilText(m: {
   if (m.turnsLeft > 0) bits.push(`Lasts ${turns(m.turnsLeft)}.`);
   if (m.chargesLeft > 0) bits.push(`Procs ${m.chargesLeft} time${m.chargesLeft === 1 ? "" : "s"}.`);
   if (def?.persists === false) bits.push("Removes on switch out.");
-  return { name: m.name, desc: def?.desc ?? "", note: bits.join(" ") };
+  // The note already says how long is left and how many times, so the line on
+  // what it does leaves both out.
+  return { name: m.name, desc: describeStatus(m.id, { duration: false, charges: false }), note: bits.join(" ") };
 }
 
 /**
@@ -73,7 +76,7 @@ export function fieldSigilText(f: { id: string; turnsLeft: number }): SigilText 
   const def = FIELDS[f.id];
   return {
     name: `Field: ${def?.name ?? f.id}`,
-    desc: def?.desc ?? "",
+    desc: describeField(f.id),
     note: f.turnsLeft > 0 ? `${turns(f.turnsLeft)} remaining` : "",
   };
 }

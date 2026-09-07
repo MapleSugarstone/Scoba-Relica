@@ -14,6 +14,7 @@ import { critterPortrait, spriteColors } from "../game/critters";
 import { openBrowser } from "./browser";
 import { costOf, maxHp, moveName, unnaturalMoves, type ScobaInstance } from "../sim/scoba";
 import { ABILITIES, SPECIAL, SPECIES } from "../sim/species";
+import { describeAbility } from "../sim/describe";
 import { rngFrom } from "../sim/rng";
 import type { SaveData } from "../save/save";
 import { addToParty, writeSave } from "../save/save";
@@ -113,7 +114,10 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       }
       s.appendChild(row);
       const back = el("button", "big", "Back");
-      back.addEventListener("click", () => pickDad(mom));
+      back.addEventListener("click", () => {
+        sfx.back();
+        pickDad(mom);
+      });
       s.appendChild(back);
     });
   };
@@ -136,7 +140,10 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       }
       s.appendChild(row);
       const back = el("button", "big", "Back");
-      back.addEventListener("click", () => pickDrop(mom, dad));
+      back.addEventListener("click", () => {
+        sfx.back();
+        pickDrop(mom, dad);
+      });
       s.appendChild(back);
     });
   };
@@ -178,7 +185,7 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       const ability = ABILITIES[child.secondaryAbility];
       card.appendChild(el("div", undefined,
         `Ability: ${ability?.name ?? child.secondaryAbility} · ${fromDad ? "its father's" : "its mother's"}`));
-      if (ability) card.appendChild(el("div", "dim", ability.desc));
+      if (ability) card.appendChild(el("div", "dim", describeAbility(ability.id)));
       if (child.tint) card.appendChild(el("div", "dim", "It takes his colours, too."));
       card.appendChild(el("div", "sub", toParty ? "Joined the party." : "Sent to the box."));
       s.appendChild(card);
