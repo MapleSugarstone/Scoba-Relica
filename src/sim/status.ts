@@ -8,7 +8,7 @@
 //
 // Everything here is data. `sim/battle.ts` owns when triggers fire and how the
 // numbers land.
-import { STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
+import { STAT_FLOOR, STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
 
 /** What sets a status's fired effects off. */
 export type StatusTrigger =
@@ -33,6 +33,8 @@ export type StatusTrigger =
   | { on: "deal-magic" }
   | { on: "deal-physical" }
   | { on: "deal-any" }
+  /** The holder lands a hit with a move rather than with a basic attack. */
+  | { on: "deal-spell" }
   /** The holder lands a killing blow with attack damage. */
   | { on: "kill-attack" }
   /** The holder faints. */
@@ -99,6 +101,24 @@ export type StatusEffect =
    * whatever the stat has since become. Stacking multiplies.
    */
   | { kind: "stat-scale"; stat: StatName; mult: number }
+  /**
+   * Adds to a stat after every scale has landed, which is what makes a flat
+   * bonus stay flat.
+   */
+  | { kind: "stat-offset"; stat: StatName; amount: number }
+  /**
+   * A share of the stat line the status was measured against when it landed,
+   * plus a flat amount. The line is fixed at that moment, so what the Scoba
+   * has become since cannot feed back into it: the same mode is worth the same
+   * whenever it is entered. Hyper-Mode is written with this.
+   */
+  | { kind: "stat-boost"; stat: StatName; frac: number; flat: number }
+  /**
+   * Moves a stat by the number the status snapshotted when it was applied,
+   * times the multiplier. A drain uses a negative multiplier. The number is
+   * fixed at application, so a caster buffed afterwards changes nothing.
+   */
+  | { kind: "stat-power"; stat: StatName; mult: number }
   | { kind: "immune"; element: ElementType }
   | { kind: "vulnerable"; element: ElementType; mult: number }
   /** The holder deals more with one element. */
@@ -106,8 +126,12 @@ export type StatusEffect =
   | { kind: "summon"; species: string; level: number }
   /** Tops the holder's mana up. */
   | { kind: "mana"; amount: number }
-  /** Hangs another status on whoever the scope names. */
-  | { kind: "inflict"; status: string; scope: InflictScope }
+  /**
+   * Hangs another status on whoever the scope names. `turns` overrides how
+   * long that mark stands, for a source that leaves it on longer or shorter
+   * than the mark's own clock says.
+   */
+  | { kind: "inflict"; status: string; scope: InflictScope; turns?: number }
   /** Lays a field over a side, replacing whatever was standing over it. */
   | { kind: "field"; field: string; scope: FieldScope }
   /**
@@ -118,7 +142,9 @@ export type StatusEffect =
   | { kind: "grant-item"; item: string; count: number }
   | { kind: "cleanse"; polarity: StatusPolarity }
   /** Copies the holder's statuses onto whoever set this off. */
-  | { kind: "copy-statuses" };
+  | { kind: "copy-statuses" }
+  /** The holder cannot be called back. Read where a switch is offered. */
+  | { kind: "root" };
 
 export type StatusPolarity = "good" | "bad";
 
@@ -132,7 +158,9 @@ export type InflictScope =
   | "other"
   | "allies"
   | "enemies"
-  | "all";
+  | "all"
+  /** Everyone on both sides but the holder itself. */
+  | "others";
 
 export interface StatusDef {
   id: string;
@@ -149,6 +177,12 @@ export interface StatusDef {
   maxStacks: number;
   /** Whether it survives the holder being switched out. */
   persists: boolean;
+  /**
+   * A number read off the field when the status is applied and kept on the
+   * instance. `stat-power` moves a stat by it, so a mark left by a big caster
+   * bites harder than the same mark left by a small one.
+   */
+  power?: { basis: Basis; frac: number };
   /**
    * A passive the Scoba was born with rather than something done to it. Innate
    * statuses are never cleansed, never copied, and are left off the tag row,
@@ -168,11 +202,29 @@ export interface StatusInstance {
   stacks: number;
   /** Fixed damage number, for statuses that snapshot when applied. */
   power?: number;
+  /** The stat line it was measured against when it landed, for `stat-boost`. */
+  basis?: Partial<Record<StatName, number>>;
+  /**
+   * The turn it landed on. A mark does not tick on the turn it is applied:
+   * neither its own clock nor whatever it does each turn, so a mark that lasts
+   * three turns bites on the three turns after the one that put it there
+   * rather than on the one it arrived on.
+   */
+  since?: number;
   /** Who put it there, so a tick's kill is credited to them. */
   from?: { side: 0 | 1; index: number };
 }
 
 const S = (def: StatusDef): StatusDef => def;
+
+/** What Hyper-Mode adds: a quarter of the Scoba's own line, and a flat 15. */
+export const HYPER_SCALE = 0.25;
+export const HYPER_FLAT = 15;
+
+/** One stat's worth of a `stat-boost`, measured against the line it snapshotted. */
+export function boostFrom(frac: number, flat: number, basis: number): number {
+  return Math.round(basis * frac) + flat;
+}
 
 /**
  * An ability's status: innate, indefinite, and never taken off the Scoba
@@ -207,7 +259,7 @@ const regen = (frac: number): StatusEffect => ({ kind: "heal", basis: "holder-ma
  * level over the first, which is what makes it read as a bigger gain per
  * level rather than a flat bonus.
  */
-const EZ_STAT_BONUS = 3;
+export const EZ_STAT_BONUS = 3;
 
 export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
   [
@@ -330,6 +382,71 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
       effects: [{ kind: "heal", basis: "holder-max-hp", frac: 0.1 }],
     }),
     S({
+      id: "sticky",
+      name: "Sticky Treat",
+      polarity: "bad",
+      trigger: { on: "passive" },
+      // A mark does not tick on the turn it lands, so one turn here is the one
+      // turn after the spell that stuck it on, which is what the passive says.
+      duration: 1,
+      charges: null,
+      stacks: false,
+      maxStacks: 1,
+      persists: true,
+      effects: [{ kind: "root" }],
+    }),
+    S({
+      id: "slowed",
+      name: "Slowed",
+      polarity: "bad",
+      trigger: { on: "passive" },
+      duration: null,
+      charges: null,
+      stacks: true,
+      maxStacks: 6,
+      persists: false,
+      power: { basis: "source-mag", frac: 0.3 },
+      effects: [{ kind: "stat-power", stat: "spd", mult: -1 }],
+    }),
+    S({
+      id: "cold",
+      name: "Cold",
+      polarity: "bad",
+      trigger: { on: "turn-end" },
+      duration: 3,
+      charges: null,
+      stacks: false,
+      maxStacks: 1,
+      persists: true,
+      effects: [{ kind: "inflict", status: "chill", scope: "self" }],
+    }),
+    S({
+      id: "chill",
+      name: "Chill",
+      polarity: "bad",
+      trigger: { on: "passive" },
+      duration: null,
+      charges: null,
+      stacks: true,
+      maxStacks: 10,
+      persists: false,
+      power: { basis: "source-mag", frac: 0.1 },
+      effects: [{ kind: "stat-power", stat: "spd", mult: -1 }],
+    }),
+    S({
+      id: "hyper",
+      name: "Hyper-Mode",
+      polarity: "good",
+      trigger: { on: "passive" },
+      duration: null,
+      charges: null,
+      stacks: false,
+      maxStacks: 1,
+      persists: true,
+      effects: STAT_NAMES.map((stat) =>
+        ({ kind: "stat-boost", stat, frac: HYPER_SCALE, flat: HYPER_FLAT } as StatusEffect)),
+    }),
+    S({
       id: "spite",
       name: "Spite",
       polarity: "good",
@@ -392,6 +509,17 @@ export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
     P("piercing-horn", "Piercing Horn",
       [{ kind: "inflict", status: "gored", scope: "other" }],
       { trigger: { on: "basic-attack" } }),
+
+    // The Octoshake line. Its spells stick, its cherry is spent once, and its
+    // Hyper-Mode pins the whole field in place.
+    P("sticky-treat", "Sticky Treat",
+      [{ kind: "inflict", status: "sticky", scope: "other" }],
+      { trigger: { on: "deal-spell" } }),
+    P("sticky-mess", "Sticky Mess",
+      // Twice as long as the passive leaves it: the mode is what makes the
+      // whole field stick rather than one Scoba at a time.
+      [{ kind: "inflict", status: "sticky", scope: "others", turns: 2 }],
+      { trigger: { on: "switch-in" }, charges: 1 }),
 
     // Cactunny blesses the whole field and eats one Sun hit.
     P("sun-bloom", "Sun Bloom",
@@ -522,6 +650,7 @@ export function newStatus(
   id: string,
   from?: { side: 0 | 1; index: number },
   power?: number,
+  since?: number,
 ): StatusInstance | null {
   const def = STATUSES[id];
   if (!def) return null;
@@ -530,6 +659,7 @@ export function newStatus(
     turnsLeft: def.duration ?? -1,
     chargesLeft: def.charges ?? -1,
     stacks: 1,
+    ...(since === undefined ? {} : { since }),
     ...(power === undefined ? {} : { power }),
     ...(from === undefined ? {} : { from }),
   };
@@ -574,21 +704,56 @@ export function stacksOf(list: StatusInstance[], id: string): number {
   return list.reduce((n, s) => (s.id === id ? n + s.stacks : n), 0);
 }
 
+/** A continuous effect as it is read: with its stacks and its snapshots. */
+export interface ReadEffect {
+  effect: StatusEffect;
+  stacks: number;
+  /** What the instance snapshotted, for `stat-power`. */
+  power: number;
+  /** The stat line it was measured against, for `stat-boost`. */
+  basis?: Partial<Record<StatName, number>>;
+}
+
+/**
+ * Effects read where they matter rather than fired when something happens.
+ * Shared, so nothing has to keep a second list of them in step with this one.
+ */
+const CONTINUOUS = new Set<StatusEffect["kind"]>([
+  "stat-add", "stat-set", "stat-scale", "stat-share", "stat-offset", "stat-power",
+  "stat-boost", "immune", "vulnerable", "element-power", "root", "ward",
+]);
+
+export function isContinuous(kind: StatusEffect["kind"]): boolean {
+  return CONTINUOUS.has(kind);
+}
+
 /** Continuous effects, in the order they should be applied. */
-export function continuousEffects(list: StatusInstance[]): { effect: StatusEffect; stacks: number }[] {
-  const out: { effect: StatusEffect; stacks: number }[] = [];
+export function continuousEffects(list: StatusInstance[]): ReadEffect[] {
+  const out: ReadEffect[] = [];
   for (const inst of list) {
     const def = STATUSES[inst.id];
     if (!def) continue;
     for (const effect of def.effects) {
-      if (effect.kind === "stat-add" || effect.kind === "stat-set" || effect.kind === "stat-scale"
-        || effect.kind === "stat-share"
-        || effect.kind === "immune" || effect.kind === "vulnerable" || effect.kind === "element-power") {
-        out.push({ effect, stacks: inst.stacks });
+      if (isContinuous(effect.kind)) {
+        out.push({
+          effect, stacks: inst.stacks, power: inst.power ?? 0,
+          ...(inst.basis ? { basis: inst.basis } : {}),
+        });
       }
     }
   }
   return out;
+}
+
+/** Is anything the holder carries stopping it being called back? */
+export function isRooted(list: StatusInstance[]): boolean {
+  return list.some((inst) => STATUSES[inst.id]?.effects.some((e) => e.kind === "root") === true);
+}
+
+/** The first root the holder is carrying, for naming what is holding it. */
+export function rootedBy(list: StatusInstance[]): string | null {
+  const held = list.find((inst) => STATUSES[inst.id]?.effects.some((e) => e.kind === "root") === true);
+  return held ? STATUSES[held.id]?.name ?? held.id : null;
 }
 
 /**
@@ -599,13 +764,16 @@ export function continuousEffects(list: StatusInstance[]): { effect: StatusEffec
  * so a pair of them cannot feed each other. Shared so a Scoba's stats read the
  * same in a battle and out of one.
  */
-export function foldStatEffects(base: Stats, effects: { effect: StatusEffect; stacks: number }[]): Stats {
+export function foldStatEffects(base: Stats, effects: ReadEffect[]): Stats {
   const out = { ...base };
   for (const { effect } of effects) {
     if (effect.kind === "stat-set") out[effect.stat] = effect.value;
   }
   for (const { effect, stacks } of effects) {
     if (effect.kind === "stat-add") out[effect.stat] += effect.amount * stacks;
+  }
+  for (const { effect, stacks, power } of effects) {
+    if (effect.kind === "stat-power") out[effect.stat] += power * effect.mult * stacks;
   }
   const measured = { ...out };
   for (const { effect, stacks } of effects) {
@@ -614,7 +782,20 @@ export function foldStatEffects(base: Stats, effects: { effect: StatusEffect; st
   for (const { effect, stacks } of effects) {
     if (effect.kind === "stat-scale") out[effect.stat] = out[effect.stat] * Math.pow(effect.mult, stacks);
   }
-  for (const name of STAT_NAMES) out[name] = Math.max(1, Math.floor(out[name]));
+  // Last, so a flat bonus stays flat however much scaling ran before it.
+  for (const { effect, stacks, basis } of effects) {
+    if (effect.kind === "stat-offset") out[effect.stat] += effect.amount * stacks;
+    if (effect.kind === "stat-boost") {
+      out[effect.stat] += boostFrom(effect.frac, effect.flat, basis?.[effect.stat] ?? 0) * stacks;
+    }
+  }
+  // Each stat stops where it is allowed to stop, which is not the same place
+  // for all six: see `STAT_FLOOR`.
+  for (const name of STAT_NAMES) {
+    const floor = STAT_FLOOR[name];
+    const v = Math.floor(out[name]);
+    out[name] = floor === null ? v : Math.max(floor, v);
+  }
   return out;
 }
 
@@ -642,8 +823,8 @@ export type TriggerEvent =
   | { on: "basic-attack" }
   | { on: "use-ability" }
   | { on: "block" }
-  | { on: "hit"; category: DamageCategory; element: ElementType }
-  | { on: "deal"; category: DamageCategory; element: ElementType }
+  | { on: "hit"; category: DamageCategory; element: ElementType; spell: boolean }
+  | { on: "deal"; category: DamageCategory; element: ElementType; spell: boolean }
   | { on: "kill-attack" }
   | { on: "death" }
   | { on: "switch-in" }
@@ -669,6 +850,7 @@ export function triggerMatches(def: StatusDef, event: TriggerEvent): boolean {
       case "deal-any": return true;
       case "deal-magic": return event.category === "magic";
       case "deal-physical": return event.category === "physical";
+      case "deal-spell": return event.spell;
       default: return false;
     }
   }
@@ -683,9 +865,21 @@ export function onSwitchOut(list: StatusInstance[]): StatusInstance[] {
 }
 
 /** Ticks durations at end of turn and clears anything that has run out. */
-export function tickDurations(list: StatusInstance[]): StatusInstance[] {
+export function tickDurations(list: StatusInstance[], turn: number): StatusInstance[] {
   for (const s of list) {
+    // A mark that landed this turn has not stood for a turn yet.
+    if (s.since === turn) continue;
     if (s.turnsLeft > 0) s.turnsLeft -= 1;
   }
   return list.filter((s) => s.turnsLeft !== 0 && s.chargesLeft !== 0);
+}
+
+/**
+ * Does a mark that landed this turn answer this event? A turn's own beats are
+ * held off until the turn after it arrived; everything else, a hit or a block
+ * or a death, it answers at once.
+ */
+export function ticksThisTurn(inst: StatusInstance, event: TriggerEvent, turn: number): boolean {
+  if (inst.since !== turn) return true;
+  return event.on !== "turn-end" && event.on !== "turn-start";
 }

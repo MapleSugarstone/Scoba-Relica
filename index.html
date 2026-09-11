@@ -730,6 +730,62 @@
     /* Holds its height before and after a pick, so choosing one never moves
        the grid the choice was made on. */
     .card.pick { min-height: 168px; justify-content: center; }
+
+    /*
+     * Debug controls. Dashed and muted throughout, so nothing here is mistaken
+     * for part of the game at a glance.
+     */
+    .dbgSearch {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: min(100%, 420px);
+    }
+    .dbgField {
+      font: inherit;
+      font-size: 13px;
+      color: var(--p-text);
+      background: var(--p-panel);
+      border: 1px dashed var(--p-dead-text);
+      border-radius: 6px;
+      padding: 6px 8px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .dbgHits { display: flex; flex-direction: column; gap: 3px; }
+    .dbgHit {
+      font: inherit;
+      font-size: 13px;
+      color: var(--p-text);
+      background: var(--p-panel);
+      border: 1px dashed var(--p-dead-text);
+      border-radius: 6px;
+      padding: 5px 8px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .dbgHit.sel { border-style: solid; background: var(--p-raised); }
+    .dbgHit:disabled { color: var(--p-dead-text); cursor: default; }
+    .dbgHit > .sub { color: var(--p-dead-text); }
+    .bxDebug {
+      font: inherit;
+      font-size: 12px;
+      color: var(--p-dead-text);
+      background: transparent;
+      border: 1px dashed var(--p-dead-text);
+      border-radius: 6px;
+      padding: 4px 8px;
+      margin-top: 6px;
+      cursor: pointer;
+      width: 100%;
+    }
+    .bxDebug.on { color: var(--p-text); border-style: solid; }
+    /* Stacked, so a second switch does not squeeze the first one's line. */
+    .bxDebugRow { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+    .bxDebugRow > .bxDebug { margin-top: 0; }
     button.starter {
       font: inherit;
       color: var(--p-text);
@@ -977,8 +1033,22 @@
     }
     /* What the bar just lost or gained, sitting past the fill or over it. */
     .bbar b { position: absolute; top: 0; bottom: 0; background: var(--p-hp-trail); }
-    /* What the move under the pointer would spend, dimmed off the fill's end. */
-    .bbar u { position: absolute; top: 0; bottom: 0; background: var(--p-raised); }
+    /*
+     * What the move under the pointer would spend, lit off the fill's end
+     * rather than cut out of it: the mana is still there until the move is
+     * cast, so it reads as the part about to go rather than as part already
+     * gone. It eases in from the end of the fill, so moving down a list of
+     * moves shows the cost growing and shrinking instead of jumping.
+     */
+    .bbar u {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: color-mix(in srgb, var(--p-lit) 62%, transparent);
+      box-shadow: inset 1px 0 0 var(--p-lit);
+      transition: left 140ms ease-out, width 140ms ease-out;
+    }
+    @media (prefers-reduced-motion: reduce) { .bbar u { transition: none; } }
     .bbar.mp i { background: linear-gradient(color-mix(in srgb, var(--p-mana) 62%, var(--p-lit)) 0 2px, var(--p-mana) 2px); }
     .bbar.mp b { background: var(--p-mana-trail); }
     /*
@@ -1514,6 +1584,41 @@
       width: 100%;
     }
     .bgrid > button.act { width: 100%; }
+    /*
+     * The four slots are the two rows above. The Hyper bar takes a third row
+     * under them at a fraction of a slot's height. A fraction rather than its
+     * own content, so all three shrink together on a short screen instead of
+     * the bar holding its height while the slots collapse under it. A class
+     * rather than an implicit row, because a track list has to name every row
+     * it has: a row sized in `fr` that the list does not name is laid out
+     * apart from the ones it does and comes out the wrong way up.
+     */
+    .bgrid.rows3 {
+      grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.72fr);
+    }
+    .bgrid > button.act.bhyper { grid-column: 1 / -1; }
+    /*
+     * The moves an ability hands over, in a strip standing on top of the
+     * block. Taken out of the flow and measured off the block, so however many
+     * there are the block is the height it always is and the scene behind it
+     * never moves.
+     *
+     * Four cells, which is as many as a Scoba can be handed. They keep to the
+     * left rather than stretching, so one of them reads as one option rather
+     * than as a bar of its own.
+     */
+    .bhanded {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      /* Lined up with the left edge of the buttons under it rather than with
+         the block, which is wider than they are. */
+      left: calc((100% - var(--bcw)) / 2);
+      width: min(var(--bcw), 480px);
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .bhanded > button.act { width: 100%; min-height: 0; }
 
     /*
      * The block is exactly three rows tall, one of text and two of buttons,
@@ -1522,7 +1627,26 @@
      * buttons nor the scene laid out above, and a row of targets is a row of
      * targets whether there are two of them or six.
      */
-    .bbottom { justify-content: flex-end; padding-top: 8px; }
+    .bbottom {
+      justify-content: flex-end;
+      padding-top: 8px;
+      /*
+       * How wide the buttons are allowed to get. Narrower than the block, so a
+       * wide screen gives them air on both sides rather than one button the
+       * width of the room. A narrow screen has none to give, so there they
+       * take what there is.
+       */
+      --bcw: min(var(--bw, 100%), 720px);
+    }
+    /*
+     * The message row is left alone: a line of text reads better across the
+     * whole block than boxed into the middle of it.
+     */
+    .bacts > .bgrid,
+    .bacts > .bactions {
+      width: var(--bcw);
+      justify-self: center;
+    }
 
     /* Its own rows are equal too, so a row spanning two of the block's rows
        gives two rows of buttons the same height rather than two content-sized
@@ -1569,8 +1693,46 @@
     .bgrid > button.act .sub { min-height: 1.2em; }
     button.act.alt { --fill: var(--p-panel); }
     /* A move button is coloured by what the move is. */
-    button.act.typed { color: var(--p-ink); }
+    /*
+     * A move wears its type. The colour comes in as `--type-fill` rather than
+     * as `--fill` itself, so the disabled rule below can darken it: an inline
+     * `--fill` would beat any stylesheet and a move that cannot be cast would
+     * go on looking exactly like one that can.
+     */
+    button.act.typed { --fill: var(--type-fill); color: var(--p-ink); }
     button.act.typed .sub { color: var(--p-ink); opacity: 0.72; }
+    /*
+     * Darkened rather than greyed out, so what it is stays readable while what
+     * it cannot do is obvious: no mana for it, a cooldown still running, or a
+     * move that is spent for the rest of the battle.
+     */
+    button.act.typed:disabled {
+      --fill: color-mix(in srgb, var(--type-fill) 16%, var(--p-ink));
+      color: var(--p-dead-text);
+    }
+    button.act.typed:disabled .sub { color: var(--p-dead-text); opacity: 0.85; }
+    /*
+     * A move of two elements wears both. The second takes the right of the
+     * button, cut on the diagonal rather than straight down, so the pair reads
+     * as one button in two colours rather than as two pushed together.
+     *
+     * Laid over the fill rather than replacing it, because the fill is what
+     * draws the stepped frame and a gradient in its place would flatten that.
+     */
+    button.act.dual { position: relative; }
+    button.act.dual::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      background: var(--type-fill2);
+      clip-path: polygon(58% 0, 100% 0, 100% 100%, 42% 100%);
+      pointer-events: none;
+    }
+    button.act.dual:disabled::after {
+      background: color-mix(in srgb, var(--type-fill2) 16%, var(--p-ink));
+    }
+    /* Over the second colour, or the label would be painted out by it. */
+    button.act.dual > span { position: relative; z-index: 1; }
 
     .mgbar { position: relative; width: min(88vw, 420px); height: 26px; --ink: var(--p-action); --fill: var(--p-ink); }
     .mgzone { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--p-confirm) 33%, transparent); border-left: 2px solid var(--p-confirm); border-right: 2px solid var(--p-confirm); }

@@ -13,13 +13,15 @@ import {
   moveReady,
   catchChance,
   combatantStats,
+  basicPower,
   combatantMaxHp,
   START_MANA,
   type BattleState,
   type Choice,
 } from "../src/sim/battle";
 import { enemyChoices } from "../src/sim/ai";
-import { makeWild, statsAt, maxHp, type ScobaInstance } from "../src/sim/scoba";
+import { MAX_LEVEL, commonStat, makeWild, statsAt, maxHp, type ScobaInstance } from "../src/sim/scoba";
+import { STAT_NAMES } from "../src/sim/types";
 import { MOVES, SPECIES } from "../src/sim/species";
 import { rngFrom } from "../src/sim/rng";
 import { TYPES, effectiveness } from "../src/sim/types";
@@ -30,16 +32,21 @@ const owned = (s: ScobaInstance, owner: "A" | "B"): ScobaInstance => ({ ...s, ow
 const at = (st: BattleState, side: 0 | 1, slot: number) => ({ side, index: st.active[side][slot]! });
 
 describe("stats", () => {
-  it("start at the species genes and gain +1 per level; effective HP is HP x 2.8", () => {
+  it("are the base line at the ceiling over the common stat, and a share of it below", () => {
     const genes = SPECIES["plib"]!.genes;
-    const s = wild("plib", 1, "s1");
-    expect(statsAt(s, false)).toEqual(genes);
+    const top = wild("plib", MAX_LEVEL, "s1");
+    // The line every Scoba gets sits on top of the one its species spends.
+    const topped = Object.fromEntries(
+      STAT_NAMES.map((k) => [k, genes[k] + commonStat(MAX_LEVEL)]),
+    );
+    expect(statsAt(top, false)).toEqual(topped);
     // Passives are statuses, folded in the same way in a battle and out of
     // one, so a Scoba's pool reads the same on both sides of the door.
-    expect(maxHp({ ...s, secondaryAbility: "hearty" }))
-      .toBe(Math.floor(Math.floor(genes.hp * 1.15) * 2.8));
-    const s10 = wild("plib", 10, "s2");
-    expect(statsAt(s10, false).str).toBe(genes.str + 9);
+    expect(maxHp({ ...top, secondaryAbility: "hearty" }))
+      .toBe(Math.floor(Math.floor((genes.hp + commonStat(MAX_LEVEL)) * 1.15) * 2.8));
+    const half = wild("plib", MAX_LEVEL / 2, "s2");
+    expect(statsAt(half, false).str)
+      .toBe(Math.round(genes.str / 2) + commonStat(MAX_LEVEL / 2));
   });
 });
 
@@ -66,7 +73,7 @@ describe("battle", () => {
     }
   });
 
-  it("basic attack deals 100% Strength mitigated by Defense", () => {
+  it("basic attack deals its floor plus level plus most of Strength, mitigated by Defense", () => {
     const a = wild("plib", 10, "a");
     a.secondaryAbility = "brawn";
     const b = wild("grima", 10, "b");
@@ -77,11 +84,13 @@ describe("battle", () => {
       { kind: "attack", side: 0, slot: 0, picks: [at(st, 1, 0)] },
       { kind: "block", side: 1, slot: 0 },
     ]);
-    // Strength over Defense, halved by the block. The hit is read off its own
+    // Its power over Defense, halved by the block. The hit is read off its own
     // event, so nothing later in the turn colours the number.
     const str = combatantStats(st.teams[0][0]!).str;
     const def = combatantStats(st.teams[1][0]!).def;
-    const expected = Math.max(1, Math.floor((str / (1 + def / 100)) * 0.5));
+    const power = basicPower(st.teams[0][0]!.scoba.level, str);
+    expect(power).toBe(10 + 10 + str * 0.9);
+    const expected = Math.max(1, Math.floor(Math.max(1, Math.floor(power / (1 + def / 100))) * 0.5));
     const hit = events.find((e) => e.kind === "hit")!;
     expect(hpBefore - hit.hp!).toBe(expected);
   });

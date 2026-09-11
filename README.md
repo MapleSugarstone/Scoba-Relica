@@ -17,6 +17,16 @@ Press F2 in a running game (dev server, or any build with `?dev=1` on the URL) t
 
 Edits live in the browser until you export. To make them permanent, hit Export in the World tab, then **drag the downloaded `world.json` onto `import-world.cmd`** in this folder. It writes the file into `src/game/content/world.json` (keeping a `.bak` of the old one) and prints what it imported. Commit that file and the world ships with the game.
 
+## Cosmetics editor
+
+A passive can carry art worn over a Scoba rather than drawn into it, like the cherry a line that inherits Cherry on Top wears on its head. Where the piece sits is worked out from the art, which is right for most lines and wrong for a few.
+
+**Double-click `cosmetics.cmd`** to correct those, or run `npm run cosmetics`. Pick a piece, pick a line, pick a costume, drag the piece where it belongs, and nudge the last pixel with the arrow keys. "Layer" puts it in front of the Scoba instead of behind it. Save writes `src/game/content/cosmetics.json` straight into the repo, so there is nothing to export or import. Commit that file and the placements ship with the game.
+
+A placement belongs to a costume, not to a line. A Scoba in Hyper-Mode is a different drawing with its head somewhere else, so it is placed separately, and the costume row is hidden for a line drawn only one way.
+
+F3 in a running game opens the same editor over the fight, for checking a piece in the place it will be seen. It writes the same file.
+
 ## Two ways to start
 
 A save belongs to one adventure, and which one is settled when it is made.

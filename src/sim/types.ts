@@ -68,5 +68,44 @@ export function stats(hp: number, str: number, def: number, res: number, mag: nu
   return { hp, str, def, res, mag, spd };
 }
 
-/** The default gene line: every stat starts at 5 and grows +1 per level. */
-export const BASE_GENES: Stats = stats(5, 5, 5, 5, 5, 5);
+/** Points a standard line spends across the six stats, measured at level 30. */
+export const STAT_BUDGET = 500;
+
+/** What a baby line spends instead. A baby is its own line at this scale. */
+export const BABY_BUDGET = 300;
+
+/** How far a parent is scaled down when its line has no baby form to read. */
+export const BABY_SCALE = BABY_BUDGET / STAT_BUDGET;
+
+/** The most any one stat may hold, whatever the budget would allow. */
+export const STAT_CAPS: Stats = stats(500, 300, 300, 300, 300, 200);
+
+/**
+ * The least each stat may be driven to, or null for one that can be driven
+ * under nothing.
+ *
+ * Defense, Resistance and Speed go negative, where a negative reads as worse
+ * than none at all: a negative defence takes more than an undefended hit
+ * rather than the same, and negative Speed simply acts last. Strength and
+ * Magic stop at nothing, since a hit scaled off a negative would heal what it
+ * struck. HP stops at one, because a pool of nothing is a Scoba that cannot be
+ * put on the field at all.
+ */
+export const STAT_FLOOR: Record<StatName, number | null> = {
+  hp: 1, str: 0, def: null, res: null, mag: 0, spd: null,
+};
+
+/** What a line totals, for the check that it was built to budget. */
+export function statTotal(line: Stats): number {
+  return STAT_NAMES.reduce((sum, name) => sum + line[name], 0);
+}
+
+/** A line with every stat brought inside its cap. */
+export function capStats(line: Stats): Stats {
+  const out = {} as Stats;
+  for (const name of STAT_NAMES) out[name] = Math.min(STAT_CAPS[name], Math.max(0, line[name]));
+  return out;
+}
+
+/** The default base line: the standard budget spread evenly. */
+export const BASE_GENES: Stats = stats(120, 76, 76, 76, 76, 76);

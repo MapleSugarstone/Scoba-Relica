@@ -12,7 +12,10 @@ import {
   emptySlots,
   sendIn,
   choiceError,
+  castableMoves,
+  hyperError,
   moveReady,
+  HYPER_COST,
   displayName,
   combatantMaxHp,
   statusSummary,
@@ -363,7 +366,7 @@ function runBattle(
     // Its own row, the same rule a Pawn's readout keeps: a badge is 41 px of
     // drawn art that cannot be shrunk, and inline with the name it sets the
     // panel's width rather than the name doing it.
-    wrap.appendChild(typeIcons(SPECIES[c.scoba.speciesId]!));
+    wrap.appendChild(typeIcons(c.scoba));
     const max = combatantMaxHp(c);
     const hpBar = bar("");
     const mpBar = bar("mp");
@@ -388,7 +391,7 @@ function runBattle(
       mpNum.textContent = `${now.mana}%`;
       // The bars say the numbers; this line is only for what they cannot.
       state.textContent = now.fainted ? "Fainted" : c.blocking ? "Blocking" : "";
-      fillMarks(marks, ref.side, statusSummary(c));
+      fillMarks(marks, ref.side, now.marks);
     };
     refresh();
     return { node: wrap, refresh };
@@ -414,7 +417,7 @@ function runBattle(
     // Its own line rather than beside the name: a badge is 41 px of drawn art
     // that cannot be shrunk, and next to the name it would make a card wider
     // than the gap between two Pawn marks on a phone.
-    wrap.appendChild(typeIcons(SPECIES[c.scoba.speciesId]!));
+    wrap.appendChild(typeIcons(c.scoba));
     const max = combatantMaxHp(c);
     const hpBar = bar("");
     const mpBar = bar("mp");
@@ -428,7 +431,7 @@ function runBattle(
         color: frac < 0.25 ? "#d9553f" : frac < 0.55 ? "#e7a03c" : "#7aa74a",
       });
       mpBar.set(now.mana / 100, now.manaTrail / 100);
-      fillMarks(marks, ref.side, statusSummary(c));
+      fillMarks(marks, ref.side, now.marks);
     };
     refresh();
     return { node: wrap, refresh };
@@ -674,6 +677,10 @@ function runBattle(
       // the buttons share one fixed block, so neither resizes the other.
       const bottom = el("div", "bbottom");
       bottom.appendChild(buildActions());
+      // Over the block, and measured off it, so it lines up with the buttons
+      // underneath whatever the screen is.
+      const handed = buildHanded();
+      if (handed) bottom.appendChild(handed);
       s.appendChild(bottom);
     });
     ui.setLocked(true);
@@ -684,10 +691,19 @@ function runBattle(
     label: string,
     sub: string,
     onPick: () => void,
-    opts: { disabled?: boolean; alt?: boolean; small?: boolean; type?: ElementType; badge?: ElementType } = {},
+    opts: {
+      disabled?: boolean; alt?: boolean; small?: boolean;
+      type?: ElementType; type2?: ElementType; badge?: ElementType;
+    } = {},
   ): HTMLButtonElement => {
-    const b = el("button", `act${opts.alt ? " alt" : ""}${opts.small ? " small" : ""}${opts.type ? " typed" : ""}`) as HTMLButtonElement;
-    if (opts.type) b.style.setProperty("--fill", TYPE_COLORS[opts.type]);
+    const dual = opts.type !== undefined && opts.type2 !== undefined;
+    const b = el("button",
+      `act${opts.alt ? " alt" : ""}${opts.small ? " small" : ""}${opts.type ? " typed" : ""}${dual ? " dual" : ""}`,
+    ) as HTMLButtonElement;
+    if (opts.type) b.style.setProperty("--type-fill", TYPE_COLORS[opts.type]);
+    // A move of two elements wears both, so what it counts as is readable
+    // without opening anything.
+    if (opts.type2) b.style.setProperty("--type-fill2", TYPE_COLORS[opts.type2]);
     b.appendChild(el("span", undefined, label));
     if (sub || opts.badge) {
       const line = el("span", "sub", sub);
@@ -716,6 +732,32 @@ function runBattle(
       return act(displayName(c.scoba), `Lv ${c.scoba.level}`, () => chooseSendIn(slot, i));
     });
     return rows(grid(picks), null, who ? `${who}, send one in` : "Send one in");
+  };
+
+  /**
+   * The moves an ability hands the Scoba, as a strip of small buttons over the
+   * block. They are not in slots and there is no room for them on a board that
+   * is four cells for good, so they sit above it where a fifth row would have
+   * pushed everything else about.
+   *
+   * Hung off the block rather than laid out with it, so however many there are
+   * the block is the height it always is and the scene behind it never moves.
+   */
+  const buildHanded = (): HTMLElement | null => {
+    if (aiming || sendInSlots[0] !== undefined) return null;
+    const slot = roundSlots[pickIndex];
+    const me = slot === undefined ? null : at(0, slot);
+    if (slot === undefined || !me || menu === "flee" || menu === "items") return null;
+    const handed = castableMoves(me).slice(MAX_MOVES);
+    if (handed.length === 0) return null;
+    const row = el("div", "bhanded");
+    for (const id of handed) {
+      const move = MOVES[id];
+      if (!move) continue;
+      row.appendChild(abilityButton(me, move, () =>
+        startAiming({ kind: "spell", side: 0, slot, moveId: move.id, picks: [] }), { small: true }));
+    }
+    return row;
   };
 
   const buildActions = (): HTMLElement => {
@@ -777,6 +819,20 @@ function runBattle(
         grid.appendChild(abilityButton(me, move, () =>
           startAiming({ kind: "spell", side: 0, slot, moveId: move.id, picks: [] })));
       }
+      // Hyper-Mode takes the bar along the bottom. It is not a move and is
+      // never cast at anything, so it sits under the board rather than in it.
+      // Moves an ability hands over are not in slots either, and they sit in
+      // their own strip over the block: see `buildHanded`.
+      const hyperWhy = hyperError(me);
+      if (SPECIES[me.scoba.speciesId]?.hyperAbility !== undefined && !me.hyper) {
+        const b = act("Hyper", hyperWhy ?? `${HYPER_COST} mana`,
+          () => pick({ kind: "hyper", side: 0, slot }),
+          { disabled: hyperWhy !== null, small: true, alt: true });
+        b.classList.add("bhyper");
+        grid.appendChild(b);
+        // The track list has to name every row, so the grid says it has three.
+        grid.classList.add("rows3");
+      }
       return rows([grid], backToMain, askLine(me));
     }
 
@@ -810,9 +866,10 @@ function runBattle(
     // The basic attack has no move behind it. It lands as Plain, which its
     // sub-line says with the badge: wearing Plain's beige as a fill made the
     // first button on the row look like the disabled one.
-    wrap.appendChild(act("Basic attack", "100% Str",
+    wrap.appendChild(act("Basic attack", "",
       () => startAiming({ kind: "attack", side: 0, slot, picks: [] }), { badge: "plain" }));
-    wrap.appendChild(act("Abilities", `${me.scoba.moves.length} known`, () => {
+    const known = castableMoves(me).length;
+    wrap.appendChild(act("Abilities", `${known} known`, () => {
       menu = "abilities";
       render();
     }));
@@ -898,13 +955,28 @@ function runBattle(
   };
 
   /** A move as a button, with its cost, cooldown and what it aims at. */
-  const abilityButton = (me: Combatant, move: Move, onPick: () => void): HTMLButtonElement => {
+  const abilityButton = (
+    me: Combatant, move: Move, onPick: () => void,
+    opts: { small?: boolean } = {},
+  ): HTMLButtonElement => {
     const ready = moveReady(me, move.id);
     const cd = me.cds[move.id] ?? 0;
     const aimNote = move.targets.map((t) => TARGET_LABELS[t.mode]).join(" + ");
     const cost = moveCost(me.scoba, move.id);
-    const sub = `${cost}% mana${move.cooldown ? ` · cd${move.cooldown}` : ""}${cd > 0 ? ` · wait ${cd}` : ""} · ${aimNote}`;
-    const b = act(move.name, sub, onPick, { disabled: !ready.ok, type: move.type });
+    // A move that is gone for the rest of the battle says so instead of its
+    // price: what it would have cost is no longer the reason it cannot be cast.
+    const gone = move.oncePerBattle && me.spent.includes(move.id);
+    // A small button has a row to share, so it says what it costs and leaves
+    // what it aims at to the full-sized one.
+    const sub = gone
+      ? "spent"
+      : opts.small
+        ? `${cost}% mana${cd > 0 ? ` · wait ${cd}` : ""}`
+        : `${cost}% mana${move.cooldown ? ` · cd${move.cooldown}` : ""}${cd > 0 ? ` · wait ${cd}` : ""} · ${aimNote}`;
+    const b = act(move.name, sub, onPick, {
+      disabled: !ready.ok, type: move.type, small: opts.small,
+      ...(move.type2 ? { type2: move.type2 } : {}),
+    });
     // Reaching for a move marks its cost on the caster's bar, so what it
     // would leave behind is visible before it is picked, and puts a line on
     // what it does in the message box. Keyboard focus does the same, since a
@@ -912,6 +984,11 @@ function runBattle(
     const index = st.teams[0].indexOf(me);
     const show = (on: boolean): void => {
       costPreview = on && index >= 0 ? { index, cost } : null;
+      // The bars are only redrawn when something asks them to, so the mark has
+      // to ask. Without this the cost was worked out and never drawn.
+      for (const p of plates) {
+        if (p.side === 0 && p.index === index) p.refresh();
+      }
       if (busy || !logEl.isConnected) return;
       logEl.textContent = on ? moveLine(move) : askLine(me);
     };
@@ -1042,7 +1119,7 @@ function runBattle(
     const nm = el("div", "nm cardHead");
     nm.appendChild(el("strong", undefined, displayName(c.scoba)));
     nm.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
-    nm.appendChild(typeIcons(sp));
+    nm.appendChild(typeIcons(c.scoba));
     const pawn = st.teams[0].indexOf(c) >= 0 && c.pawn;
     nm.appendChild(el("span", "lv",
       c.fainted ? "· fainted" : pawn ? "· pawn" : out ? "· out" : "· benched"));

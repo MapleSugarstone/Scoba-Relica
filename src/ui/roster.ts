@@ -8,10 +8,11 @@
 // only while you are alone, and drop it the moment a second player is in.
 import type { Art } from "../engine/assets";
 import { sfx } from "../engine/sfx";
-import { critterPortrait } from "../game/critters";
+import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
 import { face, openBrowser } from "./browser";
 import { typeIcons } from "./typeicon";
+import { devMode } from "../version";
 import {
   EVOLVE_COST,
   LEVEL_COST,
@@ -38,6 +39,18 @@ import type { UI } from "./screens";
 
 /** Longest a nickname can be, so a card and a battle plate still fit it. */
 export const MAX_NICKNAME = 14;
+
+/**
+ * What a purchase may draw on. A dev has all of it: raising a Scoba to the
+ * ceiling costs 2900 Aetus, which is a great many fights to sit through before
+ * anything at the top of the curve can be looked at.
+ *
+ * One place answers this, so what a button offers and what it charges cannot
+ * disagree about what is affordable.
+ */
+function onHand(save: SaveData): number {
+  return devMode() ? Number.MAX_SAFE_INTEGER : save.aetus;
+}
 
 export interface RosterHooks {
   /** Back to the menu. */
@@ -96,7 +109,7 @@ function portrait(art: Art, s: ScobaInstance, px: number): HTMLElement {
   wrap.style.height = `${px}px`;
   const sp = SPECIES[s.speciesId];
   if (!sp) return wrap;
-  const cv = critterPortrait(art, sp, s.tint, s.shiny);
+  const cv = critterPortrait(art, sp, s.sire, s.shiny, lookOf(sp, s));
   const step = Math.max(1, Math.min(
     Math.floor(PORTRAIT_BOX / cv.width),
     Math.floor(px / cv.height),
@@ -121,7 +134,7 @@ function nameBlock(s: ScobaInstance): HTMLElement {
     star.title = "Shiny";
     line.appendChild(star);
   }
-  if (sp) line.appendChild(typeIcons(sp));
+  if (sp) line.appendChild(typeIcons(s));
   box.appendChild(line);
   return box;
 }
@@ -267,7 +280,8 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
     if (!hooks.solo()) owner = save.localSlot;
     ui.screen((s) => {
       s.appendChild(el("h2", undefined, "Party"));
-      s.appendChild(el("div", "sub", `${save.aetus} Aetus`));
+      s.appendChild(el("div", "sub",
+        devMode() ? `${save.aetus} Aetus · dev, so nothing is spent` : `${save.aetus} Aetus`));
       if (hooks.solo()) {
         s.appendChild(ownerRow(save, owner, (o) => {
           owner = o;
@@ -299,8 +313,8 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
     card.appendChild(el("div", "dim", `HP ${m.hp}/${maxHp(m)}`));
 
     const theirs = !yours(m);
-    const levelWhy = levelUpError(m, save.aetus);
-    const evolveWhy = evolveError(m, save.aetus);
+    const levelWhy = levelUpError(m, onHand(save));
+    const evolveWhy = evolveError(m, onHand(save));
     const row = el("div", "row");
     row.appendChild(pill(`Level up · ${LEVEL_COST}`, levelWhy || theirs ? null : () => buyLevel(m)));
     row.appendChild(pill(`Evolve · ${EVOLVE_COST}`, evolveWhy || theirs ? null : () => buyEvolve(m)));
@@ -316,8 +330,8 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
   };
 
   const buyLevel = (m: ScobaInstance): void => {
-    if (levelUpError(m, save.aetus)) return;
-    save.aetus -= LEVEL_COST;
+    if (levelUpError(m, onHand(save))) return;
+    if (!devMode()) save.aetus -= LEVEL_COST;
     levelUp(m);
     sfx.confirm();
     hooks.onChange();
@@ -326,10 +340,10 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
   };
 
   const buyEvolve = (m: ScobaInstance): void => {
-    if (evolveError(m, save.aetus)) return;
+    if (evolveError(m, onHand(save))) return;
     const was = displayName(m);
     const into = evolutionOf(SPECIES[m.speciesId]!);
-    save.aetus -= EVOLVE_COST;
+    if (!devMode()) save.aetus -= EVOLVE_COST;
     evolve(m);
     sfx.confirm();
     hooks.onChange();

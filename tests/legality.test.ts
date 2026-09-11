@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateScoba, validateTeam, reachableGenes } from "../src/sim/legality";
+import { validateScoba, validateTeam, budgetFor, geneErrors, BUDGET_SLACK } from "../src/sim/legality";
 import { breed } from "../src/sim/breeding";
 import { makeWild } from "../src/sim/scoba";
 import { rngFrom } from "../src/sim/rng";
@@ -53,15 +53,15 @@ describe("validateScoba", () => {
   });
 
   it("rejects doctored genes", () => {
+    // Over the cap on one stat, whatever the rest of the line does.
     const s = makeWild("plib", 10, rngFrom("g"));
-    s.genes = { ...s.genes, spd: 50 };
-    expect(validateScoba(s).join()).toMatch(/spd gene/);
+    s.genes = { ...s.genes, spd: 260 };
+    expect(validateScoba(s).join()).toMatch(/spd gene 260 is over the cap/);
+    // Inside every cap, but spending more than the line is built on.
     const t = makeWild("obera", 10, rngFrom("h"));
     t.breedCount = 1;
-    // Obera's HP gene is 7 and the fattest line is 8, so one 80/20 mix lands
-    // on 6 or 7 and nothing reaches 12.
-    t.genes = { ...t.genes, hp: 12 };
-    expect(validateScoba(t).join()).toMatch(/hp gene/);
+    t.genes = { ...t.genes, hp: 300, mag: 250 };
+    expect(validateScoba(t).join()).toMatch(/base stats total/);
   });
 
   it("rejects abilities on nobody's pool, even with breeding", () => {
@@ -92,19 +92,44 @@ describe("validateTeam", () => {
   });
 });
 
-describe("reachableGenes", () => {
-  it("is exact for unbred Scobas", () => {
-    const set = reachableGenes(SPECIES.plib!, 0, "spd");
-    expect([...set]).toEqual([SPECIES.plib!.genes.spd]);
+describe("gene budgets", () => {
+  it("accepts every shipped line against its own budget", () => {
+    for (const sp of Object.values(SPECIES)) {
+      expect([sp.id, geneErrors(sp, sp.genes, sp.name)]).toEqual([sp.id, []]);
+    }
   });
 
-  it("opens up by one breeding step, and no further than the mix allows", () => {
-    // Obera's HP gene is 7 and every other line sits between 4 and 8, so
-    // round(0.8*7 + 0.2*dad) can only land on 6 or 7.
-    const g1 = reachableGenes(SPECIES.obera!, 1, "hp");
-    expect([...g1].sort()).toEqual([6, 7]);
-    const g2 = reachableGenes(SPECIES.obera!, 2, "hp");
-    for (const v of g2) expect(v).toBeGreaterThanOrEqual(5);
-    for (const v of g2) expect(v).toBeLessThanOrEqual(7);
+  it("puts a baby on the smaller budget", () => {
+    expect(budgetFor(SPECIES.sqwoop!)).toBe(300);
+    expect(budgetFor(SPECIES.octoshake!)).toBe(500);
+  });
+
+  it("allows the rounding a breed and an evolution leave behind", () => {
+    const sp = SPECIES.plib!;
+    const drifted = { ...sp.genes, hp: sp.genes.hp + BUDGET_SLACK };
+    expect(geneErrors(sp, drifted, "Plib")).toEqual([]);
+    const cheat = { ...sp.genes, hp: sp.genes.hp + BUDGET_SLACK + 1 };
+    expect(geneErrors(sp, cheat, "Plib").join()).toMatch(/base stats total/);
+  });
+
+  it("keeps every line a real pairing can produce inside its budget", () => {
+    // Two generations over every pairing on the roster. Each child hatches as
+    // its mother's first form, so the budget it is checked against is that
+    // form's and not the mother's.
+    const roster = Object.values(SPECIES).filter((sp) => !sp.special && !sp.pawn);
+    let first = roster.map((sp) => makeWild(sp.id, 1, rngFrom(`g:${sp.id}`)));
+    for (let gen = 0; gen < 2; gen++) {
+      const next: ReturnType<typeof makeWild>[] = [];
+      for (const m of first) {
+        for (const d of first) {
+          if (m.speciesId === d.speciesId) continue;
+          const child = breed({ ...m, breedCount: 0 }, { ...d, breedCount: 0 }, rngFrom("b"), undefined).child;
+          const sp = SPECIES[child.speciesId]!;
+          expect([sp.id, geneErrors(sp, child.genes, sp.name)]).toEqual([sp.id, []]);
+          next.push(child);
+        }
+      }
+      first = next.slice(0, 40);
+    }
   });
 });

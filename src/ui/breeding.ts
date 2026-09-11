@@ -5,12 +5,12 @@ import {
   canBreed,
   droppableFrom,
   inheritableFrom,
-  pickTint,
+  pickTints,
   MAX_BREED_COUNT,
   type MoveSwap,
 } from "../sim/breeding";
 import { displayName } from "../sim/battle";
-import { critterPortrait, spriteColors } from "../game/critters";
+import { critterPortrait, lookOf, spriteColors } from "../game/critters";
 import { openBrowser } from "./browser";
 import { costOf, maxHp, moveName, unnaturalMoves, type ScobaInstance } from "../sim/scoba";
 import { ABILITIES, SPECIAL, SPECIES } from "../sim/species";
@@ -22,6 +22,21 @@ import type { UI } from "./screens";
 
 export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => void): void {
   const pool = (): ScobaInstance[] => [...save.party, ...save.box];
+
+  /**
+   * Debug: hand the child its father's secondary ability instead of rolling
+   * for it. On by default: the roll is one in ten, and checking what a passive
+   * does on a line that was not built for it should not mean hatching ten
+   * children to see it once. Turn it off to breed against the real odds.
+   */
+  let forceAbility = true;
+
+  /**
+   * Debug: hatch it shiny rather than rolling for it. Off by default, unlike
+   * the one above: a shiny is meant to be a surprise, and a nest that handed
+   * one out every time would stop being able to show you an ordinary child.
+   */
+  let forceShiny = false;
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] => {
     const e = document.createElement(tag);
@@ -41,10 +56,56 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
     return !!sp && !sp.special && m.breedCount < MAX_BREED_COUNT;
   });
 
+  /**
+   * The debug switch, as a button that says what it is currently doing. It
+   * repaints itself rather than rebuilding the screen around it: rebuilding
+   * dropped the father that was picked, and the screen it came back as took
+   * him for the mother.
+   */
+  const debugToggle = (
+    on: () => boolean,
+    flip: () => void,
+    says: (on: boolean) => string,
+  ): HTMLElement => {
+    const b = el("button", "bxDebug");
+    const paint = (): void => {
+      b.className = `bxDebug${on() ? " on" : ""}`;
+      b.textContent = says(on());
+    };
+    b.addEventListener("click", () => {
+      flip();
+      sfx.tap();
+      paint();
+    });
+    paint();
+    return b;
+  };
+
+  /** The debug switches, as buttons that say what they are currently doing. */
+  const debugSwitches = (): HTMLElement => {
+    const wrap = el("div", "bxDebugRow");
+    wrap.appendChild(debugToggle(
+      () => forceAbility,
+      () => { forceAbility = !forceAbility; },
+      (on) => on
+        ? "Debug: always crossing the father's ability. Tap for the real 10% roll."
+        : "Debug: rolling the father's ability at the real 10%. Tap to always cross.",
+    ));
+    wrap.appendChild(debugToggle(
+      () => forceShiny,
+      () => { forceShiny = !forceShiny; },
+      (on) => on
+        ? "Debug: always hatching shiny. Tap for the real 1 in 300 roll."
+        : "Debug: rolling shiny at the real 1 in 300. Tap to always hatch shiny.",
+    ));
+    return wrap;
+  };
+
   /** One big button under the grid, live once a face is picked. */
   const selectFoot = (
     label: (s: ScobaInstance) => string,
     onPick: (s: ScobaInstance) => void,
+    debug = false,
   ) => (ctx: { selected: () => ScobaInstance | null }): HTMLElement => {
     const wrap = el("div", "bxPanel bxPick");
     const chosen = ctx.selected();
@@ -56,6 +117,8 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       onPick(chosen);
     });
     wrap.appendChild(b);
+    // Offered on the father's screen, since his is the ability being crossed.
+    if (debug) wrap.appendChild(debugSwitches());
     return wrap;
   };
 
@@ -80,7 +143,7 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       empty: "Nobody will pair with her.",
       source: () => pool().filter((d) => d.uid !== mom.uid && canBreed(mom, d) === null),
       onBack: pickMom,
-      foot: selectFoot((d) => `Father: ${displayName(d)}`, (d) => pickDrop(mom, d)),
+      foot: selectFoot((d) => `Father: ${displayName(d)}`, (d) => pickDrop(mom, d), true),
     });
   };
 
@@ -148,25 +211,11 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
     });
   };
 
-  /**
-   * The father's mark: a child that took his ability wears one of his colours
-   * over one of its own. What the mark comes to is decided in
-   * `sim/breeding.ts`; all that happens here is reading the two palettes off
-   * the sprites, his as he is actually drawn and the child's off its species.
-   */
-  const applyTint = (dad: ScobaInstance, child: ScobaInstance): void => {
-    const dadSp = SPECIES[dad.speciesId];
-    const childSp = SPECIES[child.speciesId];
-    if (!dadSp || !childSp) return;
-    const tint = pickTint(spriteColors(art, dadSp, dad.tint), spriteColors(art, childSp));
-    if (tint) child.tint = tint;
-  };
-
   const hatch = (mom: ScobaInstance, dad: ScobaInstance, swap?: MoveSwap): void => {
     const { child, fromDad } = breed(
       mom, dad, rngFrom(`${save.worldSeed}:breed:${Date.now().toString(36)}`), swap,
+      { forceDadAbility: forceAbility, forceShiny },
     );
-    if (fromDad) applyTint(dad, child);
     child.hp = maxHp(child);
     const toParty = addToParty(save, child, save.localSlot) === "party";
     writeSave(save);
@@ -174,7 +223,8 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
     ui.screen((s) => {
       s.appendChild(el("h2", undefined, `${displayName(child)} hatched!`));
       const card = el("div", "card");
-      const face = critterPortrait(art, SPECIES[child.speciesId]!, child.tint, child.shiny);
+      const face = critterPortrait(art, SPECIES[child.speciesId]!, child.sire, child.shiny,
+        lookOf(SPECIES[child.speciesId]!, child));
       face.style.height = "72px";
       face.style.width = "auto";
       card.appendChild(face);
@@ -185,8 +235,14 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       const ability = ABILITIES[child.secondaryAbility];
       card.appendChild(el("div", undefined,
         `Ability: ${ability?.name ?? child.secondaryAbility} · ${fromDad ? "its father's" : "its mother's"}`));
+      const forced: string[] = [];
+      if (forceAbility) forced.push("the father's ability was crossed");
+      if (forceShiny) forced.push("it was hatched shiny");
+      if (forced.length > 0) {
+        card.appendChild(el("div", "dim", `Debug: ${forced.join(", and ")} rather than rolled for.`));
+      }
       if (ability) card.appendChild(el("div", "dim", describeAbility(ability.id)));
-      if (child.tint) card.appendChild(el("div", "dim", "It takes his colours, too."));
+      if (child.sire) card.appendChild(el("div", "dim", "It takes his colours, too."));
       card.appendChild(el("div", "sub", toParty ? "Joined the party." : "Sent to the box."));
       s.appendChild(card);
       const done = el("button", "big primary", "Done");

@@ -91,6 +91,9 @@ describe("targeting", () => {
   it("hits every enemy with one cast of a team move", () => {
     const st = field();
     st.teams[0][0]!.scoba.moves = ["scatter-shot"];
+    // Plib is a physical line, and the point here is where the move lands
+    // rather than what it does, so give it Magic enough to be felt.
+    st.teams[0][0]!.scoba.genes = { ...st.teams[0][0]!.scoba.genes, mag: 200 };
     st.teams[0][0]!.mana = 100;
     const before = st.teams[1].slice(0, 2).map((c) => c.hp);
     resolveTurn(st, [{ kind: "spell", side: 0, slot: 0, moveId: "scatter-shot", picks: [null] }]);

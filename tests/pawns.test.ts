@@ -15,7 +15,7 @@ import {
 import { PAWN_SLOTS, SCOBA_SLOTS, candidates, isPawnSlot } from "../src/sim/targeting";
 import { pawnChoices } from "../src/sim/ai";
 import { stacksOf } from "../src/sim/status";
-import { makeWild, passiveStatuses, type ScobaInstance } from "../src/sim/scoba";
+import { makeWild, passiveStatuses, scobaTypes, type ScobaInstance } from "../src/sim/scoba";
 import { SPECIES, rosterSpecies } from "../src/sim/species";
 import { canBreed, sharedSwaps } from "../src/sim/breeding";
 import { rngFrom } from "../src/sim/rng";
@@ -234,15 +234,15 @@ describe("what a Pawn wears", () => {
   });
 
   it("carries her shine and her father's mark along for the art to sort out", () => {
-    const tint = { from: "#112233", to: "#445566" };
+    const sire = "wispen";
     const st = court({
       dress: (q) => {
         q.shiny = true;
-        q.tint = tint;
+        q.sire = sire;
       },
     });
     expect(st.teams[0][2]!.scoba.summoner).toEqual({
-      speciesId: "cottlequeen", tint, shiny: true,
+      speciesId: "cottlequeen", sire, shiny: true,
     });
   });
 
@@ -289,5 +289,85 @@ describe("Pawns stay out of the roster", () => {
     expect(SPECIES["cottlecorn"]!.pawn).toBe(true);
     expect(SPECIES["cottlecorn"]!.autonomous).toBe(true);
     expect(SPECIES["cottlequeen"]!.pawn).toBeUndefined();
+  });
+});
+
+describe("what a Pawn inherits from whoever called it", () => {
+  /** The Cottlecorn the queen calls as she walks on. */
+  const corn = (st: BattleState): ScobaInstance => st.teams[0][2]!.scoba;
+
+  it("carries the passive the queen was handed", () => {
+    const st = court({ dress: (q) => { q.secondaryAbility = "swift"; } });
+    expect(corn(st).secondaryAbility).toBe("swift");
+    // And the passive is live on it, not just written down.
+    expect(passiveStatuses(corn(st)).some((s) => s.id === "swift")).toBe(true);
+  });
+
+  it("carries the element that came with the passive", () => {
+    const st = court({ dress: (q) => { q.type2 = "moon"; } });
+    expect(scobaTypes(corn(st))).toEqual(["fortuna", "moon"]);
+  });
+
+  it("carries her worked move, in the slot it sits in on her", () => {
+    // Hex is on no Cottlequeen's learnset, so it is the one she was bred for.
+    const st = court({ dress: (q) => { q.moves = ["lucky-strike", "crush", "hex", "jackpot"]; } });
+    expect(corn(st).moves).toEqual(["pawn-dart", "pawn-mend", "hex"]);
+  });
+
+  it("keeps its own kit where a plain queen has nothing of her own to hand on", () => {
+    const st = court();
+    // She always carries her line's own passive, so the court carries it too.
+    expect(corn(st).secondaryAbility).toBe("queens-guard");
+    expect(corn(st).moves).toEqual(["pawn-dart", "pawn-mend", "sunfall"]);
+    expect(scobaTypes(corn(st))).toEqual(["fortuna"]);
+  });
+
+  it("passes over a worked move it could never pay for", () => {
+    // 100 to cast and 10 more for working it, against a bar that holds 100.
+    const st = court({
+      dress: (q) => { q.moves = ["lucky-strike", "crush", "tantalizing-sweets", "jackpot"]; },
+    });
+    expect(corn(st).moves).toEqual(["pawn-dart", "pawn-mend", "sunfall"]);
+  });
+
+  it("hands on only the worked move, never the rest of her kit", () => {
+    const st = court();
+    expect(corn(st).moves).not.toContain("jackpot");
+    expect(corn(st).moves).not.toContain("court-call");
+  });
+
+  it("leaves a line that is meant to come as itself alone", () => {
+    const sp = SPECIES["cottlecorn"]!;
+    sp.inheritsFromCaller = false;
+    try {
+      const st = court({
+        dress: (q) => {
+          q.secondaryAbility = "swift";
+          q.type2 = "moon";
+          q.moves = ["lucky-strike", "crush", "hex", "jackpot"];
+        },
+      });
+      expect(corn(st).moves).toEqual(["pawn-dart", "pawn-mend", "sunfall"]);
+      expect(corn(st).secondaryAbility).toBe("");
+      expect(scobaTypes(corn(st))).toEqual(["fortuna"]);
+    } finally {
+      delete sp.inheritsFromCaller;
+    }
+  });
+
+  it("puts the worked move on the last slot when the Pawn has fewer", () => {
+    // Slot 3 on her, and a Pawn with three moves has no slot 3 to put it on.
+    const st = court({ dress: (q) => { q.moves = ["lucky-strike", "crush", "court-call", "hex"]; } });
+    expect(corn(st).moves).toEqual(["pawn-dart", "pawn-mend", "hex"]);
+  });
+
+  it("is the same call on both clients, since nothing here is rolled", () => {
+    const dress = (q: ScobaInstance): void => {
+      q.moves = ["lucky-strike", "crush", "hex", "jackpot"];
+      q.type2 = "moon";
+    };
+    // Everything handed over, which is everything but the fresh id.
+    const handed = (s: ScobaInstance) => [s.moves, s.secondaryAbility, s.type2];
+    expect(handed(corn(court({ dress })))).toEqual(handed(corn(court({ dress }))));
   });
 });

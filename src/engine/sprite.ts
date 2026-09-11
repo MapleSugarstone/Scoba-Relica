@@ -32,6 +32,46 @@ export function bounce(m: Motion, t: number, ease: number): Bounce {
   };
 }
 
+/**
+ * A sprite as a flat silhouette in one colour, built once and kept.
+ *
+ * A wash over a Scoba has to be the Scoba's own shape: a rectangle over it
+ * reads as a box sitting on the field rather than as the Scoba itself
+ * changing colour.
+ */
+/*
+ * Keyed by the image itself rather than by anything about it. A Scoba's art is
+ * usually a canvas built at run time, and a canvas has no address: keyed by
+ * size and colour, every Scoba on the field shared one shape, which was
+ * whichever of them was washed first.
+ */
+const silhouettes = new WeakMap<CanvasImageSource, Map<string, HTMLCanvasElement>>();
+
+export function silhouette(img: CanvasImageSource, color: string): HTMLCanvasElement | null {
+  const w = (img as HTMLImageElement).naturalWidth || (img as HTMLCanvasElement).width;
+  const h = (img as HTMLImageElement).naturalHeight || (img as HTMLCanvasElement).height;
+  if (!w || !h) return null;
+  let byColor = silhouettes.get(img);
+  if (!byColor) {
+    byColor = new Map();
+    silhouettes.set(img, byColor);
+  }
+  const hit = byColor.get(color);
+  if (hit) return hit;
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0);
+  // Keeps the drawn pixels and replaces what they were with the one colour.
+  ctx.globalCompositeOperation = "source-in";
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, w, h);
+  byColor.set(color, cv);
+  return cv;
+}
+
 export function drawDoll(
   ctx: CanvasRenderingContext2D,
   s: WorldSprite,

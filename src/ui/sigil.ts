@@ -34,6 +34,12 @@ const SIGILS: Record<string, string> = {
   wane: "moon",
   moonward: "moon",
   quickstep: "boot",
+  // The Octoshake line. Cold is the clock and Chill is what it leaves behind,
+  // so both read as the same kind of thing at a glance.
+  cold: "cold",
+  chill: "cold",
+  sticky: "sticky",
+  slowed: "boot",
 };
 
 export function sigilUrl(id: string): string | null {

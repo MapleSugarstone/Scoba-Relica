@@ -1,7 +1,9 @@
 import type { ScobaInstance, Tint } from "./scoba";
-import { costOf, freshUid, maxHp, unnaturalMoves, MAX_MANA, SHINY_CHANCE } from "./scoba";
-import { SPECIES } from "./species";
-import { STAT_NAMES, type Stats } from "./types";
+import { costOf, freshUid, maxHp, sireOf, unnaturalMoves, MAX_MANA, SHINY_CHANCE } from "./scoba";
+import { SPECIES, babyOf, type Species } from "./species";
+import { hexToRgb, hueOf, hueShift } from "../engine/recolor";
+import { rescaleLine } from "./scoba";
+import { BABY_SCALE, STAT_NAMES, capStats, type Stats } from "./types";
 import type { Rng } from "./rng";
 import { chance, pick } from "./rng";
 
@@ -21,12 +23,48 @@ export function canBreed(mom: ScobaInstance, dad: ScobaInstance): string | null 
   return null;
 }
 
+/**
+ * The line a parent passes on, which is a baby's line and not its own. A
+ * parent whose species has a baby form is read at that form's scale. One whose
+ * species has none is read at the baby budget's share of the standard, which
+ * is what its baby would have been built on had anybody drawn it.
+ *
+ * The parent's own line is what is mapped, never its species', so two Scobas
+ * of one species that were bred differently hand down different children.
+ *
+ * This is the only place a parent is scaled down. Nothing else should do it.
+ */
+export function babyLineOf(s: ScobaInstance): Stats {
+  const sp = SPECIES[s.speciesId];
+  if (!sp) return { ...s.genes };
+  if (sp.baby) return { ...s.genes };
+  const baby = babyOf(sp);
+  if (baby) return rescaleLine(s.genes, sp.genes, baby.genes);
+  const out = {} as Stats;
+  for (const name of STAT_NAMES) out[name] = Math.round(s.genes[name] * BABY_SCALE);
+  return out;
+}
+
+/** The form a line's children hatch as: its baby where it has one. */
+export function hatchesAs(sp: Species): Species {
+  return babyOf(sp) ?? sp;
+}
+
+/** Mixes two base lines: 80 percent of the mother, 20 of the father. */
 export function inheritGenes(mom: Stats, dad: Stats): Stats {
   const out = {} as Stats;
   for (const name of STAT_NAMES) {
     out[name] = Math.round(0.8 * mom[name] + 0.2 * dad[name]);
   }
-  return out;
+  return capStats(out);
+}
+
+/**
+ * What a pairing's child is built on. Both parents are measured as their baby
+ * forms, because what the two of them make is a baby and not a grown Scoba.
+ */
+export function childGenes(mom: ScobaInstance, dad: ScobaInstance): Stats {
+  return inheritGenes(babyLineOf(mom), babyLineOf(dad));
 }
 
 /**
@@ -36,8 +74,15 @@ export function inheritGenes(mom: Stats, dad: Stats): Stats {
  * inheritance at all and is not offered.
  */
 export function inheritableFrom(mom: ScobaInstance, dad: ScobaInstance): string[] {
+  const child = childSpeciesOf(mom);
   return dad.moves.filter((m) =>
-    !mom.moves.includes(m) && costOf(mom.speciesId, m) <= MAX_MANA);
+    !mom.moves.includes(m) && costOf(child, m) <= MAX_MANA);
+}
+
+/** The species a pairing with this mother hatches, which is her line's first form. */
+export function childSpeciesOf(mom: ScobaInstance): string {
+  const sp = SPECIES[mom.speciesId];
+  return sp ? hatchesAs(sp).id : mom.speciesId;
 }
 
 /**
@@ -69,16 +114,34 @@ export interface Hatchling {
 }
 
 /**
- * Child is the mom's species at level 1. Genes are 80% mom / 20% dad. One of
- * mom's moves is replaced by a move the dad knows (when he knows something
- * new); `swap` names which for which, and without one the pair is rolled.
- * 10% chance to inherit dad's secondary ability instead of mom's.
+ * Child hatches as the first form of the mother's line at level 1, which is
+ * her baby form where her line has one. Its base line mixes the two parents'
+ * baby forms 80/20. One of mom's moves is replaced by a move the dad knows
+ * (when he knows something new); `swap` names which for which, and without one
+ * the pair is rolled. 10% chance to inherit dad's secondary ability instead of
+ * mom's.
  */
+/** Knobs the nest screen turns that the roll would otherwise decide. */
+export interface BreedOpts {
+  /**
+   * Take the father's secondary ability rather than rolling for it. The debug
+   * switch behind it is there because the roll is one in ten, and testing what
+   * an inherited passive does should not mean hatching ten children.
+   */
+  forceDadAbility?: boolean;
+  /**
+   * Hatch it shiny rather than rolling for it. One in three hundred is a long
+   * wait to look at a palette.
+   */
+  forceShiny?: boolean;
+}
+
 export function breed(
   mom: ScobaInstance,
   dad: ScobaInstance,
   rng: Rng,
   swap?: MoveSwap,
+  opts: BreedOpts = {},
 ): Hatchling {
   const err = canBreed(mom, dad);
   if (err) throw new Error(err);
@@ -96,21 +159,38 @@ export function breed(
     moves[slot] = swap && newFromDad.includes(swap.take) ? swap.take : pick(rng, newFromDad);
   }
 
-  const fromDad = chance(rng, DAD_ABILITY_CHANCE);
+  // The roll is spent either way, so forcing the result does not move any
+  // other roll this seed makes.
+  const rolled = chance(rng, DAD_ABILITY_CHANCE);
+  const fromDad = opts.forceDadAbility === true || rolled;
   const secondaryAbility = fromDad ? dad.secondaryAbility : mom.secondaryAbility;
+  // A passive from the father brings his element with it. It stands in for
+  // whatever second the child's own line had, so nothing ends up with three.
+  const dadSp = SPECIES[dad.speciesId];
+  const childSp = SPECIES[hatchesAs(sp).id];
+  const carried = fromDad && dadSp && childSp && dadSp.type !== childSp.type
+    ? dadSp.type
+    : undefined;
 
   const child: ScobaInstance = {
     uid: freshUid(rng),
-    speciesId: mom.speciesId,
+    speciesId: hatchesAs(sp).id,
     level: 1,
     xp: 0,
-    genes: inheritGenes(mom.genes, dad.genes),
+    genes: childGenes(mom, dad),
     moves,
     secondaryAbility,
     breedCount: Math.max(mom.breedCount, dad.breedCount) + 1,
     hp: 0,
   };
-  if (rng() < SHINY_CHANCE) child.shiny = true;
+  if (carried !== undefined) child.type2 = carried;
+  // His colours come with his passive. What is kept is him, not the swap: the
+  // swap is read off his palette wherever the child is drawn.
+  if (fromDad) child.sire = sireOf(dad);
+  // The roll is spent either way, so forcing the result moves no other roll
+  // this seed makes.
+  const rolledShiny = rng() < SHINY_CHANCE;
+  if (opts.forceShiny === true || rolledShiny) child.shiny = true;
   child.hp = maxHp(child);
   return { child, fromDad };
 }
@@ -148,23 +228,66 @@ export function sharedSwaps(worn: readonly string[], offered: readonly (Tint | n
 }
 
 /**
- * The mark a father leaves on a child that took his ability: his most-used
- * colour that the child does not already wear, painted over the child's rarest
- * colour. A child with nothing but line art keeps its palette, and so does one
- * whose father brings no colour of his own.
+ * Pairs colours off by how much of each there is: the commonest donor over the
+ * commonest target, the second over the second, and so on down.
+ *
+ * A donor list shorter than the target list runs out. What is left over is
+ * turned `turn` of the way round the wheel rather than being left behind: the
+ * point is a set of colours that reads as one family, and half a repaint reads
+ * as neither.
+ */
+export function pairColors(
+  targets: readonly ColorCount[], donors: readonly ColorCount[], turn: number,
+): Tint[] {
+  const out: Tint[] = [];
+  targets.forEach((target, i) => {
+    const donor = donors[i];
+    if (donor) {
+      if (donor.hex !== target.hex) out.push({ from: target.hex, to: donor.hex });
+      return;
+    }
+    if (turn === 0) return;
+    const turned = hueShift(hexToRgb(target.hex), turn);
+    const hex = `#${turned.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+    if (hex !== target.hex) out.push({ from: target.hex, to: hex });
+  });
+  return out;
+}
+
+/** How far round the wheel one colour sits from another, or 0 for a grey pair. */
+export function hueTurn(from: string, to: string): number {
+  const a = hueOf(hexToRgb(from));
+  const b = hueOf(hexToRgb(to));
+  return a !== null && b !== null ? b - a : 0;
+}
+
+/** Commonest first, ties broken on the hex so two clients agree. */
+export function byCount(a: ColorCount, b: ColorCount): number {
+  return b.count - a.count || a.hex.localeCompare(b.hex);
+}
+
+/** Everything a Scoba is drawn in bar the outline holding it together. */
+export function bodyColors(palette: readonly ColorCount[]): ColorCount[] {
+  return palette.filter((c) => !LINE_ART.has(c.hex)).sort(byCount);
+}
+
+/**
+ * The marks a father leaves on a child that took his passive: his colours over
+ * the child's, paired off by how much of each there is.
+ *
+ * The child keeps the colour it is mostly made of. That one colour is what
+ * makes it recognisable as itself, and painting over it turned the child into
+ * the father wearing its shape. Everything under it goes.
  *
  * Ties break on the hex itself, so two clients hatching the same pair paint
- * the same pixel.
+ * the same pixels.
  */
-export function pickTint(dad: ColorCount[], child: ColorCount[]): Tint | null {
+export function pickTints(dad: ColorCount[], child: ColorCount[]): Tint[] {
   const worn = new Set(child.map((c) => c.hex));
-  const donor = dad
-    .filter((c) => !worn.has(c.hex))
-    .sort((a, b) => b.count - a.count || a.hex.localeCompare(b.hex))[0];
-  if (!donor) return null;
-  const target = child
-    .filter((c) => !LINE_ART.has(c.hex))
-    .sort((a, b) => a.count - b.count || a.hex.localeCompare(b.hex))[0];
-  if (!target) return null;
-  return { from: target.hex, to: donor.hex };
+  const donors = bodyColors(dad).filter((c) => !worn.has(c.hex));
+  const mine = bodyColors(child);
+  const primary = mine[0];
+  if (!primary || mine.length < 2) return [];
+  const turn = donors[0] ? hueTurn(primary.hex, donors[0].hex) : 0;
+  return pairColors(mine.slice(1), donors, turn);
 }

@@ -99,3 +99,32 @@ describe("walking onto a mark", () => {
     }
   });
 });
+
+describe("the light a shiny sheds", () => {
+  const glitterer = (x: number, y: number): Actor =>
+    new Actor(x, y, {
+      sprite: { img: null as never, px: 0, py: 0 }, motion: "scamper", sparkle: true,
+    });
+
+  it("collects behind one as it goes", () => {
+    const a = glitterer(0, 200);
+    for (let f = 0; f < 60; f++) a.step(1 / 60, 1, 0, field());
+    expect(a.sparkCount()).toBeGreaterThan(0);
+  });
+
+  it("goes when the actor is put somewhere rather than walked there", () => {
+    const a = glitterer(0, 200);
+    for (let f = 0; f < 60; f++) a.step(1 / 60, 1, 0, field());
+    a.clearSparks();
+    expect(a.sparkCount()).toBe(0);
+    // And the next one is a fresh interval, not one about to fire.
+    a.step(1 / 60, 0, 0, field());
+    expect(a.sparkCount()).toBe(0);
+  });
+
+  it("is shed by nothing that does not glitter", () => {
+    const a = walker(0, 200);
+    for (let f = 0; f < 60; f++) a.step(1 / 60, 1, 0, field());
+    expect(a.sparkCount()).toBe(0);
+  });
+});

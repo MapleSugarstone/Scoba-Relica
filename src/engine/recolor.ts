@@ -110,6 +110,26 @@ export function hexToRgb(c: string): RGB {
  * The same colour turned `turns` of the way round the wheel, keeping how light
  * and how strong it is. Grey has no hue to turn, so it comes back unchanged.
  */
+/**
+ * Where a colour sits on the wheel, 0 to 1. A grey has no hue at all and
+ * answers null, so nothing tries to turn it somewhere.
+ */
+export function hueOf([r, g, b]: RGB): number | null {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const d = max - min;
+  if (d === 0) return null;
+  const h = max === rn
+    ? (gn - bn) / d + (gn < bn ? 6 : 0)
+    : max === gn
+      ? (bn - rn) / d + 2
+      : (rn - gn) / d + 4;
+  return h / 6;
+}
+
 export function hueShift([r, g, b]: RGB, turns: number): RGB {
   const rn = r / 255;
   const gn = g / 255;
@@ -152,8 +172,10 @@ export function paletteSwap(
   map: [RGB, RGB][],
 ): HTMLCanvasElement {
   const cv = document.createElement("canvas");
-  cv.width = img.width;
-  cv.height = img.height;
+  // The drawn size rather than the laid-out one, so art on a bigger sheet than
+  // the rest keeps every pixel of it through the swap.
+  cv.width = (img as HTMLImageElement).naturalWidth || img.width;
+  cv.height = (img as HTMLImageElement).naturalHeight || img.height;
   const ctx = cv.getContext("2d")!;
   ctx.drawImage(img, 0, 0);
   if (map.length === 0) return cv;

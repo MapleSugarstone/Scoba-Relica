@@ -35,7 +35,7 @@ describe("the level ceiling", () => {
 
   it("settles a catch to the cap and then a level or two under it", () => {
     for (let i = 0; i < 40; i++) {
-      const caught = wild("cactunny", 9, `c${i}`);
+      const caught = wild("cactunny", MAX_LEVEL + 4, `c${i}`);
       settleCaught(caught, rngFrom(`r${i}`));
       expect(caught.level).toBeGreaterThanOrEqual(MAX_LEVEL - 2);
       expect(caught.level).toBeLessThanOrEqual(MAX_LEVEL - 1);
@@ -82,14 +82,15 @@ describe("spending Aetus", () => {
     try {
       const s = wild("catsquito", 4, "a4");
       s.nickname = "Bitey";
-      const genes = { ...s.genes };
       expect(evolveError(s, EVOLVE_COST - 1)).toMatch(/Costs/);
       expect(evolveError(s, EVOLVE_COST)).toBeNull();
       evolve(s);
       expect(s.speciesId).toBe(next.id);
       expect(s.nickname).toBe("Bitey");
       expect(s.level).toBe(4);
-      expect(s.genes).toEqual(genes);
+      // A wild one is exactly its species' line, so it grows into exactly the
+      // next form's line.
+      expect(s.genes).toEqual(next.genes);
       expect(s.moves).toEqual(speciesMoves(next));
       expect(next.secondaryPool).toContain(s.secondaryAbility);
       // A second form is raised by evolving into it, not by buying levels.
@@ -103,7 +104,7 @@ describe("spending Aetus", () => {
 
 describe("the roster", () => {
   const saveWith = (party: ScobaInstance[], box: ScobaInstance[] = []): SaveData => ({
-    version: 12, createdAt: 0, updatedAt: 0, worldSeed: "w", localSlot: "A",
+    version: 14, createdAt: 0, updatedAt: 0, worldSeed: "w", localSlot: "A",
     partnerJoined: false,
     characters: {} as SaveData["characters"],
     party, box, bag: {}, money: 0, aetus: 0,

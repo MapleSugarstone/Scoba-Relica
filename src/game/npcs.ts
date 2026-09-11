@@ -8,7 +8,7 @@ import { DEFAULT_LOOK, type Look } from "../engine/recolor";
 import type { TileMap } from "../engine/tilemap";
 import { SPECIES } from "../sim/species";
 import { Actor } from "./actors";
-import { critterSkin } from "./critters";
+import { critterSkin, personSkin } from "./critters";
 import type { NpcDef, WorldContent } from "./content";
 
 const WANDER_SPEED = 20;
@@ -35,7 +35,7 @@ function makeActor(art: Art, def: NpcDef): Actor {
       return actor;
     }
   }
-  return new Actor(def.x, def.y, { sprite: worldSprite(art.doll, npcLook(def)), motion: "hop" });
+  return new Actor(def.x, def.y, personSkin(art, npcLook(def)));
 }
 
 export function buildNpcs(art: Art, content: WorldContent, mapId: string): NpcRuntime[] {

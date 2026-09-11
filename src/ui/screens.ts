@@ -22,10 +22,11 @@ import { hasPaint, type PaintSet, type PaintSlot } from "../engine/paint";
 import { PAINT_MENU, SLOT_INFO, paintScreen } from "./paintscreen";
 import { sfx } from "../engine/sfx";
 import { newCareState, advanceCare, feed, wash, careLevel, type CareState } from "../sim/care";
-import { makeWild, moveCost, statsAt, maxHp } from "../sim/scoba";
+import { MAX_LEVEL, makeWild, moveCost, statsAt, maxHp } from "../sim/scoba";
 import { critterPortrait } from "../game/critters";
 import { typeIcons } from "./typeicon";
-import { ABILITIES, MOVES, SPECIAL, SPECIES, STARTER_IDS, rosterSpecies } from "../sim/species";
+import { ABILITIES, MOVES, SPECIAL, SPECIES, STARTER_IDS, rosterSpecies, typeLabel } from "../sim/species";
+import { statTotal } from "../sim/types";
 import { describeAbility } from "../sim/describe";
 import type { StarterTurn } from "../net/lobby";
 import { rngFrom } from "../sim/rng";
@@ -689,6 +690,51 @@ function starterScreen(
 
     const grid = el("div", "starters");
     const detail = el("div", "card pick");
+
+    /**
+     * Debug: start with any line on the roster rather than one of the nine.
+     * Typing filters by name, and picking one selects it the same way tapping
+     * a face does, so the button under it reads and behaves the same.
+     */
+    const search = el("div", "dbgSearch");
+    const field = document.createElement("input");
+    field.type = "search";
+    field.className = "dbgField";
+    field.placeholder = "Debug: search every Scoba";
+    field.autocomplete = "off";
+    const hits = el("div", "dbgHits");
+    search.appendChild(field);
+    search.appendChild(hits);
+
+    const renderHits = (): void => {
+      hits.innerHTML = "";
+      const q = field.value.trim().toLowerCase();
+      if (q === "") return;
+      const found = rosterSpecies()
+        .filter((sp) => sp.name.toLowerCase().includes(q) || sp.id.includes(q))
+        .slice(0, 8);
+      if (found.length === 0) {
+        hits.appendChild(el("div", "dim", "Nothing by that name."));
+        return;
+      }
+      for (const sp of found) {
+        const taken = locked?.id === sp.id;
+        const b = el("button", `dbgHit${chosen === sp.id ? " sel" : ""}`);
+        b.appendChild(el("span", undefined, sp.name));
+        b.appendChild(el("span", "sub", taken ? "taken" : typeLabel(sp)));
+        (b as HTMLButtonElement).disabled = taken || !myTurn;
+        b.addEventListener("click", () => {
+          sfx.tap();
+          chosen = sp.id;
+          renderGrid();
+          renderDetail();
+          renderState();
+          renderHits();
+        });
+        hits.appendChild(b);
+      }
+    };
+    field.addEventListener("input", renderHits);
     const confirm = bigBtn("Choose", () => {
       if (chosen && myTurn) onPick(chosen);
     }, true);
@@ -710,6 +756,7 @@ function starterScreen(
       const g = sp.genes;
       detail.appendChild(el("div", "dim",
         `HP ${g.hp} · Str ${g.str} · Def ${g.def} · Res ${g.res} · Mag ${g.mag} · Spd ${g.spd}`));
+      detail.appendChild(el("div", "dim", `${statTotal(g)} base points at Lv ${MAX_LEVEL}.`));
       detail.appendChild(el("div", "dim",
         `Starts with ${sp.learnset.filter((l) => l.level <= 5).map((l) => MOVES[l.move]?.name ?? l.move).join(", ")}`));
     };
@@ -763,6 +810,7 @@ function starterScreen(
     renderDetail();
     renderState();
     s.appendChild(grid);
+    s.appendChild(search);
     s.appendChild(detail);
     s.appendChild(confirm);
 
@@ -1008,7 +1056,7 @@ function buildSave(localSlot: SlotId, localDef: CharacterDef, otherDef: Characte
   const theirs = makeWild(otherDef.starter, 5, rngFrom(`${worldSeed}:starter:${other}`));
   theirs.owner = other;
   return {
-    version: 12,
+    version: 14,
     createdAt: now,
     updatedAt: now,
     worldSeed,

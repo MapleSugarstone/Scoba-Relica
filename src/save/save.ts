@@ -1,7 +1,7 @@
 import type { ScobaInstance } from "../sim/scoba";
 import { MAX_LEVEL, maxHp } from "../sim/scoba";
 import { MOVES, RETIRED_SPECIES, SPECIES, speciesMoves } from "../sim/species";
-import { BASE_GENES } from "../sim/types";
+import { BABY_BUDGET, BASE_GENES, STAT_BUDGET, STAT_NAMES, capStats, statTotal, type Stats } from "../sim/types";
 import type { CareState } from "../sim/care";
 import type { Companionship } from "../sim/companionship";
 import { DEFAULT_LOOK, type Look } from "../engine/recolor";
@@ -23,7 +23,7 @@ export interface CharacterDef {
 }
 
 export interface SaveData {
-  version: 12;
+  version: 14;
   createdAt: number;
   updatedAt: number;
   worldSeed: string;
@@ -389,7 +389,54 @@ function migrate(data: unknown): SaveData | null {
     d.pos = { ...d.pos, map: typeof d.pos?.map === "string" ? d.pos.map : "" };
     d.version = 12;
   }
-  if (d.version !== 12) return null;
+  if (d.version === 12) {
+    // v12 -> v13: base stat lines are measured at the level ceiling now, and
+    // the ceiling moved from 5 to 30. Both are one change: a line that used to
+    // read 5 and climb by one a level reads in the hundreds and scales.
+    //
+    // A level keeps its share of the climb, so whatever was maxed stays maxed.
+    // An unbred Scoba is its species' line by definition and is restored to it
+    // exactly. A bred one keeps the shape breeding gave it, spread over the
+    // budget its form is built on, since the old species lines it was mixed
+    // from are gone and its proportions are what is left of them.
+    const OLD_MAX_LEVEL = 5;
+    for (const s of [...d.party, ...d.box]) {
+      const sp = SPECIES[s.speciesId];
+      if (!sp) continue;
+      s.level = Math.max(1, Math.min(MAX_LEVEL, Math.round((s.level / OLD_MAX_LEVEL) * MAX_LEVEL)));
+      s.xp = 0;
+      if (s.breedCount === 0) {
+        s.genes = { ...sp.genes };
+      } else {
+        const budget = sp.baby ? BABY_BUDGET : STAT_BUDGET;
+        const was = Math.max(1, statTotal(s.genes));
+        const line = {} as Stats;
+        for (const name of STAT_NAMES) line[name] = Math.round((s.genes[name] / was) * budget);
+        s.genes = capStats(line);
+      }
+      s.hp = maxHp(s);
+    }
+    d.version = 13;
+  }
+  if (d.version === 13) {
+    // v13 -> v14: colours are no longer kept on the Scoba. A swap written as
+    // hexes was right for the drawing it was worked out against and wrong for
+    // every other one, so what is kept now is the father it came from and the
+    // swap is read off him wherever the Scoba is drawn.
+    //
+    // The old swaps cannot say which father left them, so they go. A Scoba
+    // that was wearing one comes out in its own colours until it is bred
+    // again, which is the only honest thing to do with a mark whose owner is
+    // not recorded anywhere.
+    for (const s of [...d.party, ...d.box]) {
+      for (const dead of ["tint", "tints"]) {
+        delete (s as unknown as Record<string, unknown>)[dead];
+        if (s.summoner) delete (s.summoner as unknown as Record<string, unknown>)[dead];
+      }
+    }
+    d.version = 14;
+  }
+  if (d.version !== 14) return null;
   const out = d as unknown as SaveData;
   if (!out.sentinels || typeof out.sentinels !== "object") out.sentinels = {};
   clearStampedGrowth(out);

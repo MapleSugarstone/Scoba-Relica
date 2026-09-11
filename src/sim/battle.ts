@@ -6,7 +6,7 @@
 // Combat rules: every Scoba starts a battle with 40 mana, gains 20 at end of
 // turn (cap 100), and spends mana on spells. Some spells have a cooldown and
 // a starting cooldown. Innate actions: Block (halve all damage taken this
-// turn) and a basic attack (100% Strength, typeless physical). Physical
+// turn) and a basic attack (typeless physical, see `basicPower`). Physical
 // damage is mitigated by Defense (+1% effective HP per point), magical by
 // Resistance. Same-type spells deal 1.5x, super effective 2x, resisted 0.5x.
 //
@@ -15,9 +15,14 @@
 // on-hit and kill status triggers are handled, so a status tick and a spell
 // cannot drift apart in how they land.
 import type { ScobaInstance, Summoner } from "./scoba";
-import { MAX_MANA, moveCost, statsAt, makeWild, passiveStatuses } from "./scoba";
-import { MOVES, SPECIES, effectivenessAgainst, isStab, type Move, type MoveEffect } from "./species";
-import type { ElementType, StatName, Stats } from "./types";
+import {
+  MAX_MANA, inheritFromCaller, moveCost, scobaTypes, statsAt, makeWild, passiveStatuses,
+} from "./scoba";
+import {
+  HYPER_FORM, MOVES, SPECIES, abilityStatuses, grantedMoves, moveEffectiveness, moveIsStab,
+  moveTypes, type Move, type MoveEffect,
+} from "./species";
+import { STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
 import type { Rng } from "./rng";
 import { mulberry32, hashSeed, rngFrom } from "./rng";
 import {
@@ -29,10 +34,14 @@ import {
   foldStatEffects,
   newField,
   newStatus,
+  boostFrom,
+  isRooted,
   onSwitchOut,
+  rootedBy,
   stacksOf,
   statusName,
   tickDurations,
+  ticksThisTurn,
   tickField,
   triggerMatches,
   wardAgainst,
@@ -43,11 +52,14 @@ import {
   type FieldInstance,
   type FieldScope,
   type StatusDef,
+  type ReadEffect,
   type StatusEffect,
   type InflictScope,
   type StatusInstance,
   type StatusPolarity,
   type TriggerEvent,
+  HYPER_FLAT,
+  HYPER_SCALE,
 } from "./status";
 import {
   candidates,
@@ -71,6 +83,52 @@ export const START_MANA = 40;
 export const MANA_PER_TURN = 20;
 export { MAX_MANA };
 export const BLOCK_FACTOR = 0.5;
+/** What entering Hyper-Mode costs. A Scoba enters once and never leaves. */
+export const HYPER_COST = 60;
+export { HYPER_SCALE, HYPER_FLAT };
+/**
+ * What entering Hyper-Mode is worth, per stat.
+ *
+ * Worked out from the Scoba's own line rather than from what it is carrying at
+ * the time, so the mode is worth the same whenever it is entered. Read off the
+ * battle instead and a Scoba that had been worn down would get less for it
+ * exactly when it needed more, and one that had stacked a buff would get paid
+ * twice for it.
+ */
+export function hyperBonus(base: Stats): Stats {
+  const out = {} as Stats;
+  for (const name of STAT_NAMES) out[name] = boostFrom(HYPER_SCALE, HYPER_FLAT, base[name]);
+  return out;
+}
+/**
+ * What a basic attack hits for before Defense: a flat floor, a point a level,
+ * and most of the caster's Strength. The floor is what makes it worth taking
+ * on a Scoba with no Strength to speak of, which is every caster with an empty
+ * bar and nothing else left to do.
+ */
+export const BASIC_BASE = 10;
+export const BASIC_PER_LEVEL = 1;
+export const BASIC_STR_SCALE = 0.9;
+
+/** What a basic attack scales to for this Scoba, before any mitigation. */
+export function basicPower(level: number, str: number): number {
+  return BASIC_BASE + BASIC_PER_LEVEL * level + str * BASIC_STR_SCALE;
+}
+
+/**
+ * What a defence multiplies an incoming hit by. Defense reads against a
+ * physical hit and Resistance against a magical one, and either can be driven
+ * under nothing.
+ *
+ * Armour of nothing changes nothing, 100 halves a hit and 300 quarters it. A
+ * negative is the same curve mirrored: it adds what the same amount of armour
+ * would have taken off, so -100 puts half again on top. It approaches double
+ * and never passes it, so no amount of stripping turns one hit into a whole
+ * pool.
+ */
+export function mitigation(armor: number): number {
+  return armor >= 0 ? 100 / (100 + armor) : 2 - 100 / (100 - armor);
+}
 /** Summons past this many on one team are refused, cap-breaking or not. */
 export const MAX_SUMMONS = 6;
 /** Stops a chain of statuses that set each other off from running away. */
@@ -94,6 +152,10 @@ export interface Combatant {
   mana: number;
   /** Turns each move stays locked; decremented at end of turn. */
   cds: Record<string, number>;
+  /** Moves it has already spent its one cast of. */
+  spent: string[];
+  /** In Hyper-Mode, which it entered once and stays in. */
+  hyper?: boolean;
   blocking: boolean;
   fainted: boolean;
   statuses: StatusInstance[];
@@ -172,6 +234,11 @@ export type Choice =
   | { kind: "attack"; side: 0 | 1; slot: Slot; picks: (TargetRef | null)[] }
   | { kind: "block"; side: 0 | 1; slot: Slot }
   | { kind: "switch"; side: 0 | 1; slot: Slot; benchIndex: number }
+  /**
+   * Enters Hyper-Mode. It resolves ahead of every switch, which is what lets a
+   * mode that pins the field catch a Scoba trying to leave it.
+   */
+  | { kind: "hyper"; side: 0 | 1; slot: Slot }
   | { kind: "catch"; side: 0 | 1; slot: Slot }
   | { kind: "flee"; side: 0 | 1; slot: Slot }
   | { kind: "pass"; side: 0 | 1; slot: Slot };
@@ -179,7 +246,7 @@ export type Choice =
 export interface BattleEvent {
   text: string;
   kind: "spell" | "hit" | "faint" | "switch" | "heal" | "block" | "catch" | "flee" | "win" | "info"
-  | "status" | "summon" | "field";
+  | "status" | "summon" | "field" | "hyper";
   /** Who the line is about: the one hit, healed, marked or sent out. */
   at?: TargetRef;
   /** Who brought it about, when that is somebody else. */
@@ -218,6 +285,7 @@ export function makeCombatants(team: ScobaInstance[]): Combatant[] {
       hp: 0,
       mana: START_MANA,
       cds,
+      spent: [],
       blocking: false,
       fainted: false,
       // Abilities are statuses, hung on before anything reads a stat off it.
@@ -464,12 +532,9 @@ export function combatantMaxHp(c: Combatant): number {
  * What a combatant's own statuses and the field it is standing under both say,
  * as one list. A field carries no stacks, so each of its effects counts once.
  */
-function readEffects(
-  c: Combatant,
-  field: FieldEffect[],
-): { effect: StatusEffect; stacks: number }[] {
+function readEffects(c: Combatant, field: FieldEffect[]): ReadEffect[] {
   const out = continuousEffects(c.statuses);
-  for (const effect of field) out.push({ effect, stacks: 1 });
+  for (const effect of field) out.push({ effect, stacks: 1, power: 0 });
   return out;
 }
 
@@ -494,12 +559,48 @@ function elementPower(c: Combatant, element: ElementType, field: FieldEffect[]):
   return mult;
 }
 
+/**
+ * Every move a combatant can pick this turn: the four it holds, then whatever
+ * its abilities hand it. A granted move is never in a slot, so it neither
+ * crowds the set out nor counts as one its line does not learn.
+ */
+export function castableMoves(c: Combatant): string[] {
+  const sp = SPECIES[c.scoba.speciesId];
+  const granted = sp ? grantedMoves(sp, c.scoba.secondaryAbility) : [];
+  return [...c.scoba.moves, ...granted.filter((m) => !c.scoba.moves.includes(m))];
+}
+
 export function moveReady(c: Combatant, moveId: string): { ok: boolean; why?: string } {
   const move = MOVES[moveId];
   if (!move) return { ok: false, why: "Unknown move." };
+  if (move.oncePerBattle && c.spent.includes(moveId)) return { ok: false, why: "Already used this battle." };
   if ((c.cds[moveId] ?? 0) > 0) return { ok: false, why: `On cooldown (${c.cds[moveId]}).` };
   if (c.mana < moveCost(c.scoba, moveId)) return { ok: false, why: "Not enough mana." };
   return { ok: true };
+}
+
+/**
+ * The costumes a combatant is currently seen in: whatever its spent moves left
+ * it looking like, and Hyper-Mode. Both last as long as the battle does, so a
+ * Scoba is drawn with its cherry again the next time it walks out.
+ */
+export function formsOf(c: Combatant): string[] {
+  const out: string[] = [];
+  for (const id of c.spent) {
+    const tag = MOVES[id]?.spendsForm;
+    if (tag && !out.includes(tag)) out.push(tag);
+  }
+  if (c.hyper) out.push(HYPER_FORM);
+  return out;
+}
+
+/** Why this Scoba cannot go Hyper right now, or null if it can. */
+export function hyperError(c: Combatant): string | null {
+  const sp = SPECIES[c.scoba.speciesId];
+  if (!sp?.hyperAbility) return "This Scoba has no Hyper-Mode.";
+  if (c.hyper) return "Already in Hyper-Mode.";
+  if (c.mana < HYPER_COST) return `Costs ${HYPER_COST} mana.`;
+  return null;
 }
 
 /** The target specs a choice has to satisfy before it is legal. */
@@ -521,6 +622,12 @@ export function choiceError(st: BattleState, c: Choice): string | null {
     // whose it is, decide the move regardless of who was named.
     if (isPawnSlot(c.slot)) return "A Pawn cannot be called back.";
     if (!slotInPlay(st, c.side, c.slot)) return "Nobody is playing that slot.";
+    // A rooted Scoba stays where it is. Checked before the bench, since what
+    // stops the switch is the one leaving rather than the one coming in.
+    const leaving = combatant(st, c.side, c.slot);
+    if (leaving && !leaving.fainted && isRooted(leaving.statuses)) {
+      return `${rootedBy(leaving.statuses) ?? "Something"} holds it in place.`;
+    }
     const target = st.teams[c.side][c.benchIndex];
     if (!target) return "No such team member.";
     if (target.pawn) return "A Pawn cannot be sent out.";
@@ -534,6 +641,7 @@ export function choiceError(st: BattleState, c: Choice): string | null {
   }
   if (!user || user.fainted) return "No active Scoba in that slot.";
   if (c.kind === "block") return null;
+  if (c.kind === "hyper") return hyperError(user);
   if (c.kind === "catch") {
     if (!st.wild) return "Only in wild battles.";
     if (c.side !== 0) return "Only the challenger can do that.";
@@ -545,7 +653,7 @@ export function choiceError(st: BattleState, c: Choice): string | null {
     return null;
   }
   if (c.kind === "spell") {
-    if (!user.scoba.moves.includes(c.moveId)) return "Scoba does not know that spell.";
+    if (!castableMoves(user).includes(c.moveId)) return "Scoba does not know that spell.";
     const ready = moveReady(user, c.moveId);
     if (!ready.ok) return ready.why ?? "Not ready.";
   }
@@ -605,17 +713,23 @@ function damageOf(
   let dmg: number;
   let eff = 1;
   if (move === null) {
-    dmg = uStats.str;
-    dmg /= 1 + tStats.def / 100;
+    dmg = basicPower(user.scoba.level, uStats.str);
+    dmg *= mitigation(tStats.def);
+  } else if (move.flatPerLevel) {
+    // Flat damage is the number and nothing else: no stat, no same-type bonus,
+    // no chart and no mitigation. What it buys is a hit you can count on.
+    dmg = move.flatPerLevel * user.scoba.level;
   } else {
     dmg = (move.kind === "physical" ? uStats.str : uStats.mag) * move.scale;
-    const userSp = SPECIES[user.scoba.speciesId]!;
-    const targetSp = SPECIES[target.scoba.speciesId]!;
-    if (isStab(userSp, move.type)) dmg *= 1.5;
-    eff = effectivenessAgainst(move.type, targetSp);
+    // The Scoba's own elements rather than its species', since a bred one may
+    // carry a second it took from its father.
+    if (moveIsStab(scobaTypes(user.scoba), move)) dmg *= 1.5;
+    eff = moveEffectiveness(move, scobaTypes(target.scoba));
     dmg *= eff;
-    dmg *= elementPower(user, move.type, field);
-    dmg /= 1 + (move.kind === "physical" ? tStats.def : tStats.res) / 100;
+    // A two-element move is powered up by whichever of its elements the
+    // caster and the field have something to say about.
+    dmg *= moveTypes(move).reduce((mult, t) => mult * elementPower(user, t, field), 1);
+    dmg *= mitigation(move.kind === "physical" ? tStats.def : tStats.res);
   }
   return { dmg: Math.max(1, Math.floor(dmg)), eff };
 }
@@ -653,8 +767,10 @@ export function previewMove(
   const stat: StatName | null = move.kind === "physical" ? "str" : move.kind === "magical" ? "mag" : null;
   if (move.kind === "heal") {
     return {
-      element: move.type, category, stat: null, scale: move.scale, damage: null, eff: 1,
-      heal: Math.floor(combatantMaxHp(user) * move.scale),
+      element: move.type, category,
+      stat: move.healBasis === "magic" ? "mag" : null,
+      scale: move.scale, damage: null, eff: 1,
+      heal: healAmount(user, user, move),
     };
   }
   if (move.kind === "utility") {
@@ -662,6 +778,14 @@ export function previewMove(
   }
   const ref = targetRef ?? firstStanding(st, userRef.side === 0 ? 1 : 0);
   const target = ref ? combatantAt(st, ref) : null;
+  // Flat damage reads off the caster's level, so it has a number to show even
+  // with nothing on the far side to measure against.
+  if (move.flatPerLevel) {
+    return {
+      element: move.type, category, stat: null, scale: 0,
+      damage: move.flatPerLevel * user.scoba.level, eff: 1, heal: null,
+    };
+  }
   if (!target) {
     return { element: move.type, category, stat, scale: move.scale, damage: null, eff: 1, heal: null };
   }
@@ -719,9 +843,12 @@ function dealDamage(ctx: Ctx, targetRef: TargetRef, raw: number, meta: HitMeta):
 
   if (meta.triggersOnHit && ctx.depth < MAX_TRIGGER_DEPTH) {
     const deeper = { ...ctx, depth: ctx.depth + 1 };
-    fire(deeper, targetRef, { on: "hit", category: meta.category, element: meta.element }, meta.source);
+    // A basic attack names no move, which is what tells a spell trigger from
+    // the plain swing that carries the same category.
+    const spell = meta.moveId !== undefined;
+    fire(deeper, targetRef, { on: "hit", category: meta.category, element: meta.element, spell }, meta.source);
     if (meta.source) {
-      fire(deeper, meta.source, { on: "deal", category: meta.category, element: meta.element }, targetRef);
+      fire(deeper, meta.source, { on: "deal", category: meta.category, element: meta.element, spell }, targetRef);
     }
   }
 
@@ -735,14 +862,136 @@ function dealDamage(ctx: Ctx, targetRef: TargetRef, raw: number, meta: HitMeta):
   return dmg;
 }
 
-function heal(ctx: Ctx, targetRef: TargetRef, amount: number): number {
+/** One hit that has landed, waiting for what it sets off. */
+interface Landed {
+  at: TargetRef;
+  meta: HitMeta;
+  dealt: number;
+}
+
+/**
+ * Lands one hit and stops, without running anything it set off.
+ *
+ * Everything up to and including the HP coming off is here. Everything the
+ * loss provokes is left to `reactTo`, so a move that reaches several Scobas
+ * can take the HP off all of them before any of them answers.
+ */
+function landDamage(ctx: Ctx, targetRef: TargetRef, raw: number, meta: HitMeta): Landed | null {
+  const target = combatantAt(ctx.st, targetRef);
+  if (!target || target.fainted) return null;
+  const name = displayName(target.scoba);
+
+  const field = fieldEffects(ctx.st.fields[targetRef.side]);
+  if (immuneTo(target, meta.element, field)) {
+    ctx.events.push({ text: `${name} is untouched by it.`, kind: "info", at: targetRef, by: meta.source ?? undefined });
+    return null;
+  }
+  const ward = wardAgainst(target.statuses, meta.element);
+  if (ward) {
+    if (ward.chargesLeft > 0) ward.chargesLeft -= 1;
+    target.statuses = target.statuses.filter((held) => held.chargesLeft !== 0);
+    ctx.events.push({
+      text: `${name} turns it aside.`,
+      kind: "status", at: targetRef, by: meta.source ?? undefined,
+    });
+    return null;
+  }
+  let dmg = raw * vulnerabilityMult(target, meta.element, field);
+  if (target.blocking && !meta.ignoresBlock) dmg *= BLOCK_FACTOR;
+  dmg = Math.max(1, Math.floor(dmg));
+
+  target.hp = Math.max(0, target.hp - dmg);
+  ctx.events.push({
+    text: `${name} took ${dmg} damage.${meta.note ?? ""}${target.blocking && !meta.ignoresBlock ? " (blocked)" : ""}`,
+    kind: "hit",
+    at: targetRef,
+    by: meta.source ?? undefined,
+    moveId: meta.moveId,
+    hp: target.hp,
+  });
+  return { at: targetRef, meta, dealt: dmg };
+}
+
+/** What one landed hit sets off: the on-hit marks, the low-HP watch, the death. */
+function reactTo(ctx: Ctx, hit: Landed): void {
+  const target = combatantAt(ctx.st, hit.at);
+  if (!target) return;
+  const meta = hit.meta;
+  if (meta.triggersOnHit && ctx.depth < MAX_TRIGGER_DEPTH) {
+    const deeper = { ...ctx, depth: ctx.depth + 1 };
+    // A basic attack names no move, which is what tells a spell trigger from
+    // the plain swing that carries the same category.
+    const spell = meta.moveId !== undefined;
+    fire(deeper, hit.at, { on: "hit", category: meta.category, element: meta.element, spell }, meta.source);
+    if (meta.source) {
+      fire(deeper, meta.source, { on: "deal", category: meta.category, element: meta.element, spell }, hit.at);
+    }
+  }
+  if (target.hp > 0) {
+    const frac = target.hp / Math.max(1, combatantMaxHp(target));
+    if (ctx.depth < MAX_TRIGGER_DEPTH) {
+      fire({ ...ctx, depth: ctx.depth + 1 }, hit.at, { on: "hp-below", frac }, meta.source);
+    }
+  }
+  if (target.hp <= 0 && !target.fainted) killed(ctx, hit.at, meta);
+}
+
+/**
+ * One strike that reaches several Scobas at once.
+ *
+ * Every number is worked out before any of it lands, every hit lands before
+ * anything answers, and only then does anything answer. Dealt one at a time
+ * instead, the first Scoba to fall would have set off its passives, its
+ * allies' and its killer's before the second was even struck, so a move that
+ * hit a whole line landed on a field that its own first hit had already
+ * changed.
+ *
+ * What answers, answers fastest first. A Scoba that acts before another in a
+ * round reacts before it too, and ties fall to team order rather than a roll
+ * so two clients agree without spending any.
+ */
+function dealTogether(
+  ctx: Ctx,
+  strikes: { at: TargetRef; raw: number; meta: HitMeta }[],
+): void {
+  const landed: Landed[] = [];
+  for (const s of strikes) {
+    const hit = landDamage(ctx, s.at, s.raw, s.meta);
+    if (hit) landed.push(hit);
+  }
+  landed.sort((a, b) => {
+    const sa = combatantAt(ctx.st, a.at);
+    const sb = combatantAt(ctx.st, b.at);
+    return (sb ? combatantStats(sb).spd : 0) - (sa ? combatantStats(sa).spd : 0)
+      || a.at.side - b.at.side || a.at.index - b.at.index;
+  });
+  for (const hit of landed) {
+    if (ctx.st.winner !== -1) return;
+    reactTo(ctx, hit);
+  }
+}
+
+/**
+ * `from` names who is mending and with what, the way a hit names who struck.
+ * The scene needs both: a heal thrown at an ally has to leave somebody's hands
+ * and be drawn as the move it came from.
+ */
+function heal(
+  ctx: Ctx, targetRef: TargetRef, amount: number,
+  from?: { source?: TargetRef | null; moveId?: string },
+): number {
   const target = combatantAt(ctx.st, targetRef);
   if (!target || target.fainted || amount <= 0) return 0;
   const max = combatantMaxHp(target);
   const given = Math.min(max - target.hp, Math.max(1, Math.floor(amount)));
   if (given <= 0) return 0;
   target.hp += given;
-  ctx.events.push({ text: `${displayName(target.scoba)} recovered ${given} HP.`, kind: "heal", at: targetRef, hp: target.hp });
+  ctx.events.push({
+    text: `${displayName(target.scoba)} recovered ${given} HP.`,
+    kind: "heal", at: targetRef, hp: target.hp,
+    ...(from?.source ? { by: from.source } : {}),
+    ...(from?.moveId ? { moveId: from.moveId } : {}),
+  });
   return given;
 }
 
@@ -832,6 +1081,8 @@ function fire(ctx: Ctx, holderRef: TargetRef, event: TriggerEvent, other: Target
     const def = STATUSES[inst.id];
     if (!def || inst.chargesLeft === 0) continue;
     if (!triggerMatches(def, event)) continue;
+    // A mark that landed this turn waits for the next one before it ticks.
+    if (!ticksThisTurn(inst, event, ctx.st.turn)) continue;
     if (inst.chargesLeft > 0) inst.chargesLeft -= 1;
     runStatusEffects(ctx, holderRef, inst, def, other);
   }
@@ -892,7 +1143,9 @@ function runStatusEffects(
       }
       case "inflict":
         for (const ref of inflictScope(ctx.st, holderRef, other, effect.scope)) {
-          inflict(ctx, ref, effect.status, holderRef);
+          // A status that hangs another one measures it from whoever left the
+          // first, so a mark keeps naming the caster it came from as it spreads.
+          inflict(ctx, ref, effect.status, from ?? holderRef, effect.turns);
         }
         break;
       case "field":
@@ -915,13 +1168,15 @@ function inflictScope(
 ): TargetRef[] {
   if (scope === "self") return [holderRef];
   if (scope === "other") return other ? [other] : [];
-  const sides: (0 | 1)[] = scope === "all"
+  const sides: (0 | 1)[] = scope === "all" || scope === "others"
     ? [0, 1]
     : [scope === "allies" ? holderRef.side : (holderRef.side === 0 ? 1 : 0)];
   const out: TargetRef[] = [];
   for (const side of sides) {
     st.teams[side].forEach((c, index) => {
-      if (!c.fainted) out.push({ side, index });
+      if (c.fainted) return;
+      if (scope === "others" && sameRef({ side, index }, holderRef)) return;
+      out.push({ side, index });
     });
   }
   return out;
@@ -964,17 +1219,25 @@ function setField(
 }
 
 /** Puts a status on a target, snapshotting its damage if it asks for that. */
-export function inflict(ctx: Ctx, targetRef: TargetRef, statusId: string, from: TargetRef | null): void {
+export function inflict(
+  ctx: Ctx, targetRef: TargetRef, statusId: string, from: TargetRef | null, turns?: number,
+): void {
   const def = STATUSES[statusId];
   const target = combatantAt(ctx.st, targetRef);
   if (!def || !target || target.fainted) return;
   let power: number | undefined;
-  const dmg = def.effects.find((e) => e.kind === "damage");
-  if (dmg && dmg.kind === "damage" && dmg.damage.snapshot) {
-    power = basisValue(ctx, dmg.damage.basis, targetRef, from) * dmg.damage.frac;
+  if (def.power) {
+    power = basisValue(ctx, def.power.basis, targetRef, from) * def.power.frac;
+  } else {
+    const dmg = def.effects.find((e) => e.kind === "damage");
+    if (dmg && dmg.kind === "damage" && dmg.damage.snapshot) {
+      power = basisValue(ctx, dmg.damage.basis, targetRef, from) * dmg.damage.frac;
+    }
   }
-  const inst = newStatus(statusId, from ?? undefined, power);
+  const inst = newStatus(statusId, from ?? undefined, power, ctx.st.turn);
   if (!inst) return;
+  // What put it there can say how long it stands, over the mark's own clock.
+  if (turns !== undefined) inst.turnsLeft = turns;
   const how = applyStatus(target.statuses, inst);
   const name = displayName(target.scoba);
   const stacks = stacksOf(target.statuses, statusId);
@@ -1068,11 +1331,12 @@ function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
     rngFrom(`${st.seed}:mote:${st.turn}:${side}:${slot}`),
   );
   scoba.owner = caller.scoba.owner;
+  inheritFromCaller(scoba, caller.scoba);
   // What it wears is settled where the pixels are. The sim only records who
   // called it; the art layer keeps whichever of the summoner's marks the Pawn's
   // own palette has a colour for.
   const worn: Summoner = { speciesId: caller.scoba.speciesId };
-  if (caller.scoba.tint) worn.tint = caller.scoba.tint;
+  if (caller.scoba.sire) worn.sire = caller.scoba.sire;
   if (caller.scoba.shiny) worn.shiny = true;
   scoba.summoner = worn;
   const [c] = makeCombatants([scoba]);
@@ -1092,6 +1356,41 @@ function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
   if (ctx.depth < MAX_TRIGGER_DEPTH) {
     fire({ ...ctx, depth: ctx.depth + 1 }, { side, index }, { on: "switch-in" }, null);
   }
+}
+
+/**
+ * Enters Hyper-Mode: 25 percent on every stat and then a flat 15, the line's
+ * third passive turned on, and the same share of a bigger pool. A Scoba enters
+ * once and stays in it for the rest of the battle.
+ *
+ * Turning the mode on counts as taking the field, so a Hyper passive that does
+ * something the moment it comes up hangs it on `switch-in` like any other
+ * arrival. Passives that already spent their charge walking on stay spent.
+ */
+function enterHyper(ctx: Ctx, side: 0 | 1, slot: Slot): void {
+  const c = combatant(ctx.st, side, slot);
+  if (!c || c.fainted || hyperError(c) !== null) return;
+  const sp = SPECIES[c.scoba.speciesId]!;
+  const before = combatantMaxHp(c);
+  const share = before > 0 ? c.hp / before : 1;
+  c.mana -= HYPER_COST;
+  c.hyper = true;
+  // The Scoba's own line, passives and all, which is what it would have had
+  // walking in. Anything the fight has done to it since is left out.
+  const basis = statsAt(c.scoba, true);
+  for (const id of ["hyper", ...abilityStatuses(sp.hyperAbility!)]) {
+    const inst = newStatus(id);
+    if (!inst) continue;
+    if (id === "hyper") inst.basis = basis;
+    c.statuses.push(inst);
+  }
+  c.hp = Math.max(1, Math.round(combatantMaxHp(c) * share));
+  const ref = refOf(ctx.st, c);
+  ctx.events.push({
+    text: `${displayName(c.scoba)} goes Hyper!`,
+    kind: "hyper", at: ref ?? undefined, hp: c.hp, mana: c.mana,
+  });
+  if (ref) fire(ctx, ref, { on: "switch-in" }, null);
 }
 
 function grantItem(ctx: Ctx, side: 0 | 1, item: string, count: number): void {
@@ -1175,9 +1474,26 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     events.push({ text: `${displayName(target.scoba)} broke free!`, kind: "info" });
   }
 
+  // Ahead of every switch, because a mode that pins the field has to be able
+  // to catch a Scoba on its way out.
+  for (const c of choices) {
+    if (c.kind !== "hyper") continue;
+    enterHyper(ctx, c.side, c.slot);
+  }
+
   for (const c of choices) {
     if (c.kind !== "switch") continue;
     const leaving = combatant(st, c.side, c.slot);
+    // Whatever went up in the meantime gets its say: a Scoba rooted this turn
+    // stays where it is, and the turn it meant to spend leaving is spent.
+    if (leaving && !leaving.fainted && isRooted(leaving.statuses)) {
+      events.push({
+        text: `${displayName(leaving.scoba)} is stuck fast.`,
+        kind: "info",
+        at: refOf(st, leaving) ?? undefined,
+      });
+      continue;
+    }
     if (leaving) leaving.statuses = onSwitchOut(leaving.statuses);
     st.active[c.side][c.slot] = c.benchIndex;
     const sw = st.teams[c.side][c.benchIndex]!;
@@ -1193,9 +1509,12 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
   const ordered = acting
     .map((c) => {
       const user = combatant(st, c.side, c.slot);
-      return { c, spd: user ? combatantStats(user).spd : 0, tie: rng() };
+      const pri = c.kind === "spell" ? MOVES[c.moveId]?.priority ?? 0 : 0;
+      return { c, pri, spd: user ? combatantStats(user).spd : 0, tie: rng() };
     })
-    .sort((a, b) => b.spd - a.spd || b.tie - a.tie)
+    // Priority outranks Speed outright, so a fast Scoba never gets ahead of a
+    // move that was written to go first.
+    .sort((a, b) => b.pri - a.pri || b.spd - a.spd || b.tie - a.tie)
     .map((o) => o.c);
 
   for (const c of ordered) {
@@ -1207,9 +1526,11 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     if (!userRef) continue;
 
     const move = c.kind === "spell" ? MOVES[c.moveId] ?? null : null;
+    const paid = move ? moveCost(user.scoba, move.id) : 0;
     if (c.kind === "spell" && move) {
-      user.mana -= moveCost(user.scoba, c.moveId);
+      user.mana -= paid;
       if (move.cooldown > 0) user.cds[c.moveId] = move.cooldown + 1;
+      if (move.oncePerBattle && !user.spent.includes(move.id)) user.spent.push(move.id);
       events.push({
         text: `${displayName(user.scoba)} cast ${move.name}!`,
         kind: "spell", at: userRef, moveId: move.id, mana: user.mana,
@@ -1223,8 +1544,20 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     const specs = specsFor(c);
     const hits = specs.map((spec, i) => resolveTargets(st, userRef, spec, c.picks[i] ?? null, rng));
 
+    const standing = (hits[0] ?? []).filter((ref) => combatantAt(st, ref)?.fainted === false);
     applyPrimary(ctx, userRef, move, hits[0] ?? []);
     for (const effect of move?.effects ?? []) applyMoveEffect(ctx, userRef, effect, hits);
+
+    // A kill pays the move back. Hung on the kill and never on the hit, or the
+    // move would cost nothing against anything that survives it.
+    if (move?.refreshOnKill && standing.some((ref) => combatantAt(st, ref)?.fainted === true)) {
+      user.mana = Math.min(MAX_MANA, user.mana + paid);
+      delete user.cds[move.id];
+      events.push({
+        text: `${move.name} comes back around.`,
+        kind: "status", at: userRef, mana: user.mana,
+      });
+    }
 
     // Whoever the action was aimed at is the far side of it, so a passive
     // watching for a basic attack can leave a mark on what was struck.
@@ -1239,6 +1572,16 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
   return events;
 }
 
+/**
+ * What a heal puts back: a share of the patient's own pool by default, or a
+ * share of the caster's Magic where the move says so, which is what makes a
+ * healer's own Magic worth raising.
+ */
+export function healAmount(user: Combatant, target: Combatant, move: Move): number {
+  const basis = move.healBasis === "magic" ? combatantStats(user).mag : combatantMaxHp(target);
+  return Math.floor(basis * move.scale);
+}
+
 /** The move's own hit or heal, on the Scobas its first spec resolved to. */
 function applyPrimary(ctx: Ctx, userRef: TargetRef, move: Move | null, targets: TargetRef[]): void {
   const user = combatantAt(ctx.st, userRef);
@@ -1251,25 +1594,33 @@ function applyPrimary(ctx: Ctx, userRef: TargetRef, move: Move | null, targets: 
   if (move && move.kind === "heal") {
     for (const ref of targets) {
       const t = combatantAt(ctx.st, ref);
-      if (t) heal(ctx, ref, combatantMaxHp(t) * move.scale);
+      if (t) heal(ctx, ref, healAmount(user, t, move), { source: userRef, moveId: move.id });
     }
     return;
   }
-  for (const ref of targets) {
+  // Worked out against the field as it stands, before any of it lands, so a
+  // Scoba struck second is struck by the same move the first one was.
+  const field = fieldEffects(ctx.st.fields[userRef.side]);
+  const strikes: { at: TargetRef; raw: number; meta: HitMeta }[] = targets.flatMap((ref) => {
     const target = combatantAt(ctx.st, ref);
-    if (!target || target.fainted) continue;
-    const { dmg, eff } = damageOf(user, target, move, fieldEffects(ctx.st.fields[userRef.side]));
+    if (!target || target.fainted) return [];
+    const { dmg, eff } = damageOf(user, target, move, field);
     const note = eff > 1 ? " Super effective!" : eff < 1 ? " Not very effective." : "";
-    dealDamage(ctx, ref, dmg, {
-      element: move ? move.type : "plain",
-      category: move ? (move.kind === "physical" ? "physical" : "magic") : "physical",
-      damageClass: "attack",
-      triggersOnHit: true,
-      source: userRef,
-      note,
-      moveId: move?.id,
-    });
-  }
+    return [{
+      at: ref,
+      raw: dmg,
+      meta: {
+        element: move ? move.type : "plain",
+        category: move ? (move.kind === "physical" ? "physical" : "magic") : "physical",
+        damageClass: "attack",
+        triggersOnHit: true,
+        source: userRef,
+        note,
+        moveId: move?.id,
+      },
+    }];
+  });
+  dealTogether(ctx, strikes);
 }
 
 function applyMoveEffect(ctx: Ctx, userRef: TargetRef, effect: MoveEffect, hits: TargetRef[][]): void {
@@ -1281,21 +1632,25 @@ function applyMoveEffect(ctx: Ctx, userRef: TargetRef, effect: MoveEffect, hits:
     case "damage": {
       const user = combatantAt(ctx.st, userRef);
       if (!user) break;
-      for (const ref of group(effect.target)) {
-        dealDamage(ctx, ref, Math.max(1, Math.floor(combatantStats(user).str * effect.scale)), {
-          element: "plain",
-          category: "physical",
-          damageClass: "attack",
+      // One number for everyone it reaches, read before any of it lands.
+      const raw = Math.max(1, Math.floor(combatantStats(user).str * effect.scale));
+      dealTogether(ctx, group(effect.target).map((ref) => ({
+        at: ref,
+        raw,
+        meta: {
+          element: "plain" as const,
+          category: "physical" as const,
+          damageClass: "attack" as const,
           triggersOnHit: true,
           source: userRef,
-        });
-      }
+        },
+      })));
       break;
     }
     case "heal":
       for (const ref of group(effect.target)) {
         const t = combatantAt(ctx.st, ref);
-        if (t) heal(ctx, ref, combatantMaxHp(t) * effect.frac);
+        if (t) heal(ctx, ref, combatantMaxHp(t) * effect.frac, { source: userRef });
       }
       break;
     case "transfer": {
@@ -1388,7 +1743,7 @@ function endOfTurn(ctx: Ctx): void {
         if (c.cds[id]! > 0) c.cds[id]! -= 1;
       }
       c.blocking = false;
-      c.statuses = tickDurations(c.statuses);
+      c.statuses = tickDurations(c.statuses, st.turn);
       c.hp = Math.min(c.hp, combatantMaxHp(c));
     }
   }
@@ -1515,7 +1870,8 @@ export function stateHash(st: BattleState): string {
     st.teams[side].forEach((c, i) => {
       const cds = Object.entries(c.cds).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).sort().join(",");
       const sts = c.statuses.map((s) => `${s.id}:${s.stacks}:${s.turnsLeft}:${s.chargesLeft}`).sort().join(",");
-      parts.push(`${side}.${i}:${c.hp}/${c.mana}${c.blocking ? "b" : ""}${c.fainted ? "x" : ""}[${cds}]{${sts}}`);
+      const spent = [...c.spent].sort().join(",");
+      parts.push(`${side}.${i}:${c.hp}/${c.mana}${c.blocking ? "b" : ""}${c.fainted ? "x" : ""}${c.hyper ? "H" : ""}[${cds}]<${spent}>{${sts}}`);
     });
   }
   return String(hashSeed(parts.join("|")));

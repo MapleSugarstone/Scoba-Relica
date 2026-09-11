@@ -36,12 +36,12 @@ const put = (c: Combatant, id: string, from?: { side: 0 | 1; index: number }) =>
 describe("status definitions", () => {
   it("matches a specific hit against a status listening for any hit", () => {
     const fragile = STATUSES["fragile"]!;
-    expect(triggerMatches(fragile, { on: "hit", category: "magic", element: "sun" })).toBe(true);
-    expect(triggerMatches(fragile, { on: "hit", category: "physical", element: "plain" })).toBe(true);
+    expect(triggerMatches(fragile, { on: "hit", category: "magic", element: "sun", spell: true })).toBe(true);
+    expect(triggerMatches(fragile, { on: "hit", category: "physical", element: "plain", spell: true })).toBe(true);
     expect(triggerMatches(fragile, { on: "turn-end" })).toBe(false);
     // A status listening for one category ignores the other.
     const marked = STATUSES["marked"]!;
-    expect(triggerMatches(marked, { on: "hit", category: "magic", element: "cipher" })).toBe(false);
+    expect(triggerMatches(marked, { on: "hit", category: "magic", element: "cipher", spell: true })).toBe(false);
   });
 
   it("fires an hp-below watcher only once the threshold is crossed", () => {
@@ -127,6 +127,14 @@ describe("statuses in a battle", () => {
     // caster's Magic changes afterwards.
     const inst = foe.statuses.find((s) => s.id === "fire")!;
     expect(inst.power).toBeGreaterThan(0);
+    // A mark does not tick on the turn it lands, so its clock is untouched
+    // and it burns on each of the three turns after this one.
+    expect(inst.turnsLeft).toBe(STATUSES["fire"]!.duration!);
+    expect(inst.since).toBe(st.turn);
+    // Read off the burn's own line rather than off the pool: a passive that
+    // mends at the end of a turn would otherwise cover what the burn took.
+    const events = resolveTurn(st, [{ kind: "block", side: 0, slot: 0 }]);
+    expect(events.some((e) => e.text.includes("Fire bites"))).toBe(true);
     expect(inst.turnsLeft).toBeLessThan(STATUSES["fire"]!.duration!);
   });
 

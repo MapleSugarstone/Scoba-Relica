@@ -48,6 +48,10 @@ export type MoveVfx =
   | "bolt"
   /** Arcing shot that bursts where it lands. */
   | "lob"
+  /** A slow arc, turning as it goes, that is gone the moment it lands. */
+  | "toss"
+  /** Appears over the target and falls onto it, slowing into the ground. */
+  | "drop"
   /** A burst on the target with nothing thrown. */
   | "burst"
   /** Licking flames over the target. */
@@ -61,6 +65,12 @@ export interface Move {
   id: string;
   name: string;
   type: ElementType;
+  /**
+   * A second element, checked against the chart alongside the first and
+   * granting same-type damage on its own. A move strong into both halves of a
+   * defender lands at 4x, the same way a two-type species is read.
+   */
+  type2?: ElementType;
   /** `utility` has no hit of its own and does its work through `effects`. */
   kind: "physical" | "magical" | "heal" | "utility";
   /** Damage: fraction of Str/Mag dealt (1.1 = 110%). Heal: fraction of max HP. */
@@ -78,6 +88,45 @@ export interface Move {
   /** Overrides the animation its kind would otherwise get. */
   anim?: CasterAnim;
   vfx?: MoveVfx;
+  /**
+   * Resolves ahead of everything slower than it, whatever the Speed either
+   * side is carrying. 0 is where every ordinary move sits.
+   */
+  priority?: number;
+  /** Casts once a battle, however much mana and cooldown would allow. */
+  oncePerBattle?: boolean;
+  /**
+   * A fixed number times the caster's level, in place of the stat scaling.
+   * Flat damage ignores Defense, Resistance, the chart and same-type damage
+   * alike, and still counts as move damage everywhere else.
+   */
+  flatPerLevel?: number;
+  /** What a heal is a share of. Defaults to the target's own pool. */
+  healBasis?: "max-hp" | "magic";
+  /** A kill with this puts its mana back and clears its cooldown. */
+  refreshOnKill?: boolean;
+  /**
+   * The costume the caster is seen in once this has been spent, for a move
+   * that visibly uses something up. It lasts as long as the battle does,
+   * because that is how long the move stays spent.
+   */
+  spendsForm?: string;
+  /** Drawn art for the effect it throws, by file name in `assets/Powers`. */
+  art?: string;
+  /** A drawn sample for casting it, by file name in `assets/Sounds`. */
+  sound?: string;
+  /**
+   * When `sound` plays. "hit" is where a move that lands a blow wants it, and
+   * is the default. "cast" is for a move whose noise is the firing rather than
+   * the landing: it plays as the move goes out, in place of the throw.
+   */
+  soundOn?: "cast" | "hit";
+  /**
+   * Where what it throws comes from: an accessory by name, rather than the
+   * middle of the caster. A line that has the piece drawn into its own art
+   * throws from where the piece is drawn all the same.
+   */
+  vfxOrigin?: string;
 }
 
 /**
@@ -90,6 +139,18 @@ export interface Ability {
   id: string;
   name: string;
   statuses?: string[];
+  /**
+   * A move the Scoba can cast without holding it in a slot. It shows up after
+   * the four it knows, and costs what the move says rather than a surcharge,
+   * since the ability is what hands it over.
+   */
+  grantsMove?: string;
+  /**
+   * Art worn over a Scoba that inherited this passive from another line, by
+   * file name in `assets/AccessoryScoba`. A line that has the passive of its
+   * own already has it drawn in and wears nothing.
+   */
+  accessory?: string;
 }
 
 /** The statuses an ability puts on its Scoba. */
@@ -112,8 +173,66 @@ export type MovementStyle = "hop" | "scamper" | "hover" | "skitter";
  * yet: a blob in the species' type color.
  */
 export type SpriteDef =
-  | { kind: "art"; art: string }
+  | {
+    kind: "art";
+    art: string;
+    /**
+     * Costumes, keyed by the form tags they are worn for, sorted and joined
+     * with "+". A Scoba wearing tags with nothing drawn for them falls back to
+     * `art`, so a line needs a costume only for the forms it can be seen in.
+     */
+    forms?: Record<string, string>;
+  }
   | { kind: "placeholder" };
+
+/**
+ * The tag a Scoba in Hyper-Mode wears. A Hyper costume is the line drawn again
+ * from scratch rather than the same body with a piece taken off it, so anything
+ * measured against the art holds for the Hyper drawings or for the ordinary
+ * ones and never across the two.
+ */
+export const HYPER_FORM = "hyper";
+
+/** One drawing a line can be seen in: the tags that ask for it, and its name. */
+export interface Costume {
+  tags: string[];
+  label: string;
+}
+
+/**
+ * Every costume a line can be seen in: the art it walks around in, then one per
+ * set of form tags it has a drawing for.
+ */
+export function costumesOf(sp: Species): Costume[] {
+  const out: Costume[] = [{ tags: [], label: "As drawn" }];
+  if (sp.sprite.kind !== "art") return out;
+  for (const key of Object.keys(sp.sprite.forms ?? {})) {
+    out.push({ tags: key.split("+"), label: key.replace(/\+/g, " + ") });
+  }
+  return out;
+}
+
+/**
+ * The costumes drawn from the same body as the one these tags ask for. Taking a
+ * piece off a Scoba leaves the body where it was, so anything measured against
+ * one of those drawings holds for the others. Hyper-Mode is the line drawn again
+ * from scratch, so nothing measured against it carries over either way.
+ */
+export function kinCostumes(sp: Species, tags: readonly string[]): Costume[] {
+  const hyper = tags.includes(HYPER_FORM);
+  return costumesOf(sp).filter((c) => c.tags.includes(HYPER_FORM) === hyper);
+}
+
+/**
+ * Which costume a set of form tags asks for. Tags are sorted here rather than
+ * where they are collected, so nothing has to remember what order they go in.
+ */
+export function artNameFor(sp: Species, tags: readonly string[]): string | null {
+  if (sp.sprite.kind !== "art") return null;
+  if (tags.length === 0) return sp.sprite.art;
+  const key = [...new Set(tags)].sort().join("+");
+  return sp.sprite.forms?.[key] ?? sp.sprite.art;
+}
 
 export interface Species {
   id: string;
@@ -134,6 +253,19 @@ export interface Species {
   stage?: number;
   /** The species it becomes when it evolves, if there is one yet. */
   evolvesTo?: string;
+  /**
+   * A baby form. It is built on the smaller budget, it grows out of itself on
+   * reaching `BABY_EVOLVE_LEVEL` rather than being bought out of, and it is
+   * what its line's children hatch as.
+   */
+  baby?: boolean;
+  /**
+   * The third passive, which runs only while the Scoba is in Hyper-Mode. A
+   * baby has none, and neither does a Pawn.
+   */
+  hyperAbility?: string;
+  /** A drawn sample it calls with, by file name in `assets/Sounds`. */
+  cry?: string;
   /** Blurb for the starter picker. */
   blurb?: string;
   /** One per primary type; offered at the start of a new game. */
@@ -150,18 +282,41 @@ export interface Species {
    * does, on a seed of its own.
    */
   autonomous?: boolean;
+  /**
+   * Pawns only. A Pawn is a piece of whoever called it, so by default it takes
+   * that Scoba's second passive, its second element and the worked move it
+   * carries. Set this false for a line that is meant to come as itself.
+   */
+  inheritsFromCaller?: boolean;
 }
 
 const M = (
   id: string, name: string, type: ElementType, kind: Move["kind"],
   scale: number, manaCost: number, cooldown = 0, startCooldown = 0,
-  extra: { targets?: TargetSpec[]; effects?: MoveEffect[]; anim?: CasterAnim; vfx?: MoveVfx } = {},
+  extra: {
+    targets?: TargetSpec[]; effects?: MoveEffect[]; anim?: CasterAnim; vfx?: MoveVfx;
+    type2?: ElementType; priority?: number; oncePerBattle?: boolean;
+    flatPerLevel?: number; healBasis?: "max-hp" | "magic"; refreshOnKill?: boolean;
+    spendsForm?: string; art?: string; sound?: string; soundOn?: "cast" | "hit";
+    vfxOrigin?: string;
+  } = {},
 ): Move => ({
   id, name, type, kind, scale, manaCost, cooldown, startCooldown,
   targets: extra.targets ?? [{ mode: kind === "heal" ? "any-ally" : "any-enemy" }],
   ...(extra.effects ? { effects: extra.effects } : {}),
   ...(extra.anim ? { anim: extra.anim } : {}),
   ...(extra.vfx ? { vfx: extra.vfx } : {}),
+  ...(extra.type2 ? { type2: extra.type2 } : {}),
+  ...(extra.priority ? { priority: extra.priority } : {}),
+  ...(extra.oncePerBattle ? { oncePerBattle: true } : {}),
+  ...(extra.flatPerLevel ? { flatPerLevel: extra.flatPerLevel } : {}),
+  ...(extra.healBasis ? { healBasis: extra.healBasis } : {}),
+  ...(extra.refreshOnKill ? { refreshOnKill: true } : {}),
+  ...(extra.spendsForm ? { spendsForm: extra.spendsForm } : {}),
+  ...(extra.art ? { art: extra.art } : {}),
+  ...(extra.sound ? { sound: extra.sound } : {}),
+  ...(extra.soundOn ? { soundOn: extra.soundOn } : {}),
+  ...(extra.vfxOrigin ? { vfxOrigin: extra.vfxOrigin } : {}),
 });
 
 /** The animation a move falls back on when it names none. */
@@ -279,6 +434,36 @@ export const MOVES: Record<string, Move> = Object.fromEntries(
       effects: [{ kind: "grant-item", item: "snare", count: 1 }],
     }),
 
+    // The Octoshake line. A drink that fights: it heals off its own Magic,
+    // slows whatever it touches, and cashes its whole bar in on one hit.
+    M("icecream-soup", "Ice Cream Soup", "sugar", "heal", 0.5, 30, 0, 0, {
+      anim: "focus", vfx: "toss", healBasis: "magic",
+      art: "icecreamsoup", sound: "heal",
+      targets: [{ mode: "any-ally", prompt: "Pour it over" }],
+    }),
+    M("tentacle-slap", "Tentacle Slap", "moon", "magical", 0.5, 50, 0, 0, {
+      anim: "lunge", vfx: "burst", sound: "tentacleslap",
+      effects: [{ kind: "status", target: 0, status: "slowed" }],
+    }),
+    M("cold-wave", "Cold Wave", "moon", "magical", 1, 70, 3, 0, {
+      anim: "focus", vfx: "bolt", type2: "sugar",
+      art: "coldwave", sound: "coldwave", soundOn: "cast",
+      targets: [{ mode: "enemy-team", prompt: "The whole line" }],
+      effects: [{ kind: "status", target: 0, status: "cold" }],
+    }),
+    M("tantalizing-sweets", "Tantalizing Sweets", "sugar", "magical", 1.4, 100, 5, 0, {
+      anim: "rear", vfx: "drop", refreshOnKill: true,
+      art: "tantalizing sweet", sound: "tantalizingsweet",
+    }),
+    // What Cherry on Top hands over. It is never in a slot, so it costs no
+    // mana and is spent by being cast rather than by a cooldown.
+    M("cherry-on-top", "Cherry on Top", "sugar", "physical", 0, 0, 0, 0, {
+      anim: "shake", vfx: "lob", priority: 1, oncePerBattle: true, flatPerLevel: 2,
+      // No sound of its own: everything thrown gets the woosh as it leaves,
+      // and a second one landing would only be the same noise twice.
+      spendsForm: "cherryless", art: "cherry", vfxOrigin: "cherry",
+    }),
+
     // The Cottle line. A summon of a Pawn takes the caller's own level, so the
     // level named here is only what a non-Pawn summon would come out at.
     M("court-call", "Court Call", "fortuna", "utility", 0, 50, 2, 0, {
@@ -345,6 +530,14 @@ export const ABILITIES: Record<string, Ability> = Object.fromEntries(
       {
         id: "piercing-horn", name: "Piercing Horn",
       },
+      // The Octoshake line. Cherry on Top is the only passive so far that
+      // hands over a move rather than changing a number.
+      { id: "sticky-treat", name: "Sticky Treat" },
+      {
+        id: "cherry-on-top", name: "Cherry on Top",
+        statuses: [], grantsMove: "cherry-on-top", accessory: "cherry",
+      },
+      { id: "sticky-mess", name: "Sticky Mess" },
     ] as Ability[]
   ).map((a) => [a.id, a]),
 );
@@ -383,6 +576,42 @@ export function effectivenessAgainst(attack: ElementType, sp: Species): number {
   return typesOf(sp).reduce((mult, t) => mult * effectiveness(attack, t), 1);
 }
 
+/** Both of a move's elements, primary first. */
+export function moveTypes(move: Move): ElementType[] {
+  return move.type2 ? [move.type, move.type2] : [move.type];
+}
+
+/** The chart multiplier for a whole move, against a set of elements. */
+export function moveEffectiveness(move: Move, against: readonly ElementType[]): number {
+  return moveTypes(move).reduce(
+    (mult, t) => mult * against.reduce((m, d) => m * effectiveness(t, d), 1),
+    1,
+  );
+}
+
+/** Does the caster share either of the move's elements? */
+export function moveIsStab(has: readonly ElementType[], move: Move): boolean {
+  return moveTypes(move).some((t) => has.includes(t));
+}
+
+/** The baby form a line hatches as, or null for a line with none. */
+export function babyOf(sp: Species): Species | null {
+  if (sp.baby) return sp;
+  const found = Object.values(SPECIES).find((b) => b.baby === true && b.evolvesTo === sp.id);
+  return found ?? null;
+}
+
+/** The moves an ability hands a Scoba on top of the four it holds. */
+export function grantedMoves(sp: Species, secondaryAbility: string): string[] {
+  const ids = [sp.primaryAbility, secondaryAbility, sp.hyperAbility ?? ""];
+  const out: string[] = [];
+  for (const id of ids) {
+    const granted = ABILITIES[id]?.grantsMove;
+    if (granted && MOVES[granted] && !out.includes(granted)) out.push(granted);
+  }
+  return out;
+}
+
 const L = (level: number, move: string) => ({ level, move });
 
 // One starter per primary type. Stats and passives here are first-pass
@@ -391,7 +620,7 @@ const L = (level: number, move: string) => ({ level, move });
 const STARTERS: Species[] = [
   {
     id: "cresce", name: "Cresce", type: "moon",
-    genes: stats(5, 4, 5, 6, 7, 5),
+    genes: stats(145, 50, 60, 100, 105, 40),
     primaryAbility: "moonlit", secondaryPool: ["mystic", "warded"],
     learnset: [L(1, "moonbeam"), L(4, "crush"), L(7, "cleanse"), L(10, "eclipse"), L(14, "nuzzle-nap")],
     sprite: { kind: "art", art: "cresce" }, movement: "scamper",
@@ -400,7 +629,7 @@ const STARTERS: Species[] = [
   },
   {
     id: "flarea", name: "Flarea", type: "sun",
-    genes: stats(5, 6, 4, 4, 6, 7),
+    genes: stats(120, 85, 55, 55, 95, 90),
     primaryAbility: "sun-heart", secondaryPool: ["swift", "brawn"],
     learnset: [L(1, "cinder-spit"), L(4, "crush"), L(7, "ember"), L(10, "flame-burst"), L(14, "slam")],
     sprite: { kind: "art", art: "flarea" }, movement: "hover",
@@ -409,7 +638,7 @@ const STARTERS: Species[] = [
   },
   {
     id: "grima", name: "Grima", type: "flux",
-    genes: stats(4, 5, 5, 5, 6, 7),
+    genes: stats(110, 70, 65, 70, 90, 95),
     primaryAbility: "shifting", secondaryPool: ["flux-heart", "swift"],
     learnset: [L(1, "tide-whip"), L(4, "crush"), L(8, "scatter-shot"), L(10, "riptide"), L(14, "hex")],
     sprite: { kind: "art", art: "grima" }, movement: "scamper",
@@ -418,7 +647,7 @@ const STARTERS: Species[] = [
   },
   {
     id: "obera", name: "Obera", type: "moss",
-    genes: stats(7, 5, 7, 5, 4, 4),
+    genes: stats(180, 70, 105, 80, 40, 25),
     primaryAbility: "rooted", secondaryPool: ["moss-heart", "thick-coat"],
     learnset: [L(1, "leaf-flick"), L(4, "crush"), L(7, "brace-up"), L(10, "vine-lash"), L(12, "tithe"), L(14, "nuzzle-nap")],
     sprite: { kind: "art", art: "obera" }, movement: "hover",
@@ -427,7 +656,7 @@ const STARTERS: Species[] = [
   },
   {
     id: "clikkit", name: "Clikkit", type: "cipher",
-    genes: stats(5, 4, 6, 7, 6, 4),
+    genes: stats(140, 50, 85, 110, 85, 30),
     primaryAbility: "encrypted", secondaryPool: ["warded", "mystic"],
     learnset: [L(1, "decode"), L(4, "crush"), L(8, "hairline"), L(10, "null-key"), L(13, "snipe"), L(14, "third-eye")],
     sprite: { kind: "art", art: "clikkit" }, movement: "skitter",
@@ -436,7 +665,7 @@ const STARTERS: Species[] = [
   },
   {
     id: "wispen", name: "Wispen", type: "mystic",
-    genes: stats(4, 3, 4, 6, 8, 7),
+    genes: stats(95, 30, 40, 85, 145, 105),
     primaryAbility: "far-sight", secondaryPool: ["mystic", "swift"],
     learnset: [L(1, "hex"), L(4, "crush"), L(9, "mirror-mark"), L(10, "third-eye"), L(12, "blood-pact"), L(14, "moonbeam")],
     sprite: { kind: "art", art: "wispen" }, movement: "hover",
@@ -445,7 +674,7 @@ const STARTERS: Species[] = [
   },
   {
     id: "pieble", name: "Pieble", type: "sugar",
-    genes: stats(8, 6, 6, 5, 4, 3),
+    genes: stats(195, 85, 95, 70, 35, 20),
     primaryAbility: "sweet-tooth", secondaryPool: ["hearty", "thick-coat"],
     learnset: [L(1, "sugar-rush"), L(4, "crush"), L(7, "forage"), L(10, "gumsnap"), L(12, "rally"), L(14, "slam")],
     sprite: { kind: "art", art: "pieble" }, movement: "scamper",
@@ -454,7 +683,7 @@ const STARTERS: Species[] = [
   },
   {
     id: "aulium", name: "Aulium", type: "fortuna",
-    genes: stats(5, 6, 5, 5, 5, 6),
+    genes: stats(135, 85, 75, 75, 75, 55),
     primaryAbility: "lucky", secondaryPool: ["swift", "brawn"],
     learnset: [L(1, "lucky-strike"), L(4, "crush"), L(8, "wild-bolt"), L(10, "jackpot"), L(14, "slam")],
     sprite: { kind: "art", art: "aulium" }, movement: "scamper",
@@ -463,7 +692,7 @@ const STARTERS: Species[] = [
   },
   {
     id: "plib", name: "Plib", type: "plain",
-    genes: stats(6, 7, 6, 5, 3, 5),
+    genes: stats(150, 115, 95, 70, 25, 45),
     primaryAbility: "plainspoken", secondaryPool: ["brawn", "thick-coat"],
     learnset: [L(1, "crush"), L(4, "sugar-rush"), L(7, "fury"), L(10, "slam"), L(14, "nuzzle-nap")],
     sprite: { kind: "art", art: "plib" }, movement: "skitter",
@@ -479,28 +708,28 @@ export const SPECIES: Record<string, Species> = Object.fromEntries(
       // Wilds. Every line is drawn art; there is no stand-in pack any more.
       {
         id: "catsquito", name: "Catsquito", type: "plain",
-        genes: stats(4, 6, 4, 4, 6, 7),
+        genes: stats(95, 100, 50, 50, 90, 115),
         primaryAbility: "thirst", secondaryPool: ["restless"],
         learnset: [L(1, "crush"), L(4, "fury"), L(8, "sugar-rush"), L(12, "slam")],
         sprite: { kind: "art", art: "catsquito" }, movement: "hover",
       },
       {
         id: "meepa", name: "Meepa", type: "moon", type2: "plain",
-        genes: stats(5, 4, 4, 5, 7, 5),
+        genes: stats(130, 45, 60, 85, 130, 50),
         primaryAbility: "moonwane", secondaryPool: ["moonwell"],
         learnset: [L(1, "moonbeam"), L(4, "crush"), L(9, "cleanse"), L(13, "eclipse")],
         sprite: { kind: "art", art: "meepa" }, movement: "hop",
       },
       {
         id: "cactunny", name: "Cactunny", type: "moss", type2: "sun",
-        genes: stats(6, 5, 6, 5, 5, 3),
+        genes: stats(165, 75, 100, 75, 65, 20),
         primaryAbility: "sun-bloom", secondaryPool: ["sun-ward"],
         learnset: [L(1, "leaf-flick"), L(5, "ember"), L(9, "brace-up"), L(13, "cinder-spit")],
         sprite: { kind: "art", art: "cactunny" }, movement: "scamper",
       },
       {
         id: "cottlequeen", name: "Cottlequeen", type: "fortuna",
-        genes: stats(6, 4, 5, 5, 7, 5),
+        genes: stats(155, 45, 75, 80, 120, 25),
         primaryAbility: "cottle-court", secondaryPool: ["queens-guard"],
         learnset: [L(1, "lucky-strike"), L(4, "crush"), L(6, "court-call"), L(10, "jackpot")],
         sprite: { kind: "art", art: "cottlequeen" }, movement: "hover",
@@ -509,11 +738,46 @@ export const SPECIES: Record<string, Species> = Object.fromEntries(
       // passive, and no way onto the field but being called.
       {
         id: "cottlecorn", name: "Cottlecorn", type: "fortuna",
-        genes: stats(3, 3, 3, 3, 4, 5),
+        genes: stats(60, 40, 35, 35, 45, 35),
         primaryAbility: "piercing-horn", secondaryPool: [],
         learnset: [L(1, "pawn-dart"), L(1, "pawn-mend"), L(1, "sunfall")],
         sprite: { kind: "art", art: "cottlecorn" }, movement: "skitter",
         pawn: true, autonomous: true,
+      },
+      // The Octoshake line: the only one with a baby form drawn so far. Sqwoop
+      // grows into Octoshake at the usual level and the two share one kit.
+      {
+        id: "sqwoop", name: "Sqwoop", type: "sugar", type2: "moon",
+        genes: stats(130, 0, 30, 40, 70, 30),
+        primaryAbility: "sticky-treat", secondaryPool: ["cherry-on-top"],
+        learnset: [
+          L(1, "icecream-soup"), L(1, "tentacle-slap"),
+          L(8, "cold-wave"), L(15, "tantalizing-sweets"),
+        ],
+        sprite: { kind: "art", art: "sqwoop", forms: { cherryless: "sqwoop-cherryless" } },
+        movement: "hop", cry: "sqwoop",
+        baby: true, evolvesTo: "octoshake",
+        blurb: "A sundae in a glass. It hops because it cannot walk.",
+      },
+      {
+        id: "octoshake", name: "Octoshake", type: "sugar", type2: "moon",
+        genes: stats(190, 0, 60, 90, 120, 40),
+        primaryAbility: "sticky-treat", secondaryPool: ["cherry-on-top"],
+        hyperAbility: "sticky-mess",
+        learnset: [
+          L(1, "icecream-soup"), L(1, "tentacle-slap"),
+          L(8, "cold-wave"), L(15, "tantalizing-sweets"),
+        ],
+        sprite: {
+          kind: "art", art: "octoshake",
+          forms: {
+            cherryless: "octoshake-cherryless",
+            hyper: "hyper-octoshake",
+            "cherryless+hyper": "hyper-octoshake-cherryless",
+          },
+        },
+        movement: "hop", cry: "octoshake",
+        blurb: "Everything Sqwoop is, and colder. Nothing it hits gets away.",
       },
       {
         id: "relica", name: "Relica", type: "plain",

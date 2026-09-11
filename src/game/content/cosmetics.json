@@ -1,0 +1,282 @@
+{
+  "pieces": {
+    "cherry": {
+      "cresce": {
+        "dx": -1,
+        "dy": 2
+      },
+      "flarea": {
+        "dx": -1,
+        "dy": 22
+      },
+      "grima": {
+        "dx": -11,
+        "dy": 12
+      },
+      "obera": {
+        "dx": 0,
+        "dy": 4
+      },
+      "clikkit": {
+        "dx": 9,
+        "dy": 10
+      },
+      "wispen": {
+        "dx": 0,
+        "dy": 5
+      },
+      "pieble": {
+        "dx": 2,
+        "dy": 6,
+        "front": true
+      },
+      "aulium": {
+        "dx": 31,
+        "dy": 26,
+        "front": true
+      },
+      "plib": {
+        "dx": -1,
+        "dy": 7
+      },
+      "catsquito": {
+        "dx": 7,
+        "dy": 6
+      },
+      "meepa": {
+        "dx": 10,
+        "dy": 15
+      },
+      "cactunny": {
+        "dx": 8,
+        "dy": 22,
+        "front": true
+      },
+      "cottlequeen": {
+        "dx": -4,
+        "dy": 15
+      },
+      "cottlecorn": {
+        "dx": -14,
+        "dy": 10
+      },
+      "sqwoop": {
+        "dx": 4,
+        "dy": 10,
+        "front": true
+      },
+      "sqwoop-cherryless": {
+        "dx": -5,
+        "dy": 1,
+        "front": true
+      },
+      "octoshake": {
+        "dx": -1,
+        "dy": 13,
+        "front": true
+      },
+      "octoshake-cherryless": {
+        "dx": -4,
+        "dy": 1,
+        "front": true
+      },
+      "hyper-octoshake": {
+        "dx": 5,
+        "dy": 10,
+        "front": true
+      },
+      "hyper-octoshake-cherryless": {
+        "dx": 5,
+        "dy": 2,
+        "front": true
+      },
+      "player": {
+        "dx": 8,
+        "dy": 15,
+        "front": true
+      }
+    }
+  },
+  "costumes": {
+    "cresce": {
+      "shadow": {
+        "art": "shadow",
+        "dx": -1,
+        "dy": -2
+      }
+    },
+    "player": {
+      "shadow": {
+        "art": "shadowbig",
+        "dx": -5,
+        "dy": -2
+      }
+    },
+    "flarea": {
+      "shadow": {
+        "art": "shadow",
+        "dx": -3,
+        "dy": 0
+      }
+    },
+    "grima": {
+      "shadow": {
+        "art": "shadow",
+        "dx": -3,
+        "dy": -1
+      }
+    },
+    "obera": {
+      "shadow": {
+        "art": "shadow",
+        "dx": -4,
+        "dy": -1
+      }
+    },
+    "wispen": {
+      "shadow": {
+        "art": "shadow",
+        "dx": -4,
+        "dy": 0
+      }
+    },
+    "pieble": {
+      "shadow": {
+        "art": "shadowbig",
+        "dx": -1,
+        "dy": 0
+      }
+    },
+    "aulium": {
+      "body": {
+        "dx": 4,
+        "dy": -6
+      },
+      "shadow": {
+        "art": "shadow",
+        "dx": -1,
+        "dy": 0
+      }
+    },
+    "plib": {
+      "shadow": {
+        "art": "shadow",
+        "dx": -4,
+        "dy": 2
+      }
+    },
+    "catsquito": {
+      "shadow": {
+        "art": "shadowbig",
+        "dx": -5,
+        "dy": 0
+      }
+    },
+    "meepa": {
+      "body": {
+        "dx": -1,
+        "dy": -2
+      }
+    },
+    "cactunny": {
+      "origin": {
+        "dx": 12,
+        "dy": -1
+      },
+      "center": {
+        "dx": -3,
+        "dy": 8
+      },
+      "shadow": {
+        "art": "shadowbig",
+        "dx": -4,
+        "dy": 0
+      }
+    },
+    "cottlequeen": {
+      "origin": {
+        "dx": 8,
+        "dy": 0
+      },
+      "center": {
+        "dx": 8,
+        "dy": 1
+      },
+      "shadow": {
+        "art": "shadow",
+        "dx": -5,
+        "dy": 1
+      }
+    },
+    "sqwoop": {
+      "shadow": {
+        "art": "shadow",
+        "dx": -2,
+        "dy": -2
+      }
+    },
+    "octoshake": {
+      "shadow": {
+        "art": "shadow",
+        "dx": -4,
+        "dy": -2
+      }
+    },
+    "octoshake-cherryless": {
+      "origin": {
+        "dx": 0,
+        "dy": -6
+      },
+      "shadow": {
+        "art": "shadow",
+        "dx": -4,
+        "dy": -2
+      }
+    },
+    "hyper-octoshake-cherryless": {
+      "origin": {
+        "dx": 2,
+        "dy": -26
+      },
+      "center": {
+        "dx": 2,
+        "dy": -2
+      }
+    },
+    "hyper-octoshake": {
+      "origin": {
+        "dx": 2,
+        "dy": -22
+      },
+      "center": {
+        "dx": 2,
+        "dy": 3
+      }
+    },
+    "clikkit": {
+      "origin": {
+        "dx": 10,
+        "dy": -3
+      },
+      "center": {
+        "dx": 10,
+        "dy": -3
+      }
+    },
+    "cottlecorn": {
+      "origin": {
+        "dx": 16,
+        "dy": -13
+      },
+      "center": {
+        "dx": -6,
+        "dy": 7
+      }
+    }
+  },
+  "lines": {
+    "cottlequeen": {
+      "movement": "hop"
+    }
+  }
+}

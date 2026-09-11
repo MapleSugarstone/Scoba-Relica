@@ -6,6 +6,7 @@
 // missing file reads as a gap in the art rather than a gap in the screen.
 import type { Species } from "../sim/species";
 import { typesOf } from "../sim/species";
+import { scobaTypes, type ScobaInstance } from "../sim/scoba";
 import { TYPE_COLORS, TYPE_LABELS, type ElementType } from "../sim/types";
 
 const FILES = import.meta.glob("../../assets/Types/*.png", {
@@ -37,10 +38,15 @@ export function typeIcon(t: ElementType): HTMLElement {
   return img;
 }
 
-/** Every type a species carries, in a row: two badges for a two-type Scoba. */
-export function typeIcons(sp: Species): HTMLElement {
+/**
+ * Every type a Scoba carries, in a row: two badges for a two-type one. Given a
+ * Scoba it reads what that Scoba is, which for a bred one takes in the element
+ * it inherited with its father's passive. Given a species it reads the line.
+ */
+export function typeIcons(of: Species | ScobaInstance): HTMLElement {
   const row = document.createElement("span");
   row.className = "ticos";
-  for (const t of typesOf(sp)) row.appendChild(typeIcon(t));
+  const types = "speciesId" in of ? scobaTypes(of) : typesOf(of);
+  for (const t of types) row.appendChild(typeIcon(t));
   return row;
 }

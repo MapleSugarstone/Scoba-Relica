@@ -70,7 +70,8 @@ describe("fields", () => {
     resolveTurn(blessed, [{ kind: "switch", side: 0, slot: 0, benchIndex: 0 }]);
     expect(blessed.fields[0]?.id).toBe("sunblessed");
     const under = previewMove(blessed, { side: 0, index: 0 }, "cinder-spit")!.damage!;
-    expect(under).toBe(Math.floor(plain * 1.25));
+    // Both numbers are floored once, so the two can sit a point apart.
+    expect(Math.abs(under! - plain! * 1.25)).toBeLessThanOrEqual(1);
   });
 
   it("measures element power off the caster's own side, not the target's", () => {

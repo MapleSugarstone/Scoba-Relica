@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { makeWild, gainXp, xpForNext, maxHp, statsAt } from "../src/sim/scoba";
+import { makeWild, gainXp, xpForNext, maxHp, statsAt, MAX_LEVEL } from "../src/sim/scoba";
 import { rngFrom } from "../src/sim/rng";
 import { MAX_MOVES, MOVES, SPECIES, speciesMoves } from "../src/sim/species";
 
 describe("leveling", () => {
-  it("levels up when xp crosses the threshold and raises every stat by 1", () => {
+  it("levels up when xp crosses the threshold and scales the whole line up", () => {
     const s = makeWild("plib", 4, rngFrom("a"));
     const before = statsAt(s, false);
     const result = gainXp(s, xpForNext(4));
@@ -12,7 +12,9 @@ describe("leveling", () => {
     expect(s.level).toBe(5);
     const after = statsAt(s, false);
     for (const k of Object.keys(before) as (keyof typeof before)[]) {
-      expect(after[k]).toBe(before[k] + 1);
+      // Every stat the line actually spends on grows, and none shrinks.
+      expect(after[k]).toBeGreaterThanOrEqual(before[k]);
+      if (s.genes[k] >= MAX_LEVEL) expect(after[k]).toBeGreaterThan(before[k]);
     }
   });
 

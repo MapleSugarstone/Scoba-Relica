@@ -3,7 +3,7 @@ import type { Renderer } from "../engine/renderer";
 import type { Art } from "../engine/assets";
 import type { Input } from "../engine/input";
 import { worldSprite } from "../engine/paperdoll";
-import { critterActor, critterSkin } from "./critters";
+import { critterActor, critterSkin, lookOf, personSkin } from "./critters";
 import { TILE, type TileMap } from "../engine/tilemap";
 import { Actor, Trail } from "./actors";
 import { findPath, lineOfSight } from "./pathfind";
@@ -706,12 +706,10 @@ export class Overworld {
 
     const local = save.characters[save.localSlot];
     const other: SlotId = save.localSlot === "A" ? "B" : "A";
-    this.player = new Actor(sp.x, sp.y, { sprite: worldSprite(art.doll, local.look), motion: "hop" });
+    this.player = new Actor(sp.x, sp.y, personSkin(art, local.look));
 
-    const partnerActor = new Actor(sp.x - 26, sp.y + 10, {
-      sprite: worldSprite(art.doll, save.characters[other].look),
-      motion: "hop",
-    });
+    const partnerActor = new Actor(sp.x - 26, sp.y + 10,
+      personSkin(art, save.characters[other].look));
     partnerActor.speed = this.player.speed;
     // The partner picks a strong side of its own; the special stays looser
     // since it already weaves between the two characters.
@@ -765,7 +763,8 @@ export class Overworld {
         const spec = SPECIES[inst.speciesId];
         if (!spec) continue;
         const at = anchor();
-        const actor = critterActor(this.art, spec, at.x, at.y, inst.tint, inst.shiny);
+        const actor = critterActor(this.art, spec, at.x, at.y, inst.sire, inst.shiny,
+          lookOf(spec, inst));
         actor.speed = this.player.speed;
         actor.radius = 3;
         // One of theirs is drawn however they are: off on another map, or on
@@ -1219,7 +1218,7 @@ export class Overworld {
     if (!best || best.d < 48) return false;
     const level = kind.minLv + Math.floor(Math.random() * (kind.maxLv - kind.minLv + 1));
     const scoba = makeWild(kind.species, level, rngFrom(`${this.save.worldSeed}:roam:${Date.now().toString(36)}`));
-    const actor = new Actor(best.x, best.y, critterSkin(this.art, sp, scoba.tint, scoba.shiny));
+    const actor = new Actor(best.x, best.y, critterSkin(this.art, sp, scoba.sire, scoba.shiny, lookOf(sp, scoba)));
     // It comes up out of the field rather than being suddenly standing there.
     actor.ghostIn();
     this.roamers.push({ actor, scoba, zone, kind, wanderT: 0, dx: 0, dy: 0, chasing: false, calm: 1.2 });
@@ -1748,7 +1747,15 @@ export class Overworld {
     // Sorted on the lagging depth rather than the live position: two actors
     // walking abreast would otherwise trade places every frame.
     for (const actor of actors) {
-      items.push({ baseY: actor.depthY, draw: () => actor.draw(ctx, camX, camY) });
+      // Its own shadow goes down just before it, so the nearer of two walking
+      // past each other lays its shadow over the one behind.
+      items.push({
+        baseY: actor.depthY,
+        draw: () => {
+          actor.drawShadow(ctx, camX, camY);
+          actor.draw(ctx, camX, camY);
+        },
+      });
     }
     items.sort((m, n) => m.baseY - n.baseY);
     for (const item of items) item.draw();

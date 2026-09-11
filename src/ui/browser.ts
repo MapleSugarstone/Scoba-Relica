@@ -8,13 +8,13 @@
 // screen would take the caret out of the field the player is typing in.
 import type { Art } from "../engine/assets";
 import { sfx } from "../engine/sfx";
-import { critterPortrait } from "../game/critters";
+import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
 import { START_MANA } from "../sim/battle";
 import { MAX_BREED_COUNT } from "../sim/breeding";
 import { STATUSES } from "../sim/status";
 import { moveCost, passiveStatuses, statsAt, maxHp, type ScobaInstance } from "../sim/scoba";
-import { ABILITIES, MOVES, SPECIES, typesOf, type Move } from "../sim/species";
+import { ABILITIES, MOVES, SPECIES, moveTypes, typesOf, type Move } from "../sim/species";
 import { describeAbility, describeMoveEffects } from "../sim/describe";
 import { STAT_LABELS, TYPES, TYPE_COLORS, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
 import type { UI } from "./screens";
@@ -65,7 +65,7 @@ export function face(art: Art, s: ScobaInstance): HTMLElement {
   const wrap = el("div", "bxFace");
   const sp = SPECIES[s.speciesId];
   if (!sp) return wrap;
-  wrap.appendChild(critterPortrait(art, sp, s.tint, s.shiny));
+  wrap.appendChild(critterPortrait(art, sp, s.sire, s.shiny, lookOf(sp, s)));
   return wrap;
 }
 
@@ -180,7 +180,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
     readout.appendChild(el("div", "bxReadName", displayName(s)));
     readout.appendChild(face(art, s));
     readout.appendChild(el("div", "dim", `Lv ${s.level}`));
-    if (sp) readout.appendChild(typeIcons(sp));
+    if (sp) readout.appendChild(typeIcons(s));
   };
 
   const pick = (s: ScobaInstance): void => {
@@ -400,7 +400,9 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
   function infoScreen(s: ScobaInstance): void {
     const sp = SPECIES[s.speciesId];
     const stats = statsAt(s);
-    let showing: { name: string; note: string; desc: string; type?: ElementType } | null = null;
+    // `types` rather than one type: a move of two elements is read against
+    // both, so it has to say both.
+    let showing: { name: string; note: string; desc: string; types?: ElementType[] } | null = null;
 
     ui.screen((screen) => {
       const card = el("div", "bxCard");
@@ -430,7 +432,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
 
       const tail = el("div", "bxCardTail");
       const where = el("div", "bxCardWhere");
-      if (sp) where.appendChild(typeIcons(sp));
+      if (sp) where.appendChild(typeIcons(s));
       where.appendChild(el("div", "dim", `Bred ${s.breedCount}/${MAX_BREED_COUNT}`));
       tail.appendChild(where);
       tail.appendChild(button("bxCardBack", "Back", build));
@@ -455,16 +457,27 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
         }
         const head = el("div", "bxNoteHead");
         head.appendChild(el("strong", undefined, showing.name));
-        if (showing.type) head.appendChild(typeIcon(showing.type));
+        for (const t of showing.types ?? []) head.appendChild(typeIcon(t));
         head.appendChild(el("span", "dim", showing.note));
         note.appendChild(head);
         note.appendChild(el("div", undefined, showing.desc));
       };
 
       const slot = (label: string, cost: string, what: NonNullable<typeof showing>): void => {
-        const b = el("button", `bxSlot${what.type ? " typed" : ""}`);
-        // A move button wears the colour of what it is.
-        if (what.type) b.style.background = TYPE_COLORS[what.type];
+        const worn = what.types ?? [];
+        const b = el("button", `bxSlot${worn.length > 0 ? " typed" : ""}`);
+        // A move button wears the colour of what it is, and a move of two
+        // elements wears both. Cut on the diagonal rather than straight down,
+        // so the pair reads as one button in two colours rather than as two
+        // buttons pushed together.
+        if (worn.length > 1) {
+          const [a, b2] = worn.map((t) => TYPE_COLORS[t]);
+          // A hard stop rather than a blend: the two colours meeting softly
+          // washed out under the cost line that sits across the join.
+          b.style.background = `linear-gradient(100deg, ${a} 0 49%, ${b2} 49% 100%)`;
+        } else if (worn.length === 1) {
+          b.style.background = TYPE_COLORS[worn[0]!];
+        }
         b.appendChild(el("span", "bxSlotName", label));
         b.appendChild(el("span", "bxSlotCost", cost));
         b.addEventListener("click", () => {
@@ -487,7 +500,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
           name: move.name,
           note: cost > move.manaCost ? `${move.kind} · worked` : move.kind,
           desc: moveLine(move),
-          type: move.type,
+          types: moveTypes(move),
         });
       }
       card.appendChild(slots);

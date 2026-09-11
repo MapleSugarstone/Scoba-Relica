@@ -1,6 +1,6 @@
 import type { TileMap } from "../engine/tilemap";
 import {
-  bounce, drawDoll, drawSparks, shedSparks, stepSparks, type Motion, type Spark,
+  bounce, drawDoll, drawSparks, shedSparks, silhouette, stepSparks, type Motion, type Spark,
 } from "../engine/sprite";
 import type { MovementStyle } from "../sim/species";
 import type { WorldSprite } from "../engine/paperdoll";
@@ -10,6 +10,12 @@ export interface ActorSkin {
   motion: MovementStyle;
   /** Wears a shiny's glitter. */
   sparkle?: boolean;
+  /**
+   * What it stands on, drawn under it and left on the ground while it hops.
+   * Its own offset is folded into its pivot, so it draws the same way a body
+   * does. Nothing where the costume casts none.
+   */
+  shadow?: WorldSprite;
 }
 
 /** The gaits a doll sprite can walk with. Species pick one; the player hops. */
@@ -27,6 +33,9 @@ export const MOTIONS: Record<MovementStyle, Motion> = {
  * and re-crossed, which reads as one clipping in and out of the other.
  */
 const DEPTH_SLACK = 4;
+
+/** No hop and no tilt, which is how anything pinned to the ground is drawn. */
+const FLAT = { hop: 0, angle: 0 };
 
 export class Actor {
   x: number;
@@ -86,6 +95,16 @@ export class Actor {
    */
   desync(phase: number): void {
     this.hopT += phase;
+  }
+
+  /**
+   * Throws away the light this one has shed. Points of light stay where they
+   * fell, which is a trail behind a walk and a mess behind a jump: anything
+   * that puts an actor somewhere rather than walking it there drops them.
+   */
+  clearSparks(): void {
+    this.sparks.length = 0;
+    this.sparkCarry = 0;
   }
 
   private motion(): Motion {
@@ -209,6 +228,27 @@ export class Actor {
     return this.hopT;
   }
 
+  /** How many points of light are in the air, for tests and the debug readout. */
+  sparkCount(): number {
+    return this.sparks.length;
+  }
+
+  /**
+   * What it stands on, flat on the ground where it actually stands.
+   *
+   * Drawn on its own rather than as part of `draw`, because a Scoba lunging,
+   * rearing or floating is moved by whoever is drawing it, and the shadow is
+   * the one thing that has to stay behind on the mark.
+   */
+  drawShadow(ctx: CanvasRenderingContext2D, camX: number, camY: number, alpha = 1): void {
+    const shadow = this.skin.shadow;
+    if (this.hidden || !shadow || alpha <= 0) return;
+    const solid = alpha >= 1 && this.fade >= 1;
+    if (!solid) ctx.globalAlpha = alpha * this.fade;
+    drawDoll(ctx, shadow, this.x - camX, this.y - camY, this.dir, FLAT);
+    if (!solid) ctx.globalAlpha = 1;
+  }
+
   draw(ctx: CanvasRenderingContext2D, camX: number, camY: number): void {
     if (this.hidden) return;
     const sx = this.x - camX;
@@ -221,6 +261,25 @@ export class Actor {
     if (!solid) ctx.globalAlpha = 1;
     // Shed light is drawn where it fell, so the camera offsets go in raw.
     if (this.sparks.length > 0) drawSparks(ctx, this.sparks, camX, camY, this.fade);
+  }
+
+  /**
+   * A wash of one colour over the sprite's own pixels, on the same transform
+   * the sprite itself is drawn on. What it washes is the Scoba's shape rather
+   * than a box around it.
+   */
+  drawTint(ctx: CanvasRenderingContext2D, camX: number, camY: number, color: string, alpha: number): void {
+    if (this.hidden || alpha <= 0) return;
+    const flat = silhouette(this.skin.sprite.img, color);
+    if (!flat) return;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, alpha) * this.fade;
+    drawDoll(
+      ctx, { ...this.skin.sprite, img: flat },
+      this.x - camX, this.y - camY, this.dir,
+      bounce(this.motion(), this.hopT, this.hopEase),
+    );
+    ctx.restore();
   }
 }
 

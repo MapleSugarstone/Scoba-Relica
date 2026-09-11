@@ -1,4 +1,6 @@
 import { loadArt, type Art } from "./engine/assets";
+import { warmSounds } from "./engine/sfx";
+import { devMode } from "./version";
 import { Renderer, holdUiScale } from "./engine/renderer";
 import { startLoop } from "./engine/loop";
 import { Input } from "./engine/input";
@@ -50,7 +52,7 @@ const ui = new UI();
 // A dev copy in localStorage (the editor's working state) wins over the
 // content baked into the build, so edits survive reloads until exported.
 const content: WorldContent = loadDevContent() ?? normalizeContent(bundledContent);
-const devEnabled = import.meta.env.DEV || new URLSearchParams(location.search).has("dev");
+const devEnabled = devMode();
 
 let scene: Overworld | null = null;
 let currentSave: SaveData | null = null;
@@ -454,7 +456,7 @@ function buildGame(save: SaveData): void {
   });
   hangBagDoors();
   ui.toast(devEnabled
-    ? "Autosave is on. F2 opens the map editor, F4 starts the map over."
+    ? "Autosave is on. F2 opens the map editor, F3 the cosmetics editor, F4 starts the map over."
     : "Autosave is on.");
 }
 
@@ -466,6 +468,15 @@ function resetMapState(): void {
     return;
   }
   ui.toast(`Map reset: ${done.sentinels} sentinels shut, ${done.trainers} trainers back up.`);
+}
+
+/** The cosmetics editor: where a passive's art sits on each line's head. */
+async function toggleCosmetics(): Promise<void> {
+  if (editor?.active) return;
+  const mod = await import("./dev/cosmetics");
+  // It locks the screen while it is up, so its own toggle is what closes it.
+  if (ui.locked && !mod.cosmeticsOpen()) return;
+  mod.toggleCosmetics(ui, art, () => undefined);
 }
 
 async function toggleEditor(): Promise<void> {
@@ -575,6 +586,11 @@ window.addEventListener("keydown", (e) => {
     void toggleEditor();
     return;
   }
+  if (e.key === "F3" && devEnabled) {
+    e.preventDefault();
+    void toggleCosmetics();
+    return;
+  }
   if (e.key === "F4" && devEnabled) {
     e.preventDefault();
     resetMapState();
@@ -669,6 +685,9 @@ async function boot(): Promise<void> {
   await unlock(ui);
   // The page starts covered, so nothing shows until the art is actually in.
   art = await loadArt();
+  // The sounds do not hold the title screen up: they are pulled in behind it,
+  // from the first press, which is the earliest a browser lets them decode.
+  warmSounds();
   showTitle();
   startLoop(updateFrame, renderFrame);
   void ui.reveal();
@@ -720,6 +739,12 @@ async function boot(): Promise<void> {
     /** Stands in for the peer walking to the battle and interacting. */
     joinBattle(): boolean {
       return scene?.debugJoinBattle() ?? false;
+    },
+    /** Opens the nest where it stands, rather than walking across to it. */
+    nest(): boolean {
+      if (!currentSave || !art) return false;
+      openBreeding(ui, art, currentSave, () => scene?.refreshCompanions());
+      return true;
     },
     /**
      * Walks straight into a wild fight, so a species can be looked at without

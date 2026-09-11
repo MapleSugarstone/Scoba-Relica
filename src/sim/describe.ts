@@ -5,11 +5,14 @@
 // everywhere: verb first, numbers as percentages, one sentence per step,
 // triggers up front, the cost in a trailer, and nothing described by its name
 // where it can be described by what it does.
-import { ABILITIES, SPECIES, abilityStatuses, type Move, type MoveEffect } from "./species";
+import {
+  ABILITIES, MOVES, SPECIES, abilityStatuses, moveTypes, type Move, type MoveEffect,
+} from "./species";
 import {
   FIELDS, STATUSES,
   type Basis, type DamageCategory, type FieldDef, type InflictScope, type StatusDef,
   type StatusEffect, type StatusTrigger,
+  isContinuous,
 } from "./status";
 import { STAT_LABELS, STAT_NAMES, TYPE_LABELS, type ElementType, type StatName } from "./types";
 import type { TargetMode } from "./targeting";
@@ -20,6 +23,13 @@ const turns = (n: number): string => `${n} turn${n === 1 ? "" : "s"}`;
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const low = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
 const type = (t: ElementType): string => TYPE_LABELS[t];
+
+/**
+ * What a move counts as, named. A move of two elements is read against both,
+ * so it says both: "Moon and Sugar" rather than the first of them, which is
+ * what a reader would otherwise take it for.
+ */
+const moveElements = (move: Move): string => moveTypes(move).map(type).join(" and ");
 const stat = (s: StatName): string => STAT_LABELS[s];
 
 /** Who a sentence is about. */
@@ -70,6 +80,7 @@ const SCOPES: Record<InflictScope, Subject> = {
   allies: many("every ally", "every ally's"),
   enemies: many("every enemy", "every enemy's"),
   all: many("everyone", "everyone's"),
+  others: many("every other Scoba", "every other Scoba's"),
 };
 
 /** A sentence, and whether it opens on a trigger rather than following on. */
@@ -94,6 +105,7 @@ function when(t: StatusTrigger): string {
     case "deal-magic": return "On landing magic damage";
     case "deal-physical": return "On landing physical damage";
     case "deal-any": return "On landing a hit";
+    case "deal-spell": return "On landing a spell";
     case "kill-attack": return "On kill";
     case "death": return "On fainting";
     case "switch-in": return "On entering the field";
@@ -137,10 +149,6 @@ function healAmount(basis: Basis, frac: number, who: Subject): string {
   }
 }
 
-const CONTINUOUS = new Set<StatusEffect["kind"]>([
-  "stat-add", "stat-set", "stat-scale", "stat-share", "immune", "vulnerable", "element-power", "ward",
-]);
-
 /** A share of a stat or a type, as a thing that can be given: "Strength +25%". */
 function grant(e: StatusEffect): string | null {
   switch (e.kind) {
@@ -148,6 +156,9 @@ function grant(e: StatusEffect): string | null {
     case "stat-add": return `${stat(e.stat)} ${e.amount >= 0 ? "+" : "-"}${Math.abs(e.amount)}`;
     case "stat-set": return `${stat(e.stat)} set to ${e.value}`;
     case "stat-share": return `${stat(e.stat)} +${pct(e.frac)} of ${stat(e.from)}`;
+    case "stat-offset": return `${stat(e.stat)} ${e.amount >= 0 ? "+" : "-"}${Math.abs(e.amount)}`;
+    case "stat-boost":
+      return `${stat(e.stat)} ${signed(e.frac)} of what it walked in with, and ${e.flat} more`;
     case "element-power": return `${type(e.element)} moves ${signed(e.mult - 1)}`;
     default: return null;
   }
@@ -156,6 +167,13 @@ function grant(e: StatusEffect): string | null {
 /** A standing condition, as a verb phrase: "takes no Moon damage". */
 function state(e: StatusEffect, def: StatusDef): string | null {
   switch (e.kind) {
+    case "root": return "cannot switch out";
+    case "stat-power": {
+      const p = def.power;
+      if (!p) return null;
+      const share = `${pct(Math.abs(p.frac * e.mult))} of ${p.basis === "source-mag" ? "the caster's Magic" : "the caster's Strength"}`;
+      return `${e.mult < 0 ? "loses" : "gains"} ${share} as ${stat(e.stat)}`;
+    }
     case "immune": return `takes no ${type(e.element)} damage`;
     case "vulnerable": return `takes ${pct(e.mult)} ${type(e.element)} damage`;
     case "ward": {
@@ -171,10 +189,28 @@ function grants(effects: StatusEffect[]): string[] {
   const adds = effects.filter((e): e is Extract<StatusEffect, { kind: "stat-add" }> => e.kind === "stat-add");
   const allStats = adds.length === STAT_NAMES.length
     && STAT_NAMES.every((s) => adds.some((a) => a.stat === s && a.amount === adds[0]!.amount));
+  const scales = effects.filter((e): e is Extract<StatusEffect, { kind: "stat-scale" }> => e.kind === "stat-scale");
+  const allScaled = scales.length === STAT_NAMES.length
+    && STAT_NAMES.every((s) => scales.some((a) => a.stat === s && a.mult === scales[0]!.mult));
+  const offsets = effects.filter((e): e is Extract<StatusEffect, { kind: "stat-offset" }> => e.kind === "stat-offset");
+  const allOffset = offsets.length === STAT_NAMES.length
+    && STAT_NAMES.every((s) => offsets.some((a) => a.stat === s && a.amount === offsets[0]!.amount));
+  const boosts = effects.filter((e): e is Extract<StatusEffect, { kind: "stat-boost" }> => e.kind === "stat-boost");
+  const allBoost = boosts.length === STAT_NAMES.length
+    && STAT_NAMES.every((s) => boosts.some((a) =>
+      a.stat === s && a.frac === boosts[0]!.frac && a.flat === boosts[0]!.flat));
   const out: string[] = [];
   if (allStats) out.push(`All stats ${adds[0]!.amount >= 0 ? "+" : "-"}${Math.abs(adds[0]!.amount)}`);
+  if (allScaled) out.push(`All stats ${signed(scales[0]!.mult - 1)}`);
+  if (allOffset) out.push(`All stats ${offsets[0]!.amount >= 0 ? "+" : "-"}${Math.abs(offsets[0]!.amount)}`);
+  if (allBoost) {
+    out.push(`All stats ${signed(boosts[0]!.frac)} of what it walked in with, and ${boosts[0]!.flat} more`);
+  }
   for (const e of effects) {
     if (allStats && e.kind === "stat-add") continue;
+    if (allScaled && e.kind === "stat-scale") continue;
+    if (allOffset && e.kind === "stat-offset") continue;
+    if (allBoost && e.kind === "stat-boost") continue;
     const g = grant(e);
     if (g) out.push(g);
   }
@@ -203,7 +239,10 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
       const table = opts.statuses ?? STATUSES;
       const inner = table[e.status];
       if (!inner) return `gains ${e.status}`;
-      return statusPieces(inner, SCOPES[e.scope], { ...opts, nested: true })
+      // A source that overrides how long the mark stands is described by what
+      // it actually leaves behind rather than by the mark's own clock.
+      const held = e.turns === undefined ? inner : { ...inner, duration: e.turns };
+      return statusPieces(held, SCOPES[e.scope], { ...opts, nested: true })
         .map((p) => low(p.text.replace(/\.$/, "")))
         .join(" and ");
     }
@@ -243,7 +282,7 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
     : "";
   const out: Piece[] = [];
 
-  const standing = def.effects.filter((e) => CONTINUOUS.has(e.kind));
+  const standing = def.effects.filter((e) => isContinuous(e.kind));
   const given = grants(standing).map((g) => `${g}${perStack}`);
   if (given.length > 0) {
     const list = given.join(", ");
@@ -260,7 +299,7 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
     out.push({ text: `${who.noun ? `${cap(who.noun)} ${s}` : cap(s)}${dur}.`, triggered: false });
   }
 
-  const goes = def.effects.filter((e) => !CONTINUOUS.has(e.kind));
+  const goes = def.effects.filter((e) => !isContinuous(e.kind));
   if (goes.length > 0) {
     const lead = when(def.trigger);
     // A trigger that can only ever fire once says nothing about how often.
@@ -300,10 +339,16 @@ export function describeStatus(id: string, opts: StatusOpts = {}): string {
   return join(statusPieces(def, HOLDER, opts));
 }
 
-/** What a passive does, which is what its statuses do. */
+/** What a passive does, which is what its statuses do and what it hands over. */
 export function describeAbility(id: string): string {
-  if (!ABILITIES[id]) return "";
-  return abilityStatuses(id).map((sid) => describeStatus(sid)).filter((s) => s !== "").join(" ");
+  const ability = ABILITIES[id];
+  if (!ability) return "";
+  const parts = abilityStatuses(id).map((sid) => describeStatus(sid)).filter((s) => s !== "");
+  const granted = ability.grantsMove ? MOVES[ability.grantsMove] : null;
+  if (granted) {
+    parts.unshift(`Lets it cast ${granted.name}${granted.oncePerBattle ? " once a battle" : ""}.`);
+  }
+  return parts.join(" ");
 }
 
 function fieldClauses(f: FieldDef): string[] {
@@ -339,7 +384,7 @@ function movePieces(move: Move, opts: StatusOpts): Piece[] {
   if (move.kind === "physical" || move.kind === "magical") {
     const t = subject(0);
     out.push({
-      text: `Deals ${pct(move.scale)} ${type(move.type)} ${category} damage to ${t.noun || "itself"}.`,
+      text: `Deals ${pct(move.scale)} ${moveElements(move)} ${category} damage to ${t.noun || "itself"}.`,
       triggered: false,
     });
   } else if (move.kind === "heal") {

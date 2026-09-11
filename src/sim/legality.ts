@@ -5,7 +5,7 @@
 // breeding mix. Any two Scobas can breed, so every pool below is global.
 import type { ScobaInstance } from "./scoba";
 import { MOVES, SPECIES, rosterSpecies, speciesMoves, ABILITIES, type Species } from "./species";
-import { STAT_NAMES } from "./types";
+import { BABY_BUDGET, STAT_BUDGET, STAT_CAPS, STAT_NAMES, statTotal, type Stats } from "./types";
 import { MAX_BREED_COUNT, MAX_UNNATURAL } from "./breeding";
 
 export interface LegalityOptions {
@@ -35,37 +35,47 @@ function inheritableAbilities(): Set<string> {
 }
 
 /**
- * Per-stat gene values reachable for this species with `breedCount` breeding
- * steps. Genes mix per-stat as round(0.8*mom + 0.2*dad), mom always the same
- * species as the child, dad anything at all, and parents of a count-k child
- * have count <= k-1. Two breeding steps keep these sets small.
+ * How far off its budget a line may read before it is called impossible.
+ * Breeding rounds per stat and evolution rounds again, so a line that has been
+ * through both lands a point or two either side of where it started.
  */
-export function reachableGenes(sp: Species, breedCount: number, stat: (typeof STAT_NAMES)[number]): Set<number> {
-  const lines = breedableSpecies();
-  const gen: Map<string, Set<number>>[] = [];
-  gen[0] = new Map(lines.map((m) => [m.id, new Set([m.genes[stat]])]));
-  for (let k = 1; k <= breedCount; k++) {
-    const prevUnion = new Map<string, Set<number>>();
-    for (const m of lines) {
-      const u = new Set<number>();
-      for (let j = 0; j < k; j++) for (const v of gen[j]!.get(m.id) ?? []) u.add(v);
-      prevUnion.set(m.id, u);
+export const BUDGET_SLACK = 12;
+
+/** What a form is built on: the small budget for a baby, the full one else. */
+export function budgetFor(sp: Species): number {
+  if (sp.pawn) return statTotal(sp.genes);
+  return sp.baby ? BABY_BUDGET : STAT_BUDGET;
+}
+
+/**
+ * What is wrong with a base stat line, or nothing.
+ *
+ * Genes are checked against the budget rather than against an enumeration of
+ * what breeding could reach. Every step preserves the budget: a child's line is
+ * a weighted average of two lines already inside it, and evolution maps a line
+ * onto the budget of the form it grows into. So a line inside its budget and
+ * its caps is a line some pairing could have produced, and one outside it is a
+ * line nothing could.
+ */
+export function geneErrors(sp: Species, genes: Stats, name: string): string[] {
+  const errors: string[] = [];
+  for (const stat of STAT_NAMES) {
+    const v = genes[stat];
+    if (!Number.isInteger(v)) {
+      errors.push(`${name}: non-integer ${stat} gene`);
+    } else if (v < 0) {
+      errors.push(`${name}: negative ${stat} gene`);
+    } else if (v > STAT_CAPS[stat]) {
+      errors.push(`${name}: ${stat} gene ${v} is over the cap of ${STAT_CAPS[stat]}`);
     }
-    gen[k] = new Map(
-      lines.map((m) => {
-        const out = new Set<number>();
-        for (const momV of prevUnion.get(m.id)!) {
-          for (const dadSp of lines) {
-            for (const dadV of prevUnion.get(dadSp.id)!) {
-              out.add(Math.round(0.8 * momV + 0.2 * dadV));
-            }
-          }
-        }
-        return [m.id, out];
-      }),
-    );
   }
-  return gen[breedCount]!.get(sp.id) ?? new Set();
+  if (errors.length > 0) return errors;
+  const total = statTotal(genes);
+  const budget = budgetFor(sp);
+  if (total > budget + BUDGET_SLACK) {
+    errors.push(`${name}: base stats total ${total}, over the ${budget} a ${sp.name} is built on`);
+  }
+  return errors;
 }
 
 export function validateScoba(s: ScobaInstance, opts: LegalityOptions = {}): string[] {
@@ -127,19 +137,7 @@ export function validateScoba(s: ScobaInstance, opts: LegalityOptions = {}): str
     }
   }
 
-  const bc = Math.min(Math.max(s.breedCount, 0), MAX_BREED_COUNT);
-  for (const stat of STAT_NAMES) {
-    const v = s.genes[stat];
-    if (!Number.isInteger(v)) {
-      errors.push(`${name}: non-integer ${stat} gene`);
-      continue;
-    }
-    let ok = false;
-    for (let k = 0; k <= bc && !ok; k++) {
-      if (reachableGenes(sp, k, stat).has(v)) ok = true;
-    }
-    if (!ok) errors.push(`${name}: ${stat} gene ${v} unreachable by breeding`);
-  }
+  errors.push(...geneErrors(sp, s.genes, name));
 
   return errors;
 }

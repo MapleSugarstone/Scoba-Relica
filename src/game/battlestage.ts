@@ -9,14 +9,21 @@
 import type { Art } from "../engine/assets";
 import type { Renderer } from "../engine/renderer";
 import { ART } from "../engine/renderer";
-import { DOLL_W, worldSprite } from "../engine/paperdoll";
+import { DOLL_W } from "../engine/paperdoll";
 import { sfx } from "../engine/sfx";
 import { Actor, MOTIONS } from "./actors";
 import { stagePace } from "./pace";
-import { critterLook, critterBounds, type CritterBounds } from "./critters";
-import type { BattleEvent, BattleState } from "../sim/battle";
-import { animOf, vfxOf, MOVES, SPECIES, type CasterAnim, type MoveVfx } from "../sim/species";
+import {
+  accessoryAnchor, centerAnchor, critterLook, critterBounds, lookOf, originAnchor, personSkin,
+  type CritterBounds, type FormTag,
+} from "./critters";
+import { formsOf, statusSummary, type BattleEvent, type BattleState, type StatusMark } from "../sim/battle";
+import {
+  animOf, vfxOf, MOVES, SPECIES,
+  type CasterAnim, type Move, type MoveVfx, type Species,
+} from "../sim/species";
 import { FIELDS } from "../sim/status";
+import { rngFrom } from "../sim/rng";
 import { TYPE_COLORS } from "../sim/types";
 import { ALL_SLOTS, SCOBA_SLOTS, isPawnSlot, type TargetRef } from "../sim/targeting";
 import type { SaveData, SlotId } from "../save/save";
@@ -44,6 +51,12 @@ interface Fighter {
   head: number;
   /** Team index, so the stage can be re-read off the battle state. */
   index: number;
+  /**
+   * The costume it was last drawn in. A Scoba that spends its cherry or goes
+   * Hyper keeps its actor and is re-skinned in place, so what it is wearing
+   * has to be compared against something.
+   */
+  worn: string;
   /** Offset from the anchor, which is what the move animations drive. */
   ox: number;
   oy: number;
@@ -52,6 +65,10 @@ interface Fighter {
   /** Extra rattle, in world units. */
   shake: number;
   hurt: number;
+  /** A green wash over whatever was just healed, fading as it goes. */
+  heal: number;
+  /** A white wash, for a Scoba changing into something else. */
+  flare: number;
   /**
    * Whether it is standing on its mark. A readout stays hidden while its
    * Scoba is still walking on and fades in once it arrives.
@@ -91,6 +108,13 @@ interface Shown {
   mana: number;
   manaTrail: number;
   fainted: boolean;
+  /**
+   * The marks the readout is showing. Snapshotted like the numbers are,
+   * because the battle resolves a whole round before any of it is played: read
+   * off the combatant and every sigil the round left would be on the card
+   * before the move that left it had been drawn.
+   */
+  marks: StatusMark[];
 }
 
 /**
@@ -117,6 +141,29 @@ interface Effect {
   from: Anchor;
   to: Anchor;
   color: string;
+  /** Turns it makes on the way across, signed. Only a `toss` takes one. */
+  spin?: number;
+  /**
+   * Drawn art for the move behind it, cropped to what was drawn. Where there
+   * is any it is thrown and burst in place of the blocks, along the same path,
+   * so a move with art and one without travel and land the same way.
+   */
+  sprite?: HTMLCanvasElement | HTMLImageElement;
+}
+
+/**
+ * A caster's movement, running beside the queue rather than as a step in it.
+ *
+ * A step holds the queue until it is done, so an animation written as one puts
+ * everything it sets off after itself: the Scoba finished its throw and only
+ * then did anything leave its hand. Run here instead and the throw, what it
+ * threw and what that lands on all happen together.
+ */
+interface Motion {
+  f: Fighter;
+  anim: CasterAnim;
+  t: number;
+  dur: number;
 }
 
 interface Step {
@@ -326,18 +373,10 @@ const GROUND = {
   sky: "#2a3049",
   far: "#232941",
   farLip: "#2f3450",
-  farMark: "#1a1f31",
   near: "#363d5e",
   nearLip: "#3f4767",
-  nearMark: "#282e46",
 };
 
-/** How wide a mark is against the drawn width of whoever stands on it. */
-const MARK_SHARE = 0.8;
-/** How deep a mark is against its own width. */
-const MARK_SQUASH = 0.34;
-/** How much of a doll's canvas the body it holds actually fills. */
-const DOLL_FILL = 0.42;
 /** How far apart the dither pixels along the horizon stand, in world units. */
 const HORIZON_STEP = 3;
 
@@ -388,6 +427,8 @@ export class BattleStage {
   instant = false;
   /** Real seconds the stage is frozen for, so a landed blow reads. */
   private hold = 0;
+  /** Caster movements in flight, stepped alongside the queue. */
+  private motions: Motion[] = [];
   /** True while the opening is running, so the readouts hold off. */
   private opening = false;
   /** False until a frame has been drawn, so the view size is real. */
@@ -523,7 +564,7 @@ export class BattleStage {
       : this.opts.fighters;
     order.forEach((slot, i) => {
       const look = this.save.characters[slot].look;
-      const actor = new Actor(0, 0, { sprite: worldSprite(this.art.doll, look), motion: "hop" });
+      const actor = new Actor(0, 0, personSkin(this.art, look));
       actor.speed = CHAR_SPEED;
       actor.dir = 1;
       actor.desync(i * 0.41 + 0.13);
@@ -533,10 +574,7 @@ export class BattleStage {
       const other: SlotId = local === "A" ? "B" : "A";
       // No art of their own yet: the trainer borrows the other character doll,
       // which at least reads as a person standing opposite.
-      const actor = new Actor(0, 0, {
-        sprite: worldSprite(this.art.doll, this.save.characters[other].look),
-        motion: "hop",
-      });
+      const actor = new Actor(0, 0, personSkin(this.art, this.save.characters[other].look));
       actor.speed = CHAR_SPEED;
       actor.dir = -1;
       actor.desync(0.67);
@@ -548,6 +586,29 @@ export class BattleStage {
    * Re-reads who is standing where. Called after a switch, a join or a
    * summon, so the stage follows the battle rather than tracking it twice.
    */
+  /**
+   * Puts a fighter into the costume it is currently in, where that has changed
+   * since it was last drawn. The actor is kept rather than replaced, so
+   * whatever it is in the middle of carries on.
+   */
+  private reskin(f: Fighter): void {
+    const c = this.st.teams[f.side][f.index];
+    const sp = c ? SPECIES[c.scoba.speciesId] : undefined;
+    if (!c || !sp) return;
+    const forms = formsOf(c);
+    const worn = forms.join("+");
+    if (f.worn === worn) return;
+    f.actor.skin = critterLook(this.art, sp, c.scoba, forms);
+    f.bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms));
+    f.head = f.bounds.top + idleLift(sp.movement, f.actor.idleMix);
+    f.worn = worn;
+  }
+
+  /** Everyone on the field, for a change that is not a walk-on or a faint. */
+  private reskinAll(): void {
+    for (const f of this.fighters) this.reskin(f);
+  }
+
   sync(): void {
     const before = this.rosterKey();
     const wanted: Fighter[] = [];
@@ -560,24 +621,30 @@ export class BattleStage {
         // A Scoba the battle has already downed stays on the field until its
         // own faint animation has played.
         if (this.shownOf(side, index).fainted) continue;
+        const sp = SPECIES[c.scoba.speciesId];
+        if (!sp) continue;
+        const forms = formsOf(c);
+        const worn = forms.join("+");
         const kept = this.fighters.find((f) => f.side === side && f.index === index);
         if (kept) {
           kept.slot = slot;
+          // Changed costume since it was last drawn: re-skin it where it
+          // stands rather than replacing the actor, so nothing it is in the
+          // middle of is interrupted.
+          this.reskin(kept);
           wanted.push(kept);
           continue;
         }
-        const sp = SPECIES[c.scoba.speciesId];
-        if (!sp) continue;
         const pawn = isPawnSlot(slot);
         const at = this.anchor(side, slot);
-        const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba));
+        const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba, forms));
         actor.dir = side === 0 ? 1 : -1;
         actor.speed = ENTER_SPEED;
         actor.radius = 3;
         // Standing ready: hopping species keep bouncing, hovering ones are
         // already at full float and are left alone.
         actor.idleMix = 0.45;
-        const bounds = critterBounds(this.art, sp);
+        const bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms));
         // Deterministic per slot, so the bob is out of step with the others
         // but lands the same way on both clients.
         actor.desync(((side * 2 + slot) * 0.37 + index * 0.19) % 1);
@@ -585,9 +652,9 @@ export class BattleStage {
         // the call is what brings it in, so it starts hidden and the summon
         // event is what makes it appear.
         wanted.push({
-          actor, side, slot, index, pawn, ox: 0, oy: 0,
+          actor, side, slot, index, pawn, worn, ox: 0, oy: 0,
           bounds, head: bounds.top + idleLift(sp.movement, actor.idleMix),
-          alpha: pawn ? 0 : 1, shake: 0, hurt: 0,
+          alpha: pawn ? 0 : 1, shake: 0, hurt: 0, heal: 0, flare: 0,
           settled: !pawn, plate: pawn ? 0 : 1, leaving: null,
         });
         continue;
@@ -629,21 +696,28 @@ export class BattleStage {
           held.fainted = c.fainted;
           return;
         }
-        this.shown.set(k, { hp: c.hp, hpTrail: c.hp, mana: c.mana, manaTrail: c.mana, fainted: c.fainted });
+        this.shown.set(k, {
+          hp: c.hp, hpTrail: c.hp, mana: c.mana, manaTrail: c.mana,
+          fainted: c.fainted, marks: statusSummary(c),
+        });
       });
     }
   }
 
   /** What the readout for a combatant should say this frame. */
   shownOf(side: 0 | 1, index: number): {
-    hp: number; hpTrail: number; mana: number; manaTrail: number; fainted: boolean;
+    hp: number; hpTrail: number; mana: number; manaTrail: number;
+    fainted: boolean; marks: StatusMark[];
   } {
     const held = this.shown.get(BattleStage.key(side, index));
     const c = this.st.teams[side][index];
     if (!held) {
       const hp = c?.hp ?? 0;
       const mana = c?.mana ?? 0;
-      return { hp, hpTrail: hp, mana, manaTrail: mana, fainted: c?.fainted ?? false };
+      return {
+        hp, hpTrail: hp, mana, manaTrail: mana,
+        fainted: c?.fainted ?? false, marks: c ? statusSummary(c) : [],
+      };
     }
     return {
       hp: Math.max(0, Math.round(held.hp)),
@@ -651,6 +725,7 @@ export class BattleStage {
       mana: held.mana,
       manaTrail: Math.max(0, held.manaTrail),
       fainted: held.fainted,
+      marks: held.marks,
     };
   }
 
@@ -670,6 +745,7 @@ export class BattleStage {
           mana: c.mana,
           manaTrail: this.instant ? c.mana : held?.manaTrail ?? c.mana,
           fainted: c.fainted,
+          marks: statusSummary(c),
         });
       });
     }
@@ -684,6 +760,49 @@ export class BattleStage {
 
   private posOf(f: Fighter): Anchor {
     return { x: f.actor.x + f.ox, y: f.actor.y + f.oy };
+  }
+
+  /** The species and costume a fighter is drawn as, for anything read off its art. */
+  private drawnAs(f: Fighter): { sp: Species; forms: FormTag[] } | null {
+    const c = this.st.teams[f.side][f.index];
+    const sp = c ? SPECIES[c.scoba.speciesId] : undefined;
+    return sp && c ? { sp, forms: formsOf(c) } : null;
+  }
+
+  /**
+   * Puts a spot measured off a costume's feet where that fighter is standing.
+   * The sprite is mirrored for the far side, so the offset mirrors with it.
+   */
+  private spotOn(f: Fighter, anchor: { x: number; y: number }): Anchor {
+    const at = this.posOf(f);
+    const facing = f.side === 0 ? 1 : -1;
+    return { x: at.x + anchor.x * ART * facing, y: at.y - anchor.y * ART };
+  }
+
+  /**
+   * Where a throw lands on a fighter: the middle of its drawn pixels, or
+   * wherever the cosmetics editor has moved that to. A blow reads as landing
+   * on the body rather than at the feet it stands on.
+   */
+  private centerOf(f: Fighter): Anchor {
+    const drawn = this.drawnAs(f);
+    if (!drawn) return this.posOf(f);
+    return this.spotOn(f, centerAnchor(this.art, drawn.sp, drawn.forms));
+  }
+
+  /**
+   * Where a move leaves the caster from. A move thrown off a piece the caster
+   * wears leaves from where that piece sits, drawn in or worn on top alike;
+   * anything else leaves from the middle of the Scoba.
+   */
+  private originOf(f: Fighter, move: Move | null): Anchor {
+    const drawn = this.drawnAs(f);
+    if (!drawn) return this.posOf(f);
+    const worn = move?.vfxOrigin;
+    const anchor = worn
+      ? accessoryAnchor(this.art, drawn.sp, worn, drawn.forms)
+      : originAnchor(this.art, drawn.sp, drawn.forms);
+    return this.spotOn(f, anchor);
   }
 
   /**
@@ -798,7 +917,14 @@ export class BattleStage {
     return n;
   }
 
-  /** Puts everyone back on their mark, after a resize or a slot change. */
+  /**
+   * Puts everyone back on their mark, after a resize or a slot change.
+   *
+   * The stage is built before it knows how big it is, and it runs for as long
+   * as the screen takes to arrive before the first frame is drawn. Everyone is
+   * standing on a mark worked out from the fallback size until then, so the
+   * light a shiny shed over those frames fell somewhere nobody is, and goes.
+   */
   private resnap(): void {
     for (const f of this.fighters) {
       // Anyone walking off has left their mark on purpose and does not want
@@ -807,11 +933,13 @@ export class BattleStage {
       const a = this.anchor(f.side, f.slot);
       f.actor.x = a.x;
       f.actor.y = a.y;
+      f.actor.clearSparks();
     }
     for (const p of this.people) {
       const a = this.personAnchor(p.side, p.slot);
       p.actor.x = a.x;
       p.actor.y = a.y;
+      p.actor.clearSparks();
     }
   }
 
@@ -863,6 +991,10 @@ export class BattleStage {
       f.actor.step(dt, 0, 0, NO_MAP);
       f.shake *= Math.max(0, 1 - dt * 9);
       f.hurt = Math.max(0, f.hurt - dt * 8);
+      // Slower than a hit's flash: what a heal reads as is the colour draining
+      // back out of it rather than a blow landing.
+      f.heal = Math.max(0, f.heal - dt * 1.6);
+      f.flare = Math.max(0, f.flare - dt * 1.4);
       // The readout arrives after its Scoba does, and leaves with it.
       const want = f.settled ? f.alpha : 0;
       f.plate += (want - f.plate) * Math.min(1, dt * 6);
@@ -870,6 +1002,7 @@ export class BattleStage {
     }
     for (const e of this.effects) e.t += dt;
     this.effects = this.effects.filter((e) => e.t < e.dur);
+    this.stepMotions(dt);
     this.stepWashes(dt);
     for (const v of this.shown.values()) {
       v.hpTrail = easeTrail(v.hpTrail, v.hp, dt);
@@ -903,6 +1036,31 @@ export class BattleStage {
       this.stepT = 0;
       this.started = false;
     }
+  }
+
+  /**
+   * Runs every caster movement on the clock and puts each Scoba back where it
+   * stands once its own is done.
+   */
+  private stepMotions(dt: number): void {
+    if (this.motions.length === 0) return;
+    for (const m of this.motions) {
+      m.t += dt;
+      const k = m.dur <= 0 ? 1 : Math.min(1, m.t / m.dur);
+      this.runCasterAnim(m.f, m.anim, k);
+      if (k < 1) continue;
+      m.f.ox = 0;
+      m.f.oy = 0;
+      m.f.alpha = 1;
+    }
+    this.motions = this.motions.filter((m) => m.t < m.dur);
+  }
+
+  /** Starts one, replacing whatever that Scoba was already in the middle of. */
+  private startMotion(f: Fighter, anim: CasterAnim): void {
+    this.motions = this.motions.filter((m) => m.f !== f);
+    if (this.instant) return;
+    this.motions.push({ f, anim, t: 0, dur: castDuration(anim) });
   }
 
   // --- the opening ---
@@ -1036,7 +1194,7 @@ export class BattleStage {
     if (found) return found;
     const look = this.save.characters[who]?.look;
     if (!look) return null;
-    const actor = new Actor(0, 0, { sprite: worldSprite(this.art.doll, look), motion: "hop" });
+    const actor = new Actor(0, 0, personSkin(this.art, look));
     actor.speed = CHAR_SPEED;
     actor.dir = 1;
     actor.desync(0.29);
@@ -1163,14 +1321,18 @@ export class BattleStage {
    */
   play(events: BattleEvent[], onEach: (ev: BattleEvent) => void): Promise<void> {
     let caster: TargetRef | undefined;
-    for (const ev of events) {
+    const groups = volleys(events);
+    events.forEach((ev, i) => {
       if (ev.kind === "spell") caster = ev.at;
-      this.queueEvent(ev, caster, onEach);
-    }
+      this.queueEvent(ev, caster, onEach, groups.lead.get(i), groups.follows.has(i));
+    });
     return this.flush();
   }
 
-  private queueEvent(ev: BattleEvent, caster: TargetRef | undefined, onEach: (ev: BattleEvent) => void): void {
+  private queueEvent(
+    ev: BattleEvent, caster: TargetRef | undefined, onEach: (ev: BattleEvent) => void,
+    volley?: TargetRef[], follows = false,
+  ): void {
     const say = (dur: number, step: Omit<Step, "dur"> = {}): void => {
       // Spread the step rather than naming its fields: a `hold` left behind
       // here is a walk that gets cut off and put on its mark.
@@ -1191,35 +1353,108 @@ export class BattleStage {
         const self = this.find(ev.at);
         if (!self) return say(0.2);
         const anim = animOf(move);
-        say(castDuration(anim), {
-          run: (k) => this.runCasterAnim(self, anim, k),
+        // The movement runs beside the queue, so whatever the move throws
+        // leaves while the throw is still happening rather than after it. The
+        // step itself is only the beat before the first hit lands.
+        say(CAST_LEAD, {
+          // A move that uses something up changes what the caster looks like as
+          // it is cast rather than when the hit lands, so the cherry leaves the
+          // glass on the throw and the throw is what it leaves on.
+          start: () => {
+            this.reskinAll();
+            this.startMotion(self, anim);
+          },
+        });
+        return;
+      }
+      case "hyper": {
+        const self = this.find(ev.at);
+        if (!self) return say(0.3);
+        let changed = false;
+        say(0.7, {
+          start: () => {
+            sfx.confirm();
+            const b = this.posOf(self);
+            this.effects.push({ kind: "glow", t: 0, dur: 0.7, from: b, to: b, color: "#e58ab8" });
+          },
+          run: (k) => {
+            // Rears up and settles, so the change of shape reads as the Scoba
+            // doing something rather than as the art swapping under it.
+            self.shake = k < 0.5 ? 3.4 : 0;
+            self.oy = -Math.sin(k * Math.PI) * 5;
+            // White all the way out, and the new costume is put on under it at
+            // its whitest, so what drains back is the Scoba it has become.
+            if (k < HYPER_WHITE) {
+              self.flare = k / HYPER_WHITE;
+              return;
+            }
+            if (!changed) {
+              changed = true;
+              this.reskinAll();
+              self.flare = 1;
+            }
+          },
           end: () => {
-            self.ox = 0;
+            self.shake = 0;
             self.oy = 0;
-            self.alpha = 1;
+            if (!changed) this.reskinAll();
           },
         });
         return;
       }
       case "hit": {
+        // A hit that the volley ahead of it already landed is only its own log
+        // line: the throw, the arrival and the flash all happened together.
+        if (follows) return say(FOLLOW_BEAT);
         const target = this.find(ev.at);
         const from = this.find(ev.by ?? caster);
         const move = ev.moveId ? MOVES[ev.moveId] ?? null : null;
         const vfx = vfxOf(move);
         const color = move ? TYPE_COLORS[move.type] : "#f3f2c0";
+        const sprite = move?.art ? this.art.powers[move.art] : undefined;
         if (!target) return say(0.2);
-        const travel = vfx === "bolt" ? 0.15 : vfx === "lob" ? 0.2 : 0;
+        // Everyone this cast reaches, so one throw goes out per target and
+        // they all land on the same frame.
+        const struckRefs = volley ?? (ev.at ? [ev.at] : []);
+        const travel = TRAVEL[vfx] ?? 0;
         const land = 0.15;
-        // Fired once, off its own flag rather than off the white flash: the
-        // flash now outlives the step it belongs to, and two hits landing on
-        // one Scoba in a round must each get their own impact.
+        const seed = `${this.st.seed}:spin:${this.st.turn}`;
         let struck = false;
+        let thrown = false;
         say(travel + land, {
           start: () => {
-            const a = from ? this.posOf(from) : this.posOf(target);
-            const b = this.posOf(target);
-            if (travel > 0) this.effects.push({ kind: vfx, t: 0, dur: travel, from: a, to: b, color });
-            else if (vfx === "beam") this.effects.push({ kind: "beam", t: 0, dur: 0.18, from: a, to: b, color });
+            thrown = false;
+            for (const ref of struckRefs) {
+              const hitF = this.find(ref);
+              if (!hitF) continue;
+              const b = this.centerOf(hitF);
+              // Where it comes from: a piece the caster wears throws from
+              // where that piece sits, and anything that falls starts over
+              // the target it is falling on.
+              const a = vfx === "drop"
+                ? { x: b.x, y: b.y - this.view.h * DROP_HEIGHT }
+                : from ? this.originOf(from, move) : b;
+              // A turning piece is given its spin here rather than where it is
+              // drawn, so it keeps the same one the whole way across. Off the
+              // seed, so both clients throw it the same way.
+              const spin = vfx === "toss"
+                ? (rngFrom(`${seed}:${ref.side}:${ref.index}`)() * 2 - 1) * 2.4
+                : 0;
+              if (travel > 0) {
+                this.effects.push({ kind: vfx, t: 0, dur: travel, from: a, to: b, color, sprite, spin });
+                thrown = true;
+              } else if (vfx === "beam") {
+                this.effects.push({ kind: "beam", t: 0, dur: 0.18, from: a, to: b, color, sprite });
+              } else if (sprite) {
+                this.effects.push({ kind: "burst", t: 0, dur: 0.3, from: b, to: b, color, sprite });
+              }
+            }
+            // One noise for the throw however many went out, so a move that
+            // reaches a whole line does not sound like several. A move that
+            // brought its own noise for firing plays that instead, because it
+            // is already the sound of the thing leaving.
+            if (move?.soundOn === "cast") sfx.play(move.sound);
+            else if (thrown) sfx.play("wooshthrow", MIX.throw);
           },
           run: (k) => {
             if (struck || k < travel / (travel + land)) return;
@@ -1227,13 +1462,25 @@ export class BattleStage {
             // The freeze is what makes the blow read, so it lands on the same
             // frame the flash and the shake do.
             if (!this.instant) this.hold = HIT_STOP;
-            target.hurt = 1;
-            target.shake = 2.2;
-            const b = this.posOf(target);
-            this.effects.push({ kind: "impact", t: 0, dur: 0.22, from: b, to: b, color });
+            for (const ref of struckRefs) {
+              const hitF = this.find(ref);
+              if (!hitF) continue;
+              hitF.hurt = 1;
+              hitF.shake = 2.2;
+              const b = this.centerOf(hitF);
+              this.effects.push({ kind: "impact", t: 0, dur: 0.22, from: b, to: b, color });
+            }
+            // Whatever the move brought its own noise or not, a landed hit
+            // makes one, so nothing lands in silence. A move that spent its
+            // noise on firing falls back to the generic blow here.
+            const own = move?.soundOn !== "cast" && sfx.play(move?.sound);
+            if (!own) sfx.play("generichit", MIX.blow);
           },
           end: () => {
-            target.shake = 0;
+            for (const ref of struckRefs) {
+              const hitF = this.find(ref);
+              if (hitF) hitF.shake = 0;
+            }
           },
         });
         return;
@@ -1243,19 +1490,44 @@ export class BattleStage {
         if (!target) return say(0.25);
         say(0.28, {
           start: () => {
-            const b = this.posOf(target);
+            const b = this.centerOf(target);
             this.effects.push({ kind: "flames", t: 0, dur: 0.45, from: b, to: b, color: "#e7a03c" });
+            sfx.play(STATUS_SOUNDS[statusIn(ev.text) ?? ""], MIX.status);
           },
         });
         return;
       }
       case "heal": {
         const target = this.find(ev.at);
-        say(0.35, {
+        if (!target) return say(0.3);
+        const move = ev.moveId ? MOVES[ev.moveId] ?? null : null;
+        const from = this.find(ev.by ?? caster);
+        const vfx = move ? vfxOf(move) : "glow";
+        const sprite = move?.art ? this.art.powers[move.art] : undefined;
+        // A heal that is thrown crosses the field first and is gone the moment
+        // it lands. One that is simply cast lands where it stands.
+        const travel = sprite && from && from !== target ? TRAVEL[vfx] ?? 0 : 0;
+        const spin = vfx === "toss"
+          ? (rngFrom(`${this.st.seed}:spin:${this.st.turn}:h${ev.at?.index ?? 0}`)() * 2 - 1) * 2.4
+          : 0;
+        let landed = false;
+        say(travel + 0.3, {
           start: () => {
-            if (!target) return;
-            const b = this.posOf(target);
+            const b = this.centerOf(target);
+            if (travel <= 0) return;
+            const a = this.originOf(from!, move);
+            this.effects.push({ kind: vfx, t: 0, dur: travel, from: a, to: b, color: "#7aa74a", sprite, spin });
+            sfx.play("wooshthrow", MIX.throw);
+          },
+          run: (k) => {
+            if (landed || k < travel / (travel + 0.3)) return;
+            landed = true;
+            // The green goes on as what was thrown reaches them, and drains
+            // back out over the rest of the step.
+            target.heal = 1;
+            const b = this.centerOf(target);
             this.effects.push({ kind: "glow", t: 0, dur: 0.45, from: b, to: b, color: "#7aa74a" });
+            sfx.play(move?.sound);
           },
         });
         return;
@@ -1283,6 +1555,8 @@ export class BattleStage {
             this.sync();
             walking = this.find(ev.at);
             if (!walking) return;
+            // A Scoba calls as it walks on, where its line has a call drawn.
+            sfx.play(SPECIES[this.st.teams[walking.side][walking.index]?.scoba.speciesId ?? ""]?.cry);
             const going = standing.find((f) => f !== walking && f.slot === walking!.slot);
             if (going) this.sendOff(going);
             walking.settled = false;
@@ -1432,6 +1706,14 @@ export class BattleStage {
       if (this.instant) held.manaTrail = ev.mana;
     }
     if (ev.kind === "faint") held.fainted = true;
+    // A mark arrives with the line that says it arrived, rather than with the
+    // round that resolved it. Read off the combatant at that moment, so every
+    // mark it is carrying by then shows together: what the events say is which
+    // Scoba was marked and when, not one status at a time.
+    if (ev.kind === "status" || ev.kind === "faint" || ev.kind === "hyper") {
+      const live = this.st.teams[ref.side][ref.index];
+      if (live) held.marks = statusSummary(live);
+    }
   }
 
   /** The caster's own motion while its move goes off. */
@@ -1702,33 +1984,6 @@ export class BattleStage {
 
   // --- drawing ---
 
-  /**
-   * The mark under a pair of feet: a stepped ellipse of stacked rectangles in a
-   * darker tone of whichever ground band they stand on. It shrinks with how
-   * visible its owner is, so a Scoba fading out takes its mark with it.
-   */
-  private groundMark(
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    width: number,
-    alpha: number,
-  ): void {
-    if (alpha <= 0) return;
-    const rows = alpha >= 1 ? 4 : 3;
-    const u = 1 / ART;
-    const w = Math.max(2, Math.round(width * alpha * ART));
-    const rowH = Math.max(1, Math.round((w * MARK_SQUASH) / rows));
-    const x = Math.round(cx * ART);
-    const y = Math.round(cy * ART) - Math.round((rowH * rows) / 2);
-    ctx.fillStyle = cy >= this.rankY(RANK.step) ? GROUND.nearMark : GROUND.farMark;
-    for (let i = 0; i < rows; i++) {
-      const dy = ((i + 0.5) / rows - 0.5) * 2;
-      const half = Math.round((w / 2) * Math.sqrt(Math.max(0, 1 - dy * dy)));
-      if (half <= 0) continue;
-      ctx.fillRect((x - half) * u, (y + i * rowH) * u, half * 2 * u, rowH * u);
-    }
-  }
 
   draw(r: Renderer): void {
     const resized = this.view.w !== r.width || this.view.h !== r.height;
@@ -1768,7 +2023,7 @@ export class BattleStage {
       items.push({
         baseY: p.actor.depthY,
         draw: () => {
-          this.groundMark(ctx, p.actor.x, p.actor.y, (DOLL_W / ART) * DOLL_FILL, 1);
+          p.actor.drawShadow(ctx, 0, 0);
           p.actor.draw(ctx, 0, 0);
         },
       });
@@ -1784,9 +2039,9 @@ export class BattleStage {
         draw: () => {
           // Anything the move cannot reach fades back while it is being aimed.
           const alpha = stepAlpha(Math.min(f.alpha, this.aim && !target ? 0.4 : 1));
-          // The mark stays on the ground under the body while the sprite
+          // The shadow stays on the ground under the body while the sprite
           // floats, lunges or rises, which is the whole point of drawing it.
-          this.groundMark(ctx, f.actor.x + f.ox, f.actor.y, f.bounds.width * MARK_SHARE, alpha);
+          f.actor.drawShadow(ctx, -f.ox, 0, alpha);
           if (alpha <= 0) return;
           const jitter = f.shake > 0.05 ? (Math.random() - 0.5) * f.shake : 0;
           ctx.save();
@@ -1798,8 +2053,12 @@ export class BattleStage {
           // owning where it actually stands.
           ctx.translate(f.ox + jitter, f.oy);
           f.actor.draw(ctx, 0, 0);
+          // Every wash is the Scoba's own shape, drawn on the same transform
+          // it is, so none of them reads as a box sitting over the field.
+          if (f.hurt > 0) f.actor.drawTint(ctx, 0, 0, "#f3f2c0", f.hurt * 0.5);
+          if (f.heal > 0) f.actor.drawTint(ctx, 0, 0, "#7aa74a", f.heal * 0.55);
+          if (f.flare > 0) f.actor.drawTint(ctx, 0, 0, "#ffffff", f.flare);
           ctx.restore();
-          if (f.hurt > 0) flash(ctx, at.x, at.y, f.hurt);
         },
       });
     }
@@ -1824,6 +2083,13 @@ const NO_MAP = {
  * back inside a quarter second or so, so a round reads as a flurry rather
  * than as each Scoba walking its attack over and walking it back.
  */
+/**
+ * How long the queue waits on a cast before the first hit is allowed to land.
+ * Short, because the movement itself carries on beside the queue: this is the
+ * beat that keeps a throw from landing on the frame it started.
+ */
+const CAST_LEAD = 0.09;
+
 function castDuration(anim: CasterAnim): number {
   if (anim === "blink") return 0.28;
   if (anim === "lunge") return 0.22;
@@ -1831,11 +2097,13 @@ function castDuration(anim: CasterAnim): number {
   return 0.2;
 }
 
-/** A white wash over whatever was just struck. */
-function flash(ctx: CanvasRenderingContext2D, x: number, y: number, k: number): void {
+/** A wash over whatever was just struck or just mended. */
+function flash(
+  ctx: CanvasRenderingContext2D, x: number, y: number, k: number, color: string,
+): void {
   ctx.save();
   ctx.globalAlpha = Math.min(0.5, k * 0.5);
-  ctx.fillStyle = "#f3f2c0";
+  ctx.fillStyle = color;
   ctx.fillRect(Math.round(x - 7), Math.round(y - 22), 14, 22);
   ctx.restore();
 }
@@ -1844,6 +2112,93 @@ function flash(ctx: CanvasRenderingContext2D, x: number, y: number, k: number): 
  * Effects are drawn as square chunks rather than smooth arcs, so they stay in
  * the same pixel idiom as everything else on the canvas.
  */
+/**
+ * A drawn sample for a mark landing. Keyed by the status's name as the log
+ * writes it, since a status event says what it is in its line rather than
+ * naming the status it came from.
+ */
+const STATUS_SOUNDS: Record<string, string> = {
+  "Sticky Treat": "stickysweet",
+};
+
+/**
+ * Where each layer sits under a move's own sound, which plays at full. Every
+ * sample is already levelled to one loudness as it loads, so these say what
+ * belongs in the background rather than correcting how a file was recorded.
+ */
+const MIX = {
+  /** Under whatever the move itself does, because it is the arm and not the blow. */
+  throw: 0.7,
+  /** The blow a move with no sound of its own makes, heard on every basic attack. */
+  blow: 0.85,
+  status: 0.8,
+};
+
+/** Which named status a log line is about, or null for one about none. */
+function statusIn(text: string): string | null {
+  for (const name of Object.keys(STATUS_SOUNDS)) {
+    if (text.includes(name)) return name;
+  }
+  return null;
+}
+
+  /**
+ * Which hits belong to one cast. A move that reaches a whole line lands on
+ * everyone at once rather than walking down the row, so the first hit of a
+ * run throws at every target and lands them all, and the rest are only their
+ * own log lines.
+ *
+ * A run is a stretch of hits from the one move with nothing between them,
+ * which is exactly how the battle writes a move that struck several.
+ */
+export function volleys(events: BattleEvent[]): { lead: Map<number, TargetRef[]>; follows: Set<number> } {
+  const lead = new Map<number, TargetRef[]>();
+  const follows = new Set<number>();
+  let i = 0;
+  while (i < events.length) {
+    const here = events[i];
+    if (here?.kind !== "hit" || here.moveId === undefined) {
+      i += 1;
+      continue;
+    }
+    let j = i;
+    const refs: TargetRef[] = [];
+    while (j < events.length) {
+      const next = events[j];
+      if (next?.kind !== "hit" || next.moveId !== here.moveId || !next.at) break;
+      refs.push(next.at);
+      j += 1;
+    }
+    if (refs.length > 1) {
+      lead.set(i, refs);
+      for (let k = i + 1; k < j; k++) follows.add(k);
+    }
+    i = Math.max(j, i + 1);
+  }
+  return { lead, follows };
+}
+
+/** Turns a lobbed piece of art makes between the thrower and the target. */
+const LOB_SPINS = 2;
+
+/** How long each kind of shot spends in the air. */
+const TRAVEL: Partial<Record<MoveVfx, number>> = {
+  bolt: 0.15,
+  lob: 0.2,
+  // Thrown rather than fired, so it hangs in the air long enough to be read.
+  toss: 0.42,
+  drop: 0.34,
+};
+
+/** How far over a target something that falls on it starts, as a share of the view. */
+const DROP_HEIGHT = 0.36;
+
+/** What a hit already landed by the volley ahead of it spends on its log line. */
+const FOLLOW_BEAT = 0.12;
+
+/** How far into the Hyper-Mode step the Scoba is at its whitest. */
+const HYPER_WHITE = 0.45;
+
 function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
   const k = Math.min(1, e.t / e.dur);
   const u = 1 / ART;
@@ -1864,6 +2219,57 @@ function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
    */
   const climb = Math.min(ARC_MAX, Math.abs(e.from.y - e.to.y) * ARC_PER_RANK);
   const arcAt = (p: number): number => Math.sin(p * Math.PI) * climb;
+
+  // Drawn art rides the same paths the blocks do, so a move with art and one
+  // without travel and land alike. It is centred on the point and scaled to
+  // world units, and a burst swells and fades where the blocks would scatter.
+  if (e.sprite) {
+    const w = e.sprite.width / ART;
+    const h = e.sprite.height / ART;
+    let x = e.to.x;
+    let y = e.to.y - lift;
+    let scale = 1;
+    let alpha = 1;
+    if (e.kind === "bolt" || e.kind === "lob" || e.kind === "toss") {
+      x = e.from.x + (e.to.x - e.from.x) * k;
+      y = e.from.y - lift + (e.to.y - e.from.y) * k - arcAt(k);
+      if (e.kind === "lob") y -= Math.sin(k * Math.PI) * 26;
+      // Thrown higher than it is lobbed, because it is in the air longer.
+      if (e.kind === "toss") y -= Math.sin(k * Math.PI) * 34;
+    } else if (e.kind === "drop") {
+      // Straight down onto the target, slowing into the ground the way a
+      // dropped thing does rather than falling at one speed and stopping.
+      const p = 1 - (1 - k) * (1 - k) * (1 - k);
+      x = e.from.x + (e.to.x - e.from.x) * p;
+      y = e.from.y + (e.to.y - e.from.y) * p - lift;
+    } else if (e.kind === "beam") {
+      x = e.from.x + (e.to.x - e.from.x) * 0.5;
+      y = e.from.y - lift + (e.to.y - e.from.y) * 0.5;
+      alpha = 1 - k;
+    } else {
+      // A burst on the spot: up to full size quickly, then out.
+      scale = 0.6 + Math.min(1, k * 3) * 0.4;
+      alpha = 1 - Math.max(0, (k - 0.5) * 2);
+    }
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.imageSmoothingEnabled = false;
+    // A lobbed shot turns end over end on its way across, which is what tells
+    // a thrown thing from one that was cast. It turns with the throw, so a
+    // shot going left spins the other way.
+    if (e.kind === "lob" || e.kind === "toss") {
+      // A lob turns the same way every time; a toss takes the turn it was
+      // given when it left, which is a different one each throw.
+      const turns = e.kind === "toss" ? (e.spin ?? 1) : (e.to.x >= e.from.x ? 1 : -1) * LOB_SPINS;
+      ctx.translate(x, y);
+      ctx.rotate(k * Math.PI * 2 * turns);
+      ctx.translate(-x, -y);
+    }
+    ctx.drawImage(e.sprite, x - (w * scale) / 2, y - (h * scale) / 2, w * scale, h * scale);
+    ctx.restore();
+    return;
+  }
+
   switch (e.kind) {
     case "bolt": {
       const x = e.from.x + (e.to.x - e.from.x) * k;

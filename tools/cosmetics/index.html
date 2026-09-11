@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scoba cosmetics</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        padding: 16px;
+        font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: #14161f;
+        color: #eceaf2;
+      }
+      @media (prefers-color-scheme: light) {
+        body { background: #f4f2ee; color: #23212b; }
+      }
+      main { max-width: 960px; margin: 0 auto; }
+      .where {
+        font-size: 12px;
+        opacity: 0.7;
+        text-align: center;
+        margin-bottom: 12px;
+      }
+      .said {
+        margin-top: 12px;
+        min-height: 18px;
+        font-size: 12px;
+        text-align: center;
+        opacity: 0.85;
+      }
+      .said.bad { color: #ff8f8f; opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="where">
+        Writing to <code>src/game/content/cosmetics.json</code>. Save puts it
+        straight in the repo.
+      </div>
+      <div id="mount"></div>
+      <div class="said" id="said"></div>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

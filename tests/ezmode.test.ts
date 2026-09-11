@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { makeWild, maxHp, statsAt, type ScobaInstance } from "../src/sim/scoba";
+import { commonStat, makeWild, maxHp, scaleToLevel, statsAt, type ScobaInstance } from "../src/sim/scoba";
 import { rngFrom } from "../src/sim/rng";
 import { combatantMaxHp, combatantStats, startBattle } from "../src/sim/battle";
 import { STAT_NAMES } from "../src/sim/types";
+import { EZ_STAT_BONUS } from "../src/sim/status";
 
 /**
  * One Scoba the player owns. Abilities both add to and scale stats, so every
@@ -44,10 +45,11 @@ describe("EZ mode in battle", () => {
   it("makes a level worth four to a stat no ability touches", () => {
     // Defence is plain on this one: no ability adds to it or scales it, so
     // what lands there is exactly what EZ mode put there and nothing else.
-    for (const level of [2, 3, 5]) {
+    for (const level of [2, 3, 5, 20, 30]) {
       const s = mine(level);
-      expect(combatantStats(player([s], false)).def).toBe(s.genes.def + (level - 1));
-      expect(combatantStats(player([s], true)).def).toBe(s.genes.def + (level - 1) * 4);
+      const plain = scaleToLevel(s.genes, level).def + commonStat(level);
+      expect(combatantStats(player([s], false)).def).toBe(plain);
+      expect(combatantStats(player([s], true)).def).toBe(plain + (level - 1) * EZ_STAT_BONUS);
     }
   });
 
