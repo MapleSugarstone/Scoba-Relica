@@ -1,0 +1,549 @@
+/* Scoba Relica: the battle screen, its readouts and its action block. */
+/* The readouts ride under their Scobas rather than sitting in a bar. */
+.bplates { position: absolute; inset: 0; z-index: 2; }
+/* Compounded with .bcard, which is defined later and would otherwise win
+   on source order at equal specificity. */
+/*
+ * One width for every readout on the field, rather than whatever its
+ * occupant's name came to. A bar is read by its length, so two bars at the
+ * same share have to be the same length: sized by content, a Cottlequeen's
+ * HP bar came out at twice a Plib's and half health looked like more on one
+ * than the other. The name gives way instead, since a name is read and a
+ * bar is measured.
+ */
+.bcard.bplate {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: auto;
+  padding: 8px 8px 4px;
+  gap: 2px;
+  /* Narrower than the gap between the two front fighters, or the two
+     readouts cover each other where the Scobas stand closest. */
+  width: 116px;
+  transform-origin: top left;
+}
+.bcard.bplate .nm { font-size: 12px; line-height: 1.2; width: 100%; justify-content: center; gap: 4px; }
+/*
+ * Badges at half size on a readout. The art is drawn with a 3px outline to
+ * match the sprites at their own scale, and the interface is laid out at
+ * twice that, so at full size the outline came out twice the weight of the
+ * Scoba's above it. Half of 41 by 17 is a whole number of device pixels on
+ * every whole scale step.
+ */
+.bcard.bplate .tico { width: 20.5px; height: 8.5px; }
+.bcard.bplate .ticos { gap: 2px; }
+/* The one part that gives: everything beside it is a fixed reading. */
+.bcard.bplate .nm strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bcard.bplate .nm .lv { font-size: 10px; flex: none; }
+.bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 10px; }
+.bcard.bplate .own { font-size: 10px; }
+.bcard.bplate .bbar { height: 8px; }
+.bcard.bplate .bbar.mp { height: 6px; }
+.bcard.bplate .bfoot { min-height: 1em; }
+/* Two badges side by side are 84 px of art, which is what sets the width
+   above. A third wraps rather than pushing the panel out. */
+.bcard.bplate .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }
+/*
+ * A Pawn's readout. Three of these stand behind the two Scobas, so it
+ * carries only what a Pawn has to say: its name, its two bars, and any
+ * marks it has picked up. No owner line and no level, since a Pawn is
+ * always its summoner's level and is nobody's to swap.
+ */
+/* Quieter than a Scoba's plate by its outline rather than by its fill, so
+   the two read as the same kind of thing at different ranks. */
+/* Three of these plus their gaps fit beside the back Scoba's readout, so the
+   court stands in the open rather than behind a card. */
+.bcard.bpawn.bplate {
+  width: 76px;
+  padding: 4px 4px 2px;
+  gap: 2px;
+}
+.bcard.bpawn .nm {
+  font-size: 10px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+.bcard.bpawn .bbar { height: 6px; }
+/* Catches clicks on the field itself while a move is being aimed. */
+.baim { position: absolute; inset: 0; z-index: 1; }
+.screen.stage > * { pointer-events: auto; }
+/*
+ * The two overlay layers span the whole screen and, being positioned,
+ * paint above the buttons below them. Left clickable they swallow every
+ * press, so they are switched off here and only the parts that need a
+ * pointer are switched back on. These beat the blanket rule above on
+ * specificity as well as order.
+ */
+.screen.stage > .bplates,
+.screen.stage > .baim { pointer-events: none; }
+.screen.stage .bcard.bplate { pointer-events: auto; }
+.screen.stage > .baim.on { pointer-events: auto; cursor: crosshair; }
+/*
+ * The log and the buttons sit above both layers, on a band of their own.
+ *
+ * The band is what makes the bottom of a fight a place rather than a set
+ * of buttons over open floor: it is the full width of the screen, it is
+ * the darkest thing on it, and it carries a 3 px rule along its top edge
+ * so the scene ends somewhere. Its height comes from `sizeActionBar`,
+ * which also tells the scene to keep its cast clear of it.
+ */
+.screen.stage > .bbottom {
+  position: relative;
+  z-index: 3;
+  background:
+    linear-gradient(var(--p-raised) 0 0) 0 0 / 100% 3px no-repeat,
+    linear-gradient(color-mix(in srgb, var(--p-ink) 93%, transparent) 0 0) 0 3px / 100% calc(100% - 3px) no-repeat;
+}
+.bbottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+/* Every readout is a plate laid over the scene, and every plate carries its
+   own width, so nothing here may set a floor: a `min-width` beats the
+   `width` above it and put a Pawn back at a Scoba's size. */
+.bcard {
+  /* A slate face in a near-black edge, so the outline reads as the drawn
+     line every sprite has rather than as a light rim on an ink block. */
+  --fill: var(--p-quiet);
+  --ink: var(--p-deep);
+  position: relative;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+/* While a move is aimed: a readout that can be picked is pressable, the one
+   under the pointer (on the card or on its Scoba) takes the highlight as its
+   own stepped outline, and one that cannot be picked goes dark. */
+.bcard.target { cursor: pointer; }
+.bcard.hot { --ink: var(--p-highlight); }
+.bcard.dimmed { filter: brightness(0.45); }
+/* Whose turn it is to pick, so two players never lose track of the order. */
+.bcard.acting { --ink: var(--p-mana); }
+.bcard .own { font-size: 12px; color: var(--p-dim); letter-spacing: 1px; text-transform: uppercase; }
+.bcard.empty { --ink: var(--p-quiet); justify-content: center; min-height: 62px; }
+.bcard.empty .sub { color: var(--p-dim); font-size: 12px; }
+.bcard canvas { image-rendering: pixelated; }
+.bcard .nm { font-size: 16px; display: flex; gap: 8px; align-items: baseline; }
+.bcard .nm .lv { color: var(--p-dim); font-size: 12px; }
+/* Too short for stepped corners: a square 2 px frame stays just as sharp. */
+.bbar { position: relative; width: 100%; height: 14px; border: 2px solid var(--p-deep); background: var(--p-deep); overflow: hidden; }
+.bbar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px);
+}
+/* What the bar just lost or gained, sitting past the fill or over it. */
+.bbar b { position: absolute; top: 0; bottom: 0; background: var(--p-hp-trail); }
+/*
+ * What the move under the pointer would spend, lit off the fill's end
+ * rather than cut out of it: the mana is still there until the move is
+ * cast, so it reads as the part about to go rather than as part already
+ * gone. It eases in from the end of the fill, so moving down a list of
+ * moves shows the cost growing and shrinking instead of jumping.
+ */
+.bbar u {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--p-lit) 62%, transparent);
+  box-shadow: inset 1px 0 0 var(--p-lit);
+  transition: left 140ms ease-out, width 140ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) { .bbar u { transition: none; } }
+.bbar.mp i { background: linear-gradient(color-mix(in srgb, var(--p-mana) 62%, var(--p-lit)) 0 2px, var(--p-mana) 2px); }
+.bbar.mp b { background: var(--p-mana-trail); }
+/*
+ * The footer under the bars: what the bars cannot say on the left, the
+ * mana share on the right. It holds its line whether or not there is a
+ * state to report, because the marks hang off the bottom of the panel and
+ * a line that collapsed moved every sigil under it the moment a Scoba
+ * started blocking.
+ */
+.bfoot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  min-height: 1.2em;
+}
+.bnum { font-size: 12px; color: var(--p-dim); }
+/* What an aimed move would land at: a multiple lit, a fraction dimmed. */
+.bnum.good { color: var(--p-highlight); }
+.bnum.poor { color: var(--p-dead-text); }
+.bpct { font-size: 12px; color: var(--p-dim); margin-left: auto; }
+/*
+ * The message box: the first row of the action block on every page. It
+ * asks the question while a choice is being made and says what is
+ * happening while the round plays, one line at a time rather than a
+ * history. It is always there, so the buttons under it never move, and
+ * the round has a text box the size its text deserves rather than a strip
+ * floating over open floor.
+ */
+.bhead {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-height: 0;
+}
+.bmsg {
+  --ink: var(--p-raised);
+  --fill: var(--p-ink);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 16px;
+  line-height: 1.3;
+  overflow: hidden;
+}
+/* A move's whole line is a paragraph: a step down, so it fits the box. */
+.bmsg.long { font-size: 14px; }
+.bmsg.prompt { color: var(--p-highlight); }
+.bmsg.ev-win { color: var(--p-highlight); }
+.bmsg.ev-faint { color: var(--p-danger-text); }
+.bmsg.ev-heal { color: var(--p-confirm); }
+.bmsg.ev-status { color: var(--p-warning); }
+.bmsg.ev-field { color: var(--p-highlight); }
+/* The ways off a page sit in one row under the message box rather than
+   taking a row of buttons: the one Back a page ever shows, and on the move
+   board the way to the handed moves beside it. */
+.bways {
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.bways > button.act {
+  width: 100%;
+  height: auto;
+  min-height: 40px;
+  padding: 4px 8px;
+}
+/*
+ * Statuses a Scoba is carrying, under its bars: drawn sigils, never scaled,
+ * the same rule the type badges keep. They sit ghosted, because what the
+ * row is for is knowing at a glance that something is on a Scoba; the one
+ * under the pointer comes up to full and opens a window saying what it is.
+ */
+.bcard .marks {
+  /* Hung under the card rather than sitting in it: out of flow, so the
+     panel keeps one shape whatever a Scoba has picked up. */
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  /* Filling from the card's left edge and wrapping at its right, so the
+     row reads in the order the marks landed. */
+  justify-content: flex-start;
+}
+.bcard .mark {
+  position: relative;
+  display: block;
+  line-height: 0;
+  opacity: 0.55;
+}
+.bcard .mark:hover, .bcard .mark:focus-within { opacity: 1; }
+.bcard .mark .sig {
+  image-rendering: pixelated;
+  display: block;
+  width: 27px;
+  height: 26px;
+}
+/* A status with no sigil drawn yet, so it can still be hovered. */
+.bcard .mark .sig.txt {
+  font-size: 12px;
+  line-height: 26px;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--p-ink);
+  background: var(--p-dim);
+}
+/* Stacks, in the corner of the sigil rather than beside it. */
+.bcard .mark .sx {
+  position: absolute;
+  right: -1px;
+  bottom: -2px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0 2px;
+  color: var(--p-text);
+  background: var(--p-ink);
+}
+/*
+ * The window over a sigil. It hangs off the mark, so it travels with the
+ * readout, and `--nudge` is what the script shifts it by when the mark it
+ * belongs to is out at the edge of the screen.
+ */
+.bcard .mark .sigtip {
+  --ink: var(--p-action);
+  --fill: var(--p-ink);
+  --nudge: 0px;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%) translateX(var(--nudge));
+  z-index: 5;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  width: 168px;
+  padding: 8px 8px;
+  line-height: 1.25;
+  text-align: left;
+  pointer-events: none;
+  /* Slightly through: it covers a card while it is open, and what is under
+     it should still be readable as being there. */
+  opacity: 0.93;
+  background:
+    linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 0 4px / 100% calc(100% - 8px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 4px 0 / calc(100% - 8px) 100% no-repeat,
+    linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
+}
+.bcard .mark:hover .sigtip, .bcard .mark:focus-within .sigtip { display: flex; }
+.bcard .mark .sigtip strong { font-size: 12px; color: var(--p-highlight); }
+.bcard .mark .sigtip span { font-size: 12px; }
+.bcard .mark .sigtip .dim { color: var(--p-dim); }
+
+/*
+ * The block: the message box down the left, the choices in two rows down
+ * the right, on every page. Action rows stack so the small ones sit under
+ * the main row.
+ */
+.bacts {
+  position: relative;
+  /* Set from the frame in `ui/battle.ts`. */
+  width: var(--bw, 100%);
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+/*
+ * The two rows of the main page are laid out rather than flowed: three
+ * across and two down, whatever the screen is. Wrapping made the block
+ * change shape between one screen and the next, and between one page of
+ * the row and the next.
+ */
+/* Every button is one cell of the grid it sits in: nothing resizes between
+   one page and the next, and a long label wraps inside its cell rather
+   than pushing its neighbours about. */
+.bactions > button.act { min-width: 0; width: 100%; }
+button.act.small { gap: 0; }
+
+/*
+ * Four cells, always. A Scoba with two moves shows two dead slots rather
+ * than a board half the size, and the cells are a fixed size so nothing
+ * shifts when the labels change length.
+ */
+/* The four move slots take the top two of the block's three rows. */
+.bgrid {
+  display: grid;
+  grid-row: span 2;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+.bgrid > button.act { width: 100%; }
+/*
+ * The four slots are the two rows above. The Hyper bar takes a third row
+ * under them at a fraction of a slot's height. A fraction rather than its
+ * own content, so all three shrink together on a short screen instead of
+ * the bar holding its height while the slots collapse under it. A class
+ * rather than an implicit row, because a track list has to name every row
+ * it has: a row sized in `fr` that the list does not name is laid out
+ * apart from the ones it does and comes out the wrong way up.
+ */
+.bgrid.rows3 {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr);
+}
+.bgrid > button.act.bhyper { grid-column: 1 / -1; padding: 4px 16px; }
+
+/*
+ * The block is exactly three rows tall, one of text and two of buttons,
+ * and its height is set from the viewport rather than from what is in it,
+ * so every page fills the same box. Moving between them shifts neither the
+ * buttons nor the scene laid out above, and a row of targets is a row of
+ * targets whether there are two of them or six.
+ */
+.bbottom {
+  justify-content: flex-end;
+  padding: 8px 0;
+}
+.bacts > .bgrid,
+.bacts > .bactions { width: 100%; }
+
+/* Its own rows are equal too, so a row spanning two of the block's rows
+   gives two rows of buttons the same height rather than two content-sized
+   ones with the leftover underneath. */
+/* Three across unless `grid()` in `ui/battle.ts` says a row holds fewer. */
+.bactions {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+}
+/*
+ * A command. Its label is the button, set bold and in capitals, with the
+ * line under it for what the label cannot say: a cost, a count, what it
+ * aims at. A badge it wears sits at the right end, out of the text column,
+ * so a name and a badge never fight over the width.
+ */
+button.act {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  --fill: var(--p-action);
+  color: var(--p-text);
+  cursor: pointer;
+}
+button.act .tcol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+button.act .tlabel {
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+button.act .tmark { display: flex; flex-direction: column; gap: 2px; flex: none; line-height: 0; }
+button.act.marked { justify-content: space-between; text-align: left; }
+button.act.marked .tcol { align-items: flex-start; }
+button.act:active { --fill: var(--p-action-down); }
+/* The two ways of hitting something take the warm accent, so the row reads
+   as attack, attack, everything else. */
+button.act.hot { --fill: var(--p-danger); }
+button.act.hot:active { --fill: color-mix(in srgb, var(--p-danger) 78%, var(--p-deep)); }
+button.act:disabled { --fill: var(--p-dead); --ink: var(--p-ink); color: var(--p-dead-text); opacity: 1; }
+/* A move slot with nothing in it, which is empty for good rather than
+   disabled for the moment a round is playing. Darker than either. */
+button.act.slot-empty:disabled { --fill: var(--p-deep); }
+button.act .sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--p-dim2);
+}
+.bgrid > button.act .sub { min-height: 1.2em; }
+button.act.alt { --fill: var(--p-panel); }
+/*
+ * A move wears its type as its fill, with the name in ink on it. The colour
+ * comes in as `--type-fill` rather than as `--fill` itself, so the disabled
+ * rule below can darken it: an inline `--fill` would beat any stylesheet and
+ * a move that cannot be cast would go on looking exactly like one that can.
+ * A move of two elements wears the first as its fill and both as its badges.
+ */
+button.act.typed { --fill: var(--type-fill); color: var(--p-ink); }
+button.act.typed .sub { color: var(--p-ink); opacity: 0.72; }
+button.act.typed:active { --fill: color-mix(in srgb, var(--type-fill) 80%, var(--p-deep)); }
+/*
+ * Dimmed rather than greyed out, so what it is stays readable while what it
+ * cannot do is obvious: no mana for it, a cooldown still running, or a move
+ * that is spent for the rest of the battle. The fill goes to a muted tone
+ * of its type and the text stays ink, so nothing on a dead move is brighter
+ * than on a live one: the only change is that everything gets darker.
+ */
+button.act.typed:disabled {
+  --fill: color-mix(in srgb, var(--type-fill) 45%, var(--p-ink));
+  color: var(--p-ink);
+}
+button.act.typed:disabled .sub { color: var(--p-ink); opacity: 0.72; }
+/*
+ * A move of two elements wears both. The second takes the right of the
+ * button, cut on the diagonal rather than straight down, so the pair reads
+ * as one button in two colours rather than as two pushed together. Laid
+ * over the fill rather than replacing it, because the fill is what draws
+ * the frame and a gradient in its place would flatten that. The text
+ * column and the badges sit above it.
+ */
+button.act.dual { position: relative; }
+/* Clipped to the fill's own stepped edge (the 4, 2, 1, 1, 0 corners inside
+   the 3px outline), so the second colour ends where the first does rather
+   than squaring the corners off or stopping a pixel short of the outline. */
+button.act.dual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--type-fill2);
+  clip-path: polygon(
+    58% 3px,
+    calc(100% - 7px) 3px, calc(100% - 7px) 4px,
+    calc(100% - 5px) 4px, calc(100% - 5px) 5px,
+    calc(100% - 4px) 5px, calc(100% - 4px) 7px,
+    calc(100% - 3px) 7px, calc(100% - 3px) calc(100% - 7px),
+    calc(100% - 4px) calc(100% - 7px), calc(100% - 4px) calc(100% - 5px),
+    calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) calc(100% - 4px),
+    calc(100% - 7px) calc(100% - 4px), calc(100% - 7px) calc(100% - 3px),
+    42% calc(100% - 3px)
+  );
+  pointer-events: none;
+}
+button.act.dual:disabled::after {
+  background: color-mix(in srgb, var(--type-fill2) 40%, var(--p-ink));
+}
+button.act.dual > .tcol, button.act.dual > .tmark { position: relative; z-index: 1; }
+/*
+ * Flat faces on the block and the readouts. The lit and shaded edges the
+ * frame recipe draws come out as a grey line on a dark box and read as a
+ * stray mark rather than as light, so here the fill runs to the outline.
+ */
+.bbottom button.act, .bmsg, .bcard { --lit: var(--fill); --shade: var(--fill); }
+/* A flat face lightens whole on hover: the faces take the gloss too, or they stay as a ring of the old fill round it. */
+@media (hover: hover) {
+  .bbottom button.act:hover:not(:disabled) { --lit: var(--gloss); --shade: var(--gloss); }
+}
+/* An ink outline on the ink band is no outline, and a light one competes
+   with the fill: a step darker than the band shows on it and on every fill. */
+.bbottom button.act { --ink: var(--p-deep); }
+

@@ -11,7 +11,6 @@ import { sfx } from "../engine/sfx";
 import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
 import { face, openBrowser } from "./browser";
-import { typeIcons } from "./typeicon";
 import { devMode } from "../version";
 import {
   EVOLVE_COST,
@@ -25,6 +24,7 @@ import { maxHp, type ScobaInstance } from "../sim/scoba";
 import { SPECIES, evolutionOf } from "../sim/species";
 import type { SaveData, SlotId } from "../save/save";
 import {
+  PARTY_PER_CHARACTER,
   boxOf,
   lend,
   otherSlot,
@@ -122,22 +122,6 @@ function portrait(art: Art, s: ScobaInstance, px: number): HTMLElement {
 
 /** Wide enough for every species' crop, so the name column never moves. */
 const PORTRAIT_BOX = 80;
-
-function nameBlock(s: ScobaInstance): HTMLElement {
-  const sp = SPECIES[s.speciesId];
-  const box = el("div", "pname");
-  box.appendChild(el("strong", undefined, displayName(s)));
-  const line = el("div", "pnameLine");
-  line.appendChild(el("span", "dim", `Lv ${s.level}`));
-  if (s.shiny) {
-    const star = el("span", "shiny", "★");
-    star.title = "Shiny";
-    line.appendChild(star);
-  }
-  if (sp) line.appendChild(typeIcons(s));
-  box.appendChild(line);
-  return box;
-}
 
 /** The character whose Scobas a screen is showing, and the row that swaps it. */
 function ownerRow(save: SaveData, owner: SlotId, onPick: (o: SlotId) => void): HTMLElement {
@@ -273,25 +257,56 @@ export function openBox(ui: UI, art: Art, save: SaveData, hooks: RosterHooks): v
   });
 }
 
+/** The "HP" label and bar for a party card, colored by the share left. */
+function hpBar(m: ScobaInstance): HTMLElement {
+  const row = el("div", "hpRow");
+  row.appendChild(el("span", "badge", "HP"));
+  const cap = maxHp(m);
+  const frac = cap > 0 ? m.hp / cap : 0;
+  const bar = el("div", "hpBar");
+  bar.classList.toggle("warn", frac < 0.55 && frac >= 0.25);
+  bar.classList.toggle("danger", frac < 0.25);
+  const fill = el("i");
+  fill.style.width = `${Math.max(0, Math.min(100, frac * 100))}%`;
+  bar.appendChild(fill);
+  row.appendChild(bar);
+  return row;
+}
+
 export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks): void {
   let owner: SlotId = save.localSlot;
+  /** The uid of the card holding the bright outline, or none picked yet. */
+  let selected: string | null = null;
 
   const render = (): void => {
     if (!hooks.solo()) owner = save.localSlot;
+    const members = partyOf(save, owner);
+    const chosen = members.find((m) => m.uid === selected) ?? null;
+
     ui.screen((s) => {
       s.appendChild(el("h2", undefined, "Party"));
-      s.appendChild(el("div", "sub",
-        devMode() ? `${save.aetus} Aetus · dev, so nothing is spent` : `${save.aetus} Aetus`));
       if (hooks.solo()) {
         s.appendChild(ownerRow(save, owner, (o) => {
           owner = o;
+          selected = null;
           render();
         }));
       }
 
-      for (const m of partyOf(save, owner)) {
-        s.appendChild(memberCard(m));
+      const layout = el("div", "partyLayout");
+      const grid = el("div", "partyGrid");
+      for (let i = 0; i < PARTY_PER_CHARACTER; i++) {
+        const m = members[i];
+        grid.appendChild(m ? memberCard(m) : el("div", "partyCard empty"));
       }
+      layout.appendChild(grid);
+      layout.appendChild(actionsDock(chosen));
+      s.appendChild(layout);
+
+      s.appendChild(el("div", "partyMsg", chosen
+        ? `Do what with ${displayName(chosen)}?`
+        : devMode() ? `${save.aetus} Aetus · dev, so nothing is spent` : `${save.aetus} Aetus`));
+
       s.appendChild(bigBtn("Back", hooks.onBack, true));
     });
   };
@@ -305,28 +320,65 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
     m.owner === save.localSlot || m.lentBy !== undefined || !save.partnerJoined;
 
   const memberCard = (m: ScobaInstance): HTMLElement => {
-    const card = el("div", "card");
-    const head = el("div", "who");
-    head.appendChild(portrait(art, m, 48));
-    head.appendChild(nameBlock(m));
-    card.appendChild(head);
-    card.appendChild(el("div", "dim", `HP ${m.hp}/${maxHp(m)}`));
+    const card = el("div", `partyCard${m.uid === selected ? " sel" : ""}`);
+    card.appendChild(portrait(art, m, 64));
 
+    const body = el("div", "partyBody");
+    const top = el("div", "partyTop");
+    top.appendChild(el("span", "partyName", displayName(m)));
+    if (m.shiny) {
+      const star = el("span", "shiny", "★");
+      star.title = "Shiny";
+      top.appendChild(star);
+    }
+    body.appendChild(top);
+    body.appendChild(hpBar(m));
+    const bottom = el("div", "partyBottom");
+    bottom.appendChild(el("span", undefined, `Lv.${m.level}`));
+    bottom.appendChild(el("span", undefined, `${m.hp}/${maxHp(m)}`));
+    body.appendChild(bottom);
+    card.appendChild(body);
+
+    card.addEventListener("click", () => {
+      sfx.tap();
+      selected = m.uid === selected ? null : m.uid;
+      render();
+    });
+    return card;
+  };
+
+  /**
+   * What you can do with the selected Scoba, docked beside the grid rather
+   * than floating over whichever card is picked, so the layout never shifts.
+   */
+  const actionsDock = (m: ScobaInstance | null): HTMLElement => {
+    const dock = el("div", "partyActions");
+    if (!m) {
+      dock.appendChild(el("div", "dim", "Pick a Scoba to see what you can do."));
+      return dock;
+    }
     const theirs = !yours(m);
     const levelWhy = levelUpError(m, onHand(save));
     const evolveWhy = evolveError(m, onHand(save));
-    const row = el("div", "row");
-    row.appendChild(pill(`Level up · ${LEVEL_COST}`, levelWhy || theirs ? null : () => buyLevel(m)));
-    row.appendChild(pill(`Evolve · ${EVOLVE_COST}`, evolveWhy || theirs ? null : () => buyEvolve(m)));
-    row.appendChild(pill("Rename", theirs ? null : () => renameScreen(m)));
-    card.appendChild(row);
+
+    const addRow = (label: string, onClick: (() => void) | null): void => {
+      const row = el("button", "doorRow", label);
+      row.type = "button";
+      if (onClick) row.addEventListener("click", () => { sfx.tap(); onClick(); });
+      else row.disabled = true;
+      dock.appendChild(row);
+    };
+    addRow(`Level up · ${LEVEL_COST}`, levelWhy || theirs ? null : () => buyLevel(m));
+    addRow(`Evolve · ${EVOLVE_COST}`, evolveWhy || theirs ? null : () => buyEvolve(m));
+    addRow("Rename", theirs ? null : () => renameScreen(m));
+    addRow("Cancel", () => { selected = null; render(); });
 
     const notes: string[] = [];
     if (theirs) notes.push(`${save.characters[owner].name} raises this one.`);
     if (levelWhy) notes.push(levelWhy);
     if (evolveWhy) notes.push(evolveWhy);
-    if (notes.length > 0) card.appendChild(el("div", "dim", notes.join(" · ")));
-    return card;
+    if (notes.length > 0) dock.appendChild(el("div", "dim", notes.join(" · ")));
+    return dock;
   };
 
   const buyLevel = (m: ScobaInstance): void => {

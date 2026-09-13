@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { levelGain } from "../src/engine/sfx";
-import { MOVES } from "../src/sim/species";
+import { MOVES, firstStep } from "../src/sim/species";
 
 const RATE = 44100;
 
@@ -64,12 +64,14 @@ describe("levelling a sample", () => {
 
 describe("Cold Wave", () => {
   it("sounds when it fires rather than when it lands", () => {
-    expect(MOVES["cold-wave"]!.sound).toBe("coldwave");
-    expect(MOVES["cold-wave"]!.soundOn).toBe("cast");
+    const move = MOVES["cold-wave"]!;
+    expect(firstStep(move, "throw")?.sound).toBe("coldwave");
+    // The hit it lands makes the plain blow, since its noise went on the throw.
+    expect(firstStep(move, "hit")?.sound).toBeUndefined();
   });
 
   it("is the only move that does, so the rest still keep the throw noise", () => {
-    const cast = Object.values(MOVES).filter((m) => m.soundOn === "cast").map((m) => m.id);
+    const cast = Object.values(MOVES).filter((m) => firstStep(m, "throw")?.sound !== undefined).map((m) => m.id);
     expect(cast).toEqual(["cold-wave"]);
   });
 });

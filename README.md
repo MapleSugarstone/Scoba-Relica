@@ -27,6 +27,12 @@ A placement belongs to a costume, not to a line. A Scoba in Hyper-Mode is a diff
 
 F3 in a running game opens the same editor over the fight, for checking a piece in the place it will be seen. It writes the same file.
 
+The same editor makes Scobas. The **+** over the dex opens a form for a new line: name, type, stats against the budget, art (a drawing in `assets/Scobas` nobody has claimed yet, or a blob until one is drawn), gait, passives and moves, all picked by search or written new on the spot: **+ New** beside each slot opens the builder bound for that slot, and the record lands there as it is filed. Under **Kit**, any line's passives and its four moves are picked or written the same way out of the shared tables. A move or a passive is one record however many lines use it, and each record's box says which lines use it, so an edit there reaches all of them. Save writes `src/sim/content/species.json` alongside the script files.
+
+## Moves, statuses and passives
+
+Every move, status, passive and field is written in move script, a plain-text language in `src/sim/content/moves.txt`, `statuses.txt`, `passives.txt` and `fields.txt`. A record lists what happens in the order it happens, from the caster's animation and what it throws to the damage it deals and the statuses it leaves, and the battle and its animation both follow that order. **`docs/move-script.md` describes every line the language accepts**, with worked examples. Edit the files in any text editor, or under Data in the cosmetics editor, which checks each record as you type and writes the files back on Save. **+ Move**, **+ Passive**, **+ Status** and **+ Field** there open a builder for a new record: pick a template, and put in any line the language takes from the palette beside the box, which shows what each line does and puts an example in at the caret. The record is checked as you type, the sentence the game would build from it is shown under the box, and a new move or passive can be handed to the Scoba on screen as it is filed. Any record can be opened by name to edit it, whether or not the Scoba on screen uses it.
+
 ## Two ways to start
 
 A save belongs to one adventure, and which one is settled when it is made.

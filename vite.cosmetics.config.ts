@@ -16,6 +16,10 @@ export default defineConfig({
   // Assets are globbed out of `assets/`, which is above the page's own root.
   server: {
     fs: { allow: [root] }, port: 5273, open: true,
+    // The files the editor writes stay watched, so a reload always reads what is
+    // on disk. A save does reload the page, and that loses nothing: one press
+    // writes every file together, and the server finishes each write whether or
+    // not the page that asked for it is still there.
     watch: { ignored: SCRATCH_ART },
   },
   // `__BUILD_VERSION__` is baked into the game's bundle and reached through a

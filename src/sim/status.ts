@@ -6,9 +6,11 @@
 // (damage, healing, cleansing, summoning) go off when the status's trigger
 // happens, spend a charge, and stop when the charges or the turns run out.
 //
-// Everything here is data. `sim/battle.ts` owns when triggers fire and how the
-// numbers land.
+// Everything here is data, written in move script. `sim/battle.ts` owns when
+// triggers fire, runs the steps they set off, and settles how the numbers land.
 import { STAT_FLOOR, STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
+import { CONTENT_TABLES } from "./content/tables";
+import type { CardFace } from "./cards";
 
 /** What sets a status's fired effects off. */
 export type StatusTrigger =
@@ -71,6 +73,12 @@ export type Basis =
 export interface StatusDamage {
   basis: Basis;
   frac: number;
+  /**
+   * Added to the share, times the source's level over the ceiling, so a mark
+   * that names a flat number means that number on a Scoba at the ceiling and
+   * proportionally less below it. Folded into the snapshot with the share.
+   */
+  flatAtCeiling?: number;
   element: ElementType;
   category: DamageCategory;
   damageClass: DamageClass;
@@ -83,9 +91,166 @@ export interface StatusDamage {
   snapshot: boolean;
 }
 
-export type StatusEffect =
-  | { kind: "damage"; damage: StatusDamage }
-  | { kind: "heal"; basis: Basis; frac: number }
+/**
+ * Who a step reaches, read from whoever is running it. A move runs its steps as
+ * its caster, and a status runs them as the Scoba carrying it.
+ */
+export type Who =
+  /** The caster of a move, or the Scoba carrying a status. */
+  | "self"
+  /** Who put the status there. A status with nobody behind it reaches nobody. */
+  | "source"
+  /** Whoever was on the far side of the trigger: the attacker for a hit, the victim for a kill. */
+  | "other"
+  /** Every standing member of the self's own team, bench included, the self too. */
+  | "allies"
+  | "enemies"
+  | "everyone"
+  /** Every standing member of both teams but the self. */
+  | "others"
+  /** One of a move's target groups, by the order its aims are written in. */
+  | { aim: number };
+
+/** One stat an attack reads, and how much of it. */
+export interface Scaling {
+  stat: StatName;
+  scale: number;
+}
+
+/** The animation a caster plays. */
+export type CasterAnim =
+  /** Rattle in place. */
+  | "shake"
+  /** Quick step at the target and back. */
+  | "lunge"
+  /** Vanish, appear over the target, rattle, vanish back. */
+  | "blink"
+  /** Rise and slam down. */
+  | "rear"
+  /** Hold still and gather. */
+  | "focus";
+
+/** How something thrown travels, or how it appears where it lands. */
+export type MoveVfx =
+  /** Straight shot from caster to target. */
+  | "bolt"
+  /** Arcing shot. */
+  | "lob"
+  /** A slow arc, turning as it goes, that is gone the moment it lands. */
+  | "toss"
+  /** Appears over the target and falls onto it, slowing into the ground. */
+  | "drop"
+  /** A burst on the target with nothing thrown. */
+  | "burst"
+  /** Licking flames over the target. */
+  | "flames"
+  /** A halo on whoever it lands on. */
+  | "glow"
+  /** A line drawn straight through, all at once. */
+  | "beam";
+
+/** How something shown in place is drawn. */
+export type ShowPath = "wheel" | "glow" | "burst" | "flames";
+
+/** A color on a drawn card replaced by another, `chance` of the time. */
+export interface ChanceColorChange {
+  from: string;
+  to: string;
+  chance: number;
+}
+
+/** One way a move is rewritten by `change-move`. */
+export type MoveChange =
+  /** Its first element. A second element is kept. */
+  | { set: "type"; to: ElementType }
+  /** How its hits are mitigated. */
+  | { set: "category"; to: "physical" | "magic" }
+  /** The stat its hits read first, and the stat a heal off a stat reads. */
+  | { set: "stat"; to: "str" | "mag" }
+  /** The color it is played back in. */
+  | { set: "tint"; to: string }
+  /** Its mana cost, multiplied and rounded to a whole number. */
+  | { set: "cost"; mult: number }
+  /** What it is called. `{name}` is the name it had before this change. */
+  | { set: "name"; to: string };
+
+/**
+ * Something that happens, in the order it is written. A move's cast is a list
+ * of these, and so is what a status does when its trigger goes off. Some change
+ * the battle and some only change what is drawn and heard, and the scene plays
+ * both in the order the battle ran them.
+ */
+export type Step =
+  /**
+   * An attack: shares of the attacker's stats through the same-type bonus, the
+   * type chart and the target's Defense or Resistance. `perLevel` is a flat
+   * number per level instead, which ignores all of that.
+   */
+  | {
+    kind: "hit"; to: Who; scaling: Scaling[]; perLevel?: number;
+    element?: ElementType; category?: "physical" | "magic"; sound?: string;
+  }
+  /** A set amount, with no chart and no armor. */
+  | { kind: "damage"; to: Who; damage: StatusDamage; sound?: string }
+  | { kind: "heal"; to: Who; basis: Basis; frac: number; sound?: string }
+  /** `turns` overrides how long the status stands. */
+  | { kind: "inflict"; status: string; on: Who; turns?: number }
+  | { kind: "cleanse"; on: Who; polarity: StatusPolarity }
+  /** Copies every status the first of `from` carries onto each of `to`. */
+  | { kind: "copy-marks"; from: Who; to: Who }
+  /** Takes a share of current HP from some and spends it on others, split between them. */
+  | { kind: "transfer"; from: Who; to: Who; frac: number; deliver: "damage" | "heal" }
+  | { kind: "summon"; species: string; level: number }
+  | { kind: "grant-item"; item: string; count: number }
+  | { kind: "mana"; on: Who; amount: number }
+  | { kind: "field"; field: string; scope: FieldScope }
+  /**
+   * Draws one card from the deck off the battle seed, and calls it the drawn
+   * card for the steps after it. The one roll decides both its drawing and its
+   * value. Each color change then happens with its own chance, rolled off the
+   * same seed.
+   */
+  | { kind: "draw-card"; changes: ChanceColorChange[] }
+  /**
+   * Deals the drawn card face up and adds its value to the hand the `hand`
+   * status counts. A hand of exactly twenty one pays out for `payoff` times the
+   * dealer's Strength and clears. One that goes over busts and clears.
+   */
+  | { kind: "deal-card"; to: Who; payoff: number; hand: string }
+  /** Runs `then` only if a Scoba in `fell` that was standing when the cast began is down now. */
+  | { kind: "if"; fell: Who; then: Step[] }
+  /** Puts back the mana the cast was paid with and clears its cooldown. */
+  | { kind: "refund" }
+  /**
+   * Picks a move out of the whole game, off the battle seed, and calls it the
+   * picked move for the steps after it. Finding nothing ends the list.
+   */
+  | { kind: "pick-move"; minCost: number; skipOncePerBattle: boolean }
+  /** Rewrites the picked move. `key` names the rewrite, so the same one is built once. */
+  | { kind: "change-move"; changes: MoveChange[]; key: string }
+  /** Hands the picked move over for the battle: on top of its moves, or in a slot. */
+  | { kind: "give-move"; to: Who; slot: number | null }
+  /** A line in the battle log. `{self}`, `{target}` and `{picked}` are filled in. */
+  | { kind: "say"; text: string }
+  /** The costume the Scoba is seen in for the rest of the battle. */
+  | { kind: "wear"; who: Who; form: string }
+  | { kind: "motion"; who: Who; anim: CasterAnim }
+  /**
+   * Throws art from `self` at each of `to`, leaving from a piece it wears where
+   * `from` names one. `sound` is the noise of it leaving, null for none.
+   * `drawn` throws the drawn card as it was drawn, in place of `art`.
+   */
+  | {
+    kind: "throw"; art?: string; drawn?: boolean; path: MoveVfx; from?: string; to: Who;
+    sound?: string | null;
+  }
+  /** Shows art in place on or over a Scoba. `pointer` is drawn still over a wheel. */
+  | { kind: "show"; art: string; path: ShowPath; on: Who; pointer?: string }
+  | { kind: "sound"; name: string }
+  | { kind: "wait"; seconds: number };
+
+/** An effect that stands for as long as its status does and is read where it matters. */
+export type Standing =
   /** Adds points to a stat. */
   | { kind: "stat-add"; stat: StatName; amount: number }
   /** Overrides a stat outright; the last one applied wins. */
@@ -123,44 +288,25 @@ export type StatusEffect =
   | { kind: "vulnerable"; element: ElementType; mult: number }
   /** The holder deals more with one element. */
   | { kind: "element-power"; element: ElementType; mult: number }
-  | { kind: "summon"; species: string; level: number }
-  /** Tops the holder's mana up. */
-  | { kind: "mana"; amount: number }
   /**
-   * Hangs another status on whoever the scope names. `turns` overrides how
-   * long that mark stands, for a source that leaves it on longer or shorter
-   * than the mark's own clock says.
-   */
-  | { kind: "inflict"; status: string; scope: InflictScope; turns?: number }
-  /** Lays a field over a side, replacing whatever was standing over it. */
-  | { kind: "field"; field: string; scope: FieldScope }
-  /**
-   * Eats one instance of an element outright. Read where damage lands rather
-   * than fired, and spends a charge when it catches something.
+   * Eats one instance of an element outright. Read where damage lands, and
+   * spends a charge when it catches something.
    */
   | { kind: "ward"; element: ElementType }
-  | { kind: "grant-item"; item: string; count: number }
-  | { kind: "cleanse"; polarity: StatusPolarity }
-  /** Copies the holder's statuses onto whoever set this off. */
-  | { kind: "copy-statuses" }
   /** The holder cannot be called back. Read where a switch is offered. */
-  | { kind: "root" };
+  | { kind: "root" }
+  /**
+   * A status the holder leaves that stands for at least `minTurns` is measured
+   * `mult` times over when it lands.
+   */
+  | { kind: "mark-power"; mult: number; minTurns: number };
+
+export type StatusEffect = Standing | Step;
 
 export type StatusPolarity = "good" | "bad";
 
 /** Which side a field lands on, relative to whoever called it up. */
 export type FieldScope = "allies" | "enemies" | "both";
-
-/** Who a status's `inflict` effect reaches, relative to its holder. */
-export type InflictScope =
-  | "self"
-  /** Whoever was on the far side of the trigger. */
-  | "other"
-  | "allies"
-  | "enemies"
-  | "all"
-  /** Everyone on both sides but the holder itself. */
-  | "others";
 
 export interface StatusDef {
   id: string;
@@ -189,6 +335,13 @@ export interface StatusDef {
    * since the ability they belong to is already named on the Scoba's card.
    */
   innate?: boolean;
+  /** The sigil it is shown as, by file name in `assets/Sigils`. */
+  icon?: string;
+  /** A drawn sample for it landing, by file name in `assets/Sounds`. */
+  sound?: string;
+  /** Its stacks are a hand of cards, drawn over the holder's head. */
+  hand?: boolean;
+  /** Standing effects, then the steps its trigger runs, each in written order. */
   effects: StatusEffect[];
 }
 
@@ -213,9 +366,9 @@ export interface StatusInstance {
   since?: number;
   /** Who put it there, so a tick's kill is credited to them. */
   from?: { side: 0 | 1; index: number };
+  /** For a hand of cards: the last card dealt onto it, as it looked when it was thrown. */
+  face?: CardFace;
 }
-
-const S = (def: StatusDef): StatusDef => def;
 
 /** What Hyper-Mode adds: a quarter of the Scoba's own line, and a flat 15. */
 export const HYPER_SCALE = 0.25;
@@ -227,33 +380,6 @@ export function boostFrom(frac: number, flat: number, basis: number): number {
 }
 
 /**
- * An ability's status: innate, indefinite, and never taken off the Scoba
- * carrying it. Everything a passive does is written as effects, so an ability
- * and a spell leave the same kind of mark and are read the same way.
- */
-const P = (
-  id: string, name: string,
-  effects: StatusEffect[],
-  extra: { trigger?: StatusTrigger; charges?: number } = {},
-): StatusDef => ({
-  id, name,
-  polarity: "good",
-  trigger: extra.trigger ?? { on: "passive" },
-  duration: null,
-  charges: extra.charges ?? null,
-  stacks: false,
-  maxStacks: 1,
-  persists: true,
-  innate: true,
-  effects,
-});
-
-const scale = (stat: StatName, mult: number): StatusEffect => ({ kind: "stat-scale", stat, mult });
-const typePower = (element: ElementType, mult: number): StatusEffect =>
-  ({ kind: "element-power", element, mult });
-const regen = (frac: number): StatusEffect => ({ kind: "heal", basis: "holder-max-hp", frac });
-
-/**
  * EZ mode's leg-up. Hung on the players' own Scobas as a battle opens and
  * gone with the battle, so nothing it does outlives the fight. One stack per
  * level over the first, which is what makes it read as a bigger gain per
@@ -261,313 +387,12 @@ const regen = (frac: number): StatusEffect => ({ kind: "heal", basis: "holder-ma
  */
 export const EZ_STAT_BONUS = 3;
 
-export const STATUSES: Record<string, StatusDef> = Object.fromEntries(
-  [
-    S({
-      id: "ez",
-      name: "EZ Mode",
-      polarity: "good",
-      trigger: { on: "passive" },
-      duration: null,
-      charges: null,
-      stacks: true,
-      maxStacks: 99,
-      persists: true,
-      effects: STAT_NAMES.map((stat) => ({ kind: "stat-add", stat, amount: EZ_STAT_BONUS })),
-    }),
-    S({
-      id: "fire",
-      name: "Fire",
-      polarity: "bad",
-      trigger: { on: "turn-end" },
-      duration: 3,
-      charges: null,
-      stacks: true,
-      maxStacks: 99,
-      persists: true,
-      effects: [{
-        kind: "damage",
-        damage: {
-          basis: "source-mag",
-          frac: 0.15,
-          element: "sun",
-          category: "magic",
-          damageClass: "status",
-          triggersOnHit: false,
-          snapshot: true,
-        },
-      }],
-    }),
-    S({
-      id: "fragile",
-      name: "Fragile",
-      polarity: "bad",
-      trigger: { on: "hit-any" },
-      duration: 5,
-      charges: 3,
-      stacks: false,
-      maxStacks: 1,
-      persists: true,
-      effects: [{
-        kind: "damage",
-        damage: {
-          basis: "holder-max-hp",
-          frac: 0.1,
-          element: "plain",
-          category: "true",
-          damageClass: "attack",
-          triggersOnHit: false,
-          snapshot: false,
-        },
-      }],
-    }),
-    S({
-      id: "rage",
-      name: "Rage",
-      polarity: "good",
-      trigger: { on: "passive" },
-      duration: null,
-      charges: null,
-      stacks: true,
-      maxStacks: 6,
-      persists: false,
-      effects: [{ kind: "stat-scale", stat: "str", mult: 1.25 }],
-    }),
-    S({
-      id: "guard",
-      name: "Guard",
-      polarity: "good",
-      trigger: { on: "passive" },
-      duration: 3,
-      charges: null,
-      stacks: false,
-      maxStacks: 1,
-      persists: false,
-      effects: [{ kind: "stat-scale", stat: "def", mult: 1.25 }],
-    }),
-    S({
-      id: "moonward",
-      name: "Moonward",
-      polarity: "good",
-      trigger: { on: "passive" },
-      duration: 2,
-      charges: null,
-      stacks: false,
-      maxStacks: 1,
-      persists: true,
-      effects: [{ kind: "immune", element: "moon" }],
-    }),
-    S({
-      id: "marked",
-      name: "Marked",
-      polarity: "bad",
-      trigger: { on: "passive" },
-      duration: 3,
-      charges: null,
-      stacks: false,
-      maxStacks: 1,
-      persists: true,
-      effects: [{ kind: "vulnerable", element: "cipher", mult: 1.5 }],
-    }),
-    S({
-      id: "second-wind",
-      name: "Second Wind",
-      polarity: "good",
-      trigger: { on: "hp-below", frac: 0.5 },
-      duration: null,
-      charges: 1,
-      stacks: false,
-      maxStacks: 1,
-      persists: true,
-      effects: [{ kind: "heal", basis: "holder-max-hp", frac: 0.1 }],
-    }),
-    S({
-      id: "sticky",
-      name: "Sticky Treat",
-      polarity: "bad",
-      trigger: { on: "passive" },
-      // A mark does not tick on the turn it lands, so one turn here is the one
-      // turn after the spell that stuck it on, which is what the passive says.
-      duration: 1,
-      charges: null,
-      stacks: false,
-      maxStacks: 1,
-      persists: true,
-      effects: [{ kind: "root" }],
-    }),
-    S({
-      id: "slowed",
-      name: "Slowed",
-      polarity: "bad",
-      trigger: { on: "passive" },
-      duration: null,
-      charges: null,
-      stacks: true,
-      maxStacks: 6,
-      persists: false,
-      power: { basis: "source-mag", frac: 0.3 },
-      effects: [{ kind: "stat-power", stat: "spd", mult: -1 }],
-    }),
-    S({
-      id: "cold",
-      name: "Cold",
-      polarity: "bad",
-      trigger: { on: "turn-end" },
-      duration: 3,
-      charges: null,
-      stacks: false,
-      maxStacks: 1,
-      persists: true,
-      effects: [{ kind: "inflict", status: "chill", scope: "self" }],
-    }),
-    S({
-      id: "chill",
-      name: "Chill",
-      polarity: "bad",
-      trigger: { on: "passive" },
-      duration: null,
-      charges: null,
-      stacks: true,
-      maxStacks: 10,
-      persists: false,
-      power: { basis: "source-mag", frac: 0.1 },
-      effects: [{ kind: "stat-power", stat: "spd", mult: -1 }],
-    }),
-    S({
-      id: "hyper",
-      name: "Hyper-Mode",
-      polarity: "good",
-      trigger: { on: "passive" },
-      duration: null,
-      charges: null,
-      stacks: false,
-      maxStacks: 1,
-      persists: true,
-      effects: STAT_NAMES.map((stat) =>
-        ({ kind: "stat-boost", stat, frac: HYPER_SCALE, flat: HYPER_FLAT } as StatusEffect)),
-    }),
-    S({
-      id: "spite",
-      name: "Spite",
-      polarity: "good",
-      trigger: { on: "death" },
-      duration: null,
-      charges: 1,
-      stacks: false,
-      maxStacks: 1,
-      persists: true,
-      effects: [{ kind: "copy-statuses" }],
-    }),
-
-    // --- what an ability hangs on the Scoba that has it ---
-    P("swift", "Swift", [scale("spd", 1.2)]),
-    P("brawn", "Brawn", [scale("str", 1.15)]),
-    P("thick-coat", "Thick Coat", [scale("def", 1.2)]),
-    P("warded", "Warded", [scale("res", 1.2)]),
-    P("mystic", "Mystic", [scale("mag", 1.15)]),
-    P("hearty", "Hearty", [scale("hp", 1.15)]),
-    P("old-soul", "Old Soul", [scale("mag", 1.15)]),
-    P("shifting", "Shifting", [scale("spd", 1.15), scale("res", 1.1)]),
-    P("encrypted", "Encrypted", [scale("res", 1.25)]),
-    P("far-sight", "Far Sight", [scale("mag", 1.2)]),
-    P("sweet-tooth", "Sweet Tooth", [scale("hp", 1.2)]),
-    P("plainspoken", "Plainspoken", [scale("str", 1.15), scale("def", 1.1)]),
-    P("moss-skin", "Moss Skin",
-      [regen(1 / 16)], { trigger: { on: "turn-end" } }),
-    P("rooted", "Rooted",
-      [scale("def", 1.1), regen(1 / 16)], { trigger: { on: "turn-end" } }),
-    P("sun-heart", "Sun Heart", [typePower("sun", 1.25)]),
-    P("flux-heart", "Flux Heart", [typePower("flux", 1.25)]),
-    P("moss-heart", "Moss Heart", [typePower("moss", 1.25)]),
-    P("moonlit", "Moonlit", [typePower("moon", 1.25)]),
-    P("lucky", "Lucky", [typePower("fortuna", 1.25)]),
-
-    // Catsquito drinks what it hits, and never sits still.
-    P("thirst", "Thirst",
-      [{ kind: "heal", basis: "holder-mag", frac: 1 }],
-      { trigger: { on: "basic-attack" } }),
-    P("restless", "Restless",
-      [scale("spd", 1.1), scale("str", 1.1)]),
-
-    // Meepa wears magic defence down and opens with more mana.
-    P("moonwane", "Moonwane",
-      [{ kind: "inflict", status: "wane", scope: "other" }],
-      { trigger: { on: "deal-magic" } }),
-    P("moonwell", "Moonwell",
-      [{ kind: "mana", amount: 10 }],
-      { trigger: { on: "battle-start" }, charges: 1 }),
-
-    // Cottlequeen brings her court out with her, and quickens as she braces.
-    P("cottle-court", "Cottle Court",
-      [{ kind: "summon", species: "cottlecorn", level: 1 }],
-      { trigger: { on: "switch-in" }, charges: 1 }),
-    P("queens-guard", "Queen's Guard",
-      [{ kind: "inflict", status: "quickstep", scope: "self" }],
-      { trigger: { on: "block" } }),
-
-    // Cottlecorn wears its horn down on whatever it hits.
-    P("piercing-horn", "Piercing Horn",
-      [{ kind: "inflict", status: "gored", scope: "other" }],
-      { trigger: { on: "basic-attack" } }),
-
-    // The Octoshake line. Its spells stick, its cherry is spent once, and its
-    // Hyper-Mode pins the whole field in place.
-    P("sticky-treat", "Sticky Treat",
-      [{ kind: "inflict", status: "sticky", scope: "other" }],
-      { trigger: { on: "deal-spell" } }),
-    P("sticky-mess", "Sticky Mess",
-      // Twice as long as the passive leaves it: the mode is what makes the
-      // whole field stick rather than one Scoba at a time.
-      [{ kind: "inflict", status: "sticky", scope: "others", turns: 2 }],
-      { trigger: { on: "switch-in" }, charges: 1 }),
-
-    // Cactunny blesses the whole field and eats one Sun hit.
-    P("sun-bloom", "Sun Bloom",
-      [{ kind: "field", field: "sunblessed", scope: "both" }],
-      { trigger: { on: "switch-in" }, charges: 1 }),
-    P("sun-ward", "Sun Ward",
-      [{ kind: "ward", element: "sun" }],
-      { charges: 1 }),
-
-    // --- what those passives leave on everyone else ---
-    S({
-      id: "wane",
-      name: "Waning",
-      polarity: "bad",
-      trigger: { on: "passive" },
-      duration: null,
-      charges: null,
-      stacks: true,
-      maxStacks: 10,
-      persists: false,
-      effects: [{ kind: "stat-scale", stat: "res", mult: 0.95 }],
-    }),
-    S({
-      id: "quickstep",
-      name: "Quickstep",
-      polarity: "good",
-      trigger: { on: "passive" },
-      duration: null,
-      charges: null,
-      stacks: true,
-      maxStacks: 6,
-      persists: false,
-      effects: [{ kind: "stat-share", stat: "spd", from: "mag", frac: 0.1 }],
-    }),
-    S({
-      id: "gored",
-      name: "Gored",
-      polarity: "bad",
-      trigger: { on: "passive" },
-      duration: null,
-      charges: null,
-      stacks: true,
-      maxStacks: 6,
-      persists: false,
-      effects: [{ kind: "stat-scale", stat: "res", mult: 0.95 }],
-    }),
-  ].map((s) => [s.id, s]),
-);
+/**
+ * Every status, from `content/statuses.txt`, and the status each passive in
+ * `content/passives.txt` is carried as. The files are the source of truth and
+ * the cosmetics editor reads and writes them.
+ */
+export const STATUSES: Record<string, StatusDef> = CONTENT_TABLES.statuses;
 
 export function statusName(id: string): string {
   return STATUSES[id]?.name ?? id;
@@ -598,6 +423,8 @@ export interface FieldDef {
   duration: number | null;
   /** The wash laid over the half of the screen its side stands on. */
   tint: string;
+  /** The sigil it is shown as, by file name in `assets/Sigils`. */
+  icon?: string;
   /** What the log says as it takes hold, and as it lifts. */
   onset: string;
   lifts: string;
@@ -613,17 +440,8 @@ export interface FieldInstance {
   from?: { side: 0 | 1; index: number };
 }
 
-export const FIELDS: Record<string, FieldDef> = {
-  sunblessed: {
-    id: "sunblessed",
-    name: "Sunblessed",
-    duration: 5,
-    tint: "#e7a03c",
-    onset: "Sunlight pours over the field.",
-    lifts: "The sunlight fades.",
-    effects: [{ kind: "element-power", element: "sun", mult: 1.25 }],
-  },
-};
+/** Every field, from `content/fields.txt`. */
+export const FIELDS: Record<string, FieldDef> = CONTENT_TABLES.fields;
 
 /** A fresh field, before it goes over a side. */
 export function newField(id: string, from?: { side: 0 | 1; index: number }): FieldInstance | null {
@@ -720,7 +538,7 @@ export interface ReadEffect {
  */
 const CONTINUOUS = new Set<StatusEffect["kind"]>([
   "stat-add", "stat-set", "stat-scale", "stat-share", "stat-offset", "stat-power",
-  "stat-boost", "immune", "vulnerable", "element-power", "root", "ward",
+  "stat-boost", "immune", "vulnerable", "element-power", "root", "ward", "mark-power",
 ]);
 
 export function isContinuous(kind: StatusEffect["kind"]): boolean {

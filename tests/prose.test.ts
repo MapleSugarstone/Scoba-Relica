@@ -1,0 +1,291 @@
+import { describe, expect, it } from "vitest";
+import { flattenProse, parseProse, readToken } from "../src/sim/prose";
+import { ABILITIES, MOVES, allSteps } from "../src/sim/species";
+import { STATUSES } from "../src/sim/status";
+import type { Stats } from "../src/sim/types";
+
+const coldWave = MOVES["cold-wave"]!;
+const cardThrow = MOVES["card-throw"]!;
+
+/** A stat line with the ones a case cares about filled in. */
+const statsFor = (some: Partial<Stats>): Stats =>
+  ({ hp: 0, str: 0, def: 0, res: 0, mag: 0, spd: 0, ...some });
+
+const labels = (template: string, move = coldWave): string[] =>
+  parseProse(template, { move }).filter((p) => p.kind === "token").map((p) => p.label);
+const details = (template: string, move = coldWave): string[] =>
+  parseProse(template, { move }).filter((p) => p.kind === "token").map((p) => p.detail);
+
+describe("reading one bracket", () => {
+  it("knows the ones it is meant to know", () => {
+    expect(readToken("damage")?.token).toEqual({ of: "damage" });
+    expect(readToken("heal")?.token).toEqual({ of: "heal" });
+    expect(readToken("status:cold")?.token).toEqual({ of: "status", id: "cold" });
+  });
+
+  it("has nothing for the cost or the type, which are shown beside the name", () => {
+    expect(readToken("cost")).toBeNull();
+    expect(readToken("type")).toBeNull();
+  });
+
+  it("takes a word of your own to show in place of the name", () => {
+    const read = readToken("status:cold|slows");
+    expect(read?.token).toEqual({ of: "status", id: "cold" });
+    expect(read?.label).toBe("slows");
+  });
+
+  it("ignores the spaces around what is written", () => {
+    expect(readToken(" status : cold | slows ")?.token).toEqual({ of: "status", id: "cold" });
+  });
+
+  it("says no to anything it does not know", () => {
+    expect(readToken("")).toBeNull();
+    expect(readToken("wobble")).toBeNull();
+    expect(readToken("status")).toBeNull();
+    expect(readToken("status:")).toBeNull();
+  });
+});
+
+describe("the lines the moves ship with", () => {
+  const written = Object.values(MOVES).filter((m) => m.text !== undefined && !m.derived);
+
+  it("covers every move", () => {
+    const bare = Object.values(MOVES).filter((m) => m.text === undefined && !m.derived);
+    expect(bare.map((m) => m.id)).toEqual([]);
+  });
+
+  it("reads as a sentence", () => {
+    for (const move of written) {
+      expect(move.text, move.id).toMatch(/^[A-Z]/);
+      expect(move.text, move.id).toMatch(/\.$/);
+    }
+  });
+
+  it("leaves no bracket the parser cannot read", () => {
+    for (const move of written) {
+      // Every bracket in a shipped line has to resolve. One that does not would
+      // print as literal brackets in the middle of the sentence.
+      for (const inside of move.text!.match(/\[[^\]]*\]/g) ?? []) {
+        expect(readToken(inside.slice(1, -1)), `${move.id} ${inside}`).not.toBeNull();
+      }
+      expect(flattenProse(move.text!, { move }), move.id).not.toContain("[");
+    }
+  });
+
+  it("names only marks that exist", () => {
+    for (const move of written) {
+      for (const inside of move.text!.match(/\[status:[^\]]*\]/g) ?? []) {
+        const read = readToken(inside.slice(1, -1));
+        const id = read?.token.of === "status" ? read.token.id : "";
+        expect(STATUSES[id], `${move.id} ${inside}`).toBeTruthy();
+      }
+    }
+  });
+
+  it("says what a move that hits for something hits for", () => {
+    for (const move of written) {
+      if (move.kind === "physical" || move.kind === "magical") {
+        expect(move.text, move.id).toContain("[damage]");
+      }
+      if (move.kind === "heal") expect(move.text, move.id).toContain("[heal]");
+    }
+  });
+
+  it("names every mark a move actually leaves", () => {
+    for (const move of written) {
+      for (const e of allSteps(move.cast)) {
+        if (e.kind !== "inflict") continue;
+        expect(move.text, `${move.id} leaves ${e.status}`).toContain(`[status:${e.status}`);
+      }
+    }
+  });
+});
+
+describe("the lines the passives ship with", () => {
+  const written = Object.values(ABILITIES).filter((a) => a.text !== undefined);
+
+  it("covers every passive", () => {
+    const bare = Object.values(ABILITIES).filter((a) => a.text === undefined);
+    expect(bare.map((a) => a.id)).toEqual([]);
+  });
+
+  it("reads as a sentence", () => {
+    for (const ability of written) {
+      expect(ability.text, ability.id).toMatch(/^[A-Z]/);
+      expect(ability.text, ability.id).toMatch(/\.$/);
+    }
+  });
+
+  it("leaves no bracket the parser cannot read", () => {
+    for (const ability of written) {
+      for (const inside of ability.text!.match(/\[[^\]]*\]/g) ?? []) {
+        expect(readToken(inside.slice(1, -1)), `${ability.id} ${inside}`).not.toBeNull();
+      }
+      expect(flattenProse(ability.text!, {}), ability.id).not.toContain("[");
+    }
+  });
+
+  it("names only marks and fields that exist", () => {
+    for (const ability of written) {
+      for (const inside of ability.text!.match(/\[(status|damage|heal):[^\]]*\]/g) ?? []) {
+        const part = parseProse(inside, {})[0];
+        expect(part?.kind, `${ability.id} ${inside}`).toBe("token");
+        expect(part && part.kind === "token" ? part.detail : "", `${ability.id} ${inside}`)
+          .not.toMatch(/^No /);
+      }
+    }
+  });
+});
+
+describe("a mark's own numbers", () => {
+  it("reads a burn off the mark rather than off the move", () => {
+    const at = { stats: statsFor({ str: 200 }), level: 30 };
+    // In the Red: a fifth of Strength, and a flat 50 at the ceiling.
+    expect(parseProse("[damage:in-the-red]", at)[0]).toMatchObject({ label: "90", tone: "magic" });
+  });
+
+  it("scales the flat share down below the ceiling", () => {
+    const at = { stats: statsFor({ str: 200 }), level: 15 };
+    expect(parseProse("[damage:in-the-red]", at)[0]).toMatchObject({ label: "65" });
+  });
+
+  it("reads a regen off the mark as a share of what holds it", () => {
+    const part = parseProse("[heal:rooted]", {})[0];
+    expect(part).toMatchObject({ label: "6% max HP" });
+    expect(part && part.kind === "token" ? part.detail : "").toContain("its own maximum HP");
+  });
+
+  it("names the stat and the flat share with no caster to read", () => {
+    // The script writes 50 at the level ceiling of 30, which reads as what each level adds.
+    const part = parseProse("[damage:in-the-red]", {})[0];
+    expect(part).toMatchObject({ label: "20% Strength + 1.67 damage per level" });
+    expect(part?.kind === "token" && part.detail).toContain("plus 1.67 damage per level");
+  });
+
+  it("reads a move's flat damage the same way", () => {
+    const part = parseProse("[damage]", { move: MOVES["cherry-on-top"]! })[0];
+    expect(part).toMatchObject({ label: "2 damage per level" });
+  });
+
+  it("says so where a mark does no such thing", () => {
+    expect(parseProse("[damage:rooted]", {})[0]).toMatchObject({ label: "rooted" });
+    expect(parseProse("[heal:cold]", {})[0]).toMatchObject({ label: "cold" });
+  });
+
+  it("puts several numbers and marks in one line", () => {
+    const line = "Deals [damage] damage, then [damage:in-the-red] a turn while it is"
+      + " [status:in-the-red|burning].";
+    const parts = parseProse(line, { move: MOVES["red"]!, stats: statsFor({ str: 200 }), level: 30 });
+    expect(parts.filter((p) => p.kind === "token")).toHaveLength(3);
+    expect(parts.filter((p) => p.kind === "token").map((p) => p.label))
+      .toEqual(["220", "90", "burning"]);
+  });
+
+  it("names a field the same way it names a mark", () => {
+    const part = parseProse("[status:sunblessed]", {})[0];
+    expect(part).toMatchObject({ label: "Sunblessed" });
+    expect(part && part.kind === "token" ? part.detail : "").toContain("Sun");
+  });
+});
+
+describe("a written line", () => {
+  it("comes back whole when it has no brackets in it", () => {
+    const parts = parseProse("A cold attack that hits the whole line.", { move: coldWave });
+    expect(parts).toEqual([{ kind: "text", text: "A cold attack that hits the whole line." }]);
+  });
+
+  it("splits the words off the numbers", () => {
+    const parts = parseProse("Deals [damage], and leaves them [status:cold].", { move: coldWave });
+    expect(parts.map((p) => p.kind)).toEqual(["text", "token", "text", "token", "text"]);
+    expect(parts[0]).toEqual({ kind: "text", text: "Deals " });
+    expect(parts[4]).toEqual({ kind: "text", text: "." });
+  });
+
+  it("shows the mark's own name, or the word you gave it", () => {
+    expect(labels("[status:cold]")).toEqual(["Cold"]);
+    expect(labels("[status:cold|slowed]")).toEqual(["slowed"]);
+  });
+
+  it("shows the number it deals when the caster is in hand", () => {
+    // The Octoshake on the card: 148 Magic, and Cold Wave reads all of it.
+    const at = { move: coldWave, stats: statsFor({ mag: 148 }), level: 30 };
+    expect(parseProse("[damage]", at)[0]).toMatchObject({ label: "148", tone: "magic" });
+  });
+
+  it("counts a second stat into the number", () => {
+    const at = { move: MOVES["green"]!, stats: statsFor({ str: 100, def: 40 }), level: 30 };
+    expect(parseProse("[damage]", at)[0]).toMatchObject({ label: "140", tone: "physical" });
+  });
+
+  it("falls back to the share of the stat with no caster to read", () => {
+    expect(labels("[damage]")).toEqual(["100% Magic"]);
+    expect(labels("[damage]", cardThrow)).toEqual(["30% Strength"]);
+  });
+
+  it("puts the scaling behind the number rather than in the sentence", () => {
+    const said = details("[damage]")[0]!;
+    expect(said).toContain("100% of the caster's Magic");
+    expect(said).toContain("reduced by the target's Resistance");
+  });
+
+  it("names the armour that actually reduces it", () => {
+    expect(details("[damage]", cardThrow)[0]).toContain("reduced by the target's Defense");
+    expect(details("[damage]", MOVES["green"]!)[0]).toContain("of its Defense");
+  });
+
+  it("takes the colour its kind of damage has everywhere else", () => {
+    expect(parseProse("[damage]", { move: coldWave })[0]).toMatchObject({ tone: "magic" });
+    expect(parseProse("[damage]", { move: cardThrow })[0]).toMatchObject({ tone: "physical" });
+    // Flat damage is neither, and is coloured as what it is.
+    expect(parseProse("[damage]", { move: MOVES["cherry-on-top"]! })[0])
+      .toMatchObject({ tone: "true" });
+  });
+
+  it("counts flat damage off the level rather than a stat", () => {
+    const at = { move: MOVES["cherry-on-top"]!, level: 30 };
+    expect(parseProse("[damage]", at)[0]).toMatchObject({ label: "60" });
+  });
+
+  it("shows what a heal comes to as well", () => {
+    const at = { move: MOVES["icecream-soup"]!, stats: statsFor({ mag: 148 }), level: 30 };
+    expect(parseProse("[heal]", at)[0]).toMatchObject({ label: "74" });
+  });
+
+  it("says what a mark actually does", () => {
+    expect(details("[status:cold]")[0]).toBe(
+      parseProse("[status:cold]", { move: coldWave }).find((p) => p.kind === "token")!.detail,
+    );
+    expect(details("[status:in-the-red]")[0]).toContain("Sun");
+  });
+
+  it("leaves a bracket it does not understand exactly as it was typed", () => {
+    const text = "Deals [wobble] damage [to] everyone.";
+    expect(parseProse(text, { move: coldWave })).toEqual([{ kind: "text", text }]);
+    expect(flattenProse(text, { move: coldWave })).toBe(text);
+  });
+
+  it("survives a bracket that is never closed", () => {
+    const text = "Deals [damage and leaves them cold.";
+    expect(flattenProse(text, { move: coldWave })).toBe(text);
+  });
+
+  it("survives a bracket naming a mark that does not exist", () => {
+    expect(labels("[status:nonsense]")).toEqual(["nonsense"]);
+    expect(details("[status:nonsense]")[0]).toContain("No mark");
+  });
+
+  it("flattens to something readable where there is nowhere to hover", () => {
+    expect(flattenProse("Deals [damage], and [status:cold|slows] them.", { move: coldWave }))
+      .toBe("Deals 100% Magic, and slows them.");
+  });
+
+  it("leaves a cost written in brackets as plain words", () => {
+    // It is shown beside the move's name already, so writing it in the sentence
+    // is writing it twice.
+    expect(flattenProse("Costs [cost].", { move: coldWave })).toBe("Costs [cost].");
+  });
+
+  it("has nothing to read a move token off a passive's line", () => {
+    expect(labels("[damage]", null as never)).toEqual(["?"]);
+  });
+});

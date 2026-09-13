@@ -19,12 +19,19 @@ import {
 } from "../game/critters";
 import {
   BIG_SHADOW, DEFAULT_SHADOW, NO_SHADOW, PLAYER_COSTUME, asOneStep, canRedo, canUndo,
-  clearLine, clearPlacement, cosmeticsJson, movementFor, placedCount, placementFor,
-  redoCosmetics, setMovement, setPlacement, setSetup, setupFor, shadowFor, undoCosmetics,
-  type CostumeSetup, type Placement, type ShadowSetup, type Spot,
+  clearLine, clearPlacement, clearText, cosmeticsJson, movementFor, placedCount, placementFor,
+  redoCosmetics, setMovement, setPlacement, setSetup, setText, setupFor, shadowFor,
+  undoCosmetics, writtenText,
+  type CostumeSetup, type Placement, type ShadowSetup, type Spot, type TextKind,
 } from "../game/cosmetics";
+import { generatedText } from "../game/texts";
+import { buildDataPanel } from "./datapanel";
+import { el } from "./dom";
+import { buildNewScoba } from "./newscoba";
+import { TOKENS } from "../sim/prose";
+import { proseNodes } from "../ui/prose";
 import {
-  ABILITIES, HYPER_FORM, SPECIES, artNameFor, costumesOf, kinCostumes,
+  ABILITIES, HYPER_FORM, MOVES, SPECIES, artNameFor, costumesOf, kinCostumes,
   type Costume, type MovementStyle, type Species,
 } from "../sim/species";
 
@@ -69,16 +76,54 @@ export interface Panel {
   root: HTMLElement;
   /** Takes the panel's key handling off again. */
   dispose: () => void;
+  /** Whether any game data has been applied and not yet saved. */
+  unsavedData: () => boolean;
 }
 
-const el = <K extends keyof HTMLElementTagNameMap>(
-  tag: K, cls?: string, text?: string,
-): HTMLElementTagNameMap[K] => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-};
+/**
+ * Whether a key event came from something you type into, which keeps its own
+ * keys. Every kind of input counts, a slider included, since arrows move one.
+ */
+export function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+}
+
+/** One line of writing an author can take over, and what the game says instead. */
+interface Words {
+  kind: TextKind;
+  id: string;
+  /** Which sort of thing it is about, for the heading over the box. */
+  what: string;
+  name: string;
+  generated: string;
+}
+
+/** Everything about one line that is written in words: itself, its passives, its moves. */
+function wordsFor(sp: Species): Words[] {
+  const out: Words[] = [
+    { kind: "species", id: sp.id, what: "Scoba", name: sp.name, generated: generatedText.species(sp) },
+  ];
+  const passives = [sp.primaryAbility, ...sp.secondaryPool, sp.hyperAbility ?? ""];
+  for (const id of passives) {
+    const ability = ABILITIES[id];
+    if (!ability || out.some((w) => w.kind === "ability" && w.id === id)) continue;
+    out.push({
+      kind: "ability", id, what: "Passive", name: ability.name,
+      generated: generatedText.ability(id),
+    });
+  }
+  for (const id of sp.moves) {
+    const move = MOVES[id];
+    if (!move || out.some((w) => w.kind === "move" && w.id === move.id)) continue;
+    out.push({
+      kind: "move", id: move.id, what: "Move", name: move.name,
+      generated: generatedText.move(move),
+    });
+  }
+  return out;
+}
 
 /** Every line something could be placed on, the Pawns and the special one too. */
 function lines(): Species[] {
@@ -290,6 +335,143 @@ function ensureStyles(): void {
     }
     .cosCell .cosMoved { color: var(--pick); }
     .cosState { padding: 6px 8px; font-size: 12px; }
+
+    /* What the game says about a line, and what an author says instead. */
+    .cosWords { display: flex; flex-direction: column; gap: 4px; }
+    .cosWord { display: flex; flex-direction: column; gap: 3px; padding: 6px; }
+    .cosWordWho { font-size: 11px; font-weight: 700; }
+    .cosWordWas { font-size: 11px; color: var(--dim); }
+    .cosWordHead { display: flex; align-items: center; gap: 6px; }
+    .cosWordHead .cosWordWho { flex: 1; }
+    .cosPanel .cosWordBox { font-size: 11px; resize: vertical; min-height: 34px; }
+    /* The game's own records, as the JSON they are stored in. */
+    .cosData { display: flex; flex-direction: column; gap: 4px; }
+    .cosDataBox { display: flex; flex-direction: column; gap: 3px; padding: 6px; }
+    .cosDataRole { font-size: 10px; color: var(--dim); font-family: ui-monospace, monospace; }
+    .cosPanel .cosDataText {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      line-height: 1.35;
+      resize: vertical;
+      white-space: pre;
+      overflow-x: auto;
+      tab-size: 2;
+    }
+    .cosPanel .cosDataText.bad { border-color: var(--danger); }
+    .cosDataProblem { font-size: 11px; color: #ff9a8f; }
+    .cosKeys { display: flex; flex-direction: column; gap: 1px; }
+    .cosKey { font-size: 10px; color: var(--dim); font-family: ui-monospace, monospace; }
+    .cosWordNow { font-size: 11px; padding: 3px 0 0; }
+    /* The highlighted word, as the game will draw it. */
+    .cosPanel .pnum {
+      position: relative;
+      color: var(--pick);
+      border-bottom: 1px dotted var(--pick);
+      cursor: help;
+    }
+    .cosPanel .pnum .ptip {
+      position: absolute;
+      left: 0;
+      bottom: calc(100% + 3px);
+      z-index: 5;
+      display: none;
+      width: 200px;
+      padding: 6px;
+      font-size: 10px;
+      line-height: 1.3;
+      color: var(--text);
+      background: var(--ink);
+      border: 2px solid var(--act);
+    }
+    .cosPanel .pnum:hover .ptip, .cosPanel .pnum:focus-within .ptip { display: block; }
+
+    /* A block with a display of its own still goes when it is hidden. */
+    .cosPanel [hidden] { display: none !important; }
+
+    /* Picking out of a table: a search box with the matches listed under it. */
+    .cosPick { position: relative; flex: 1 1 160px; min-width: 140px; }
+    .cosPanel .cosPickIn { font-size: 11px; padding: 3px 7px; }
+    .cosPickList {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 100%;
+      z-index: 6;
+      display: flex;
+      flex-direction: column;
+      max-height: 260px;
+      overflow-y: auto;
+      padding: 3px;
+    }
+    .cosPanel .cosPickRow {
+      --fill: var(--ink);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1px;
+      padding: 3px 6px;
+      border-color: var(--quiet);
+      text-align: left;
+      font-size: 11px;
+    }
+    .cosPickHead { display: flex; gap: 6px; align-items: baseline; }
+    .cosPickId, .cosChipId { font-family: ui-monospace, monospace; font-size: 10px; color: var(--dim); }
+    .cosPickHint { font-size: 10px; color: var(--dim); }
+    .cosPickNone { padding: 4px 6px; }
+
+    /* A line's kit: chips for what it has, a picker beside them for more. */
+    .cosKit { display: flex; flex-direction: column; gap: 6px; }
+    .cosKitBlock { display: flex; flex-direction: column; gap: 3px; }
+    .cosKitRow { align-items: center; }
+    .cosKitWhat { font-size: 11px; color: var(--dim); min-width: 42px; }
+    .cosChip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 4px 2px 7px;
+      font-size: 11px;
+      background: var(--quiet);
+      border: 2px solid var(--ink);
+    }
+    .cosPanel .cosChipX { --fill: var(--ink); font-size: 10px; line-height: 1; padding: 1px 5px; }
+    .cosPanel .cosLevel { width: 52px; font-size: 11px; padding: 3px 5px; cursor: text; }
+    .cosShared { font-size: 10px; }
+
+    /* Forms: a label, then its control, wrapping as a row. */
+    .cosFormRow { align-items: center; row-gap: 6px; }
+    .cosPanel .cosFormIn { flex: 1 1 120px; min-width: 100px; font-size: 11px; padding: 3px 7px; cursor: text; }
+    .cosPanel .cosFormSel { font-size: 11px; padding: 3px 5px; }
+    .cosPanel .cosMono { font-family: ui-monospace, monospace; }
+    .cosPanel .cosField.bad { border-color: var(--danger); }
+    .cosOver { color: #ff9a8f; }
+    .cosNew, .cosBuilder { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+
+    /* The builder: the box on the left, the palette down the right. */
+    .cosBuildWork { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+    .cosBuildBox { flex: 1 1 320px; min-width: 260px; display: flex; flex-direction: column; gap: 4px; }
+    .cosBuildReads { display: flex; flex-direction: column; gap: 3px; }
+    .cosBuildRead { display: flex; flex-direction: column; gap: 1px; font-size: 11px; }
+    .cosPalette {
+      flex: 0 1 300px;
+      min-width: 220px;
+      max-height: 420px;
+      overflow-y: auto;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .cosPalGroup { display: flex; flex-direction: column; gap: 2px; }
+    .cosPalGroup summary { cursor: pointer; font-size: 11px; font-weight: 700; padding: 2px 0; }
+    .cosPanel .cosPalB {
+      --fill: var(--ink);
+      font-family: ui-monospace, monospace;
+      font-size: 10px;
+      text-align: left;
+      padding: 2px 6px;
+      border-color: var(--quiet);
+      white-space: pre-wrap;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -465,6 +647,9 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
   search.autocomplete = "off";
   search.style.flex = "1";
   dexHead.appendChild(search);
+  const newB = el("button", "cosMini cosGo", "+");
+  newB.title = "Add a new Scoba";
+  dexHead.appendChild(newB);
   dex.appendChild(dexHead);
 
   const grid = el("div", "cosGrid cosWell");
@@ -566,6 +751,32 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
   });
   dex.appendChild(grid);
 
+  // --- a new line ---
+  const newForm = buildNewScoba(art, {
+    create: (sp) => {
+      const wrong = data.addSpecies(sp);
+      if (wrong.length > 0) return wrong;
+      newForm.root.hidden = true;
+      newForm.reset();
+      speciesId = sp.id;
+      forms = [];
+      dragging = null;
+      refresh();
+      return [];
+    },
+    cancel: () => {
+      newForm.root.hidden = true;
+    },
+    file: (file, text) => data.addRecord(file, text),
+    note: (text) => host.note(text),
+  });
+  newForm.root.hidden = true;
+  main.appendChild(newForm.root);
+  newB.addEventListener("click", () => {
+    newForm.root.hidden = !newForm.root.hidden;
+    if (!newForm.root.hidden) newForm.root.scrollIntoView({ block: "nearest" });
+  });
+
   // --- which costume, and the steps back ---
   const above = el("div", "cosRow cosAbove");
   const costumeRow = el("div", "cosRow");
@@ -661,6 +872,131 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
 
   const state = el("div", "cosNote cosState cosWell");
   main.appendChild(state);
+
+  // --- what the game says about it ---
+  const words = el("div", "cosWords");
+  /** Whose words the section is showing, so its boxes are built once per pick. */
+  let wordsShown: string | null = null;
+
+  /** Every box's way of catching up with its line without being rebuilt. */
+  let wordSyncs: (() => void)[] = [];
+
+  /**
+   * The boxes are built when the subject changes and brought up to date in
+   * place on every other redraw. Rebuilt every time, they were torn down under
+   * whoever was typing in one: a nudge, an Undo, or leaving one box for the
+   * next all redraw the panel, and the box being written in went with it.
+   */
+  const drawWords = (): void => {
+    const sp = SPECIES[speciesId];
+    // Keyed by what the line has as well as which line it is, since a move
+    // learned or a passive swapped in the Data section needs a box of its own.
+    const subject = sp && !onPlayer() ? wordsFor(sp).map((w) => `${w.kind}:${w.id}`).join(",") : null;
+    if (subject === wordsShown) {
+      for (const catchUp of wordSyncs) catchUp();
+      return;
+    }
+    wordsShown = subject;
+    wordSyncs = [];
+    words.innerHTML = "";
+    words.hidden = subject === null;
+    if (!sp || subject === null) return;
+    words.appendChild(el("div", "cosLabel", "Words"));
+    words.appendChild(el("div", "cosNote",
+      "What you write replaces the whole line. Leave a box empty to hand it back"
+      + " to the game. Anything in [brackets] becomes a highlighted word with the"
+      + " numbers behind a hover, and anything the game does not recognise is left"
+      + " exactly as you typed it."));
+    const keys = el("div", "cosKeys");
+    for (const t of TOKENS) keys.appendChild(el("div", "cosKey", `${t.form} — ${t.says}`));
+    words.appendChild(keys);
+    for (const entry of wordsFor(sp)) {
+      const box = el("div", "cosWord cosWell");
+      const head = el("div", "cosWordHead");
+      head.appendChild(el("div", "cosWordWho", `${entry.what} · ${entry.name}`));
+      const state = el("div", "cosNote");
+      head.appendChild(state);
+      const back = el("button", "cosMini", "Reset");
+      head.appendChild(back);
+      box.appendChild(head);
+
+      /** What the game would say on its own, read fresh, since a data edit can change it. */
+      const generated = (): string => {
+        if (entry.kind === "move") {
+          const move = MOVES[entry.id];
+          return move ? generatedText.move(move) : entry.generated;
+        }
+        if (entry.kind === "ability") return generatedText.ability(entry.id);
+        const line = SPECIES[entry.id];
+        return line ? generatedText.species(line) : entry.generated;
+      };
+      /** The line as it stands, whether it was written or worked out. */
+      const current = (): string => writtenText(entry.kind, entry.id) ?? generated();
+
+      const field = document.createElement("textarea");
+      field.className = "cosField cosWordBox";
+      field.rows = 3;
+      // The line as it stands, whether it was written or worked out, so it can
+      // be edited in place rather than copied out of a label above it.
+      field.value = current();
+      /**
+       * The line as this box last put it on screen. A draft typed over it and
+       * not yet committed differs from the field but not from the line, which is
+       * how catching up tells the two apart and leaves the draft alone.
+       */
+      let known = field.value;
+      const shown = el("div", "cosWordNow");
+      const preview = (): void => {
+        shown.innerHTML = "";
+        shown.appendChild(proseNodes(field.value, { move: entry.kind === "move" ? MOVES[entry.id] ?? null : null }));
+      };
+      const mark = (): void => {
+        const own = writtenText(entry.kind, entry.id);
+        state.textContent = own === null ? "as it comes" : "written over";
+        back.disabled = own === null;
+      };
+      preview();
+      mark();
+      field.addEventListener("input", preview);
+      field.addEventListener("change", () => {
+        // Written back exactly as it stands, unless it is word for word what
+        // the game says anyway, which is nothing to store.
+        if (field.value.trim() === generated().trim()) clearText(entry.kind, entry.id);
+        else setText(entry.kind, entry.id, field.value);
+        known = field.value;
+        refresh();
+      });
+      back.addEventListener("click", () => {
+        clearText(entry.kind, entry.id);
+        field.value = current();
+        known = field.value;
+        preview();
+        refresh();
+      });
+      wordSyncs.push(() => {
+        mark();
+        const now = current();
+        if (now === known) return;
+        // Changed out from under the box, by an Undo, a Redo or a data edit.
+        field.value = now;
+        known = now;
+        preview();
+      });
+      box.appendChild(field);
+      box.appendChild(shown);
+      words.appendChild(box);
+    }
+  };
+  main.appendChild(words);
+
+  // --- the data the game reads about it ---
+  const data = buildDataPanel({
+    note: (text) => host.note(text),
+    // A record just applied changes what every other part of the panel reads,
+    // from the preview to the words drawn off the move's own numbers.
+    changed: () => refresh(),
+  });
+  main.appendChild(data.root);
 
   body.appendChild(dex);
   root.appendChild(body);
@@ -802,7 +1138,24 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
       + " Arrow keys move it a pixel at a time.";
   };
 
+  /** Whose data the data section is showing, so it is rebuilt only on a new pick. */
+  let dataFor: string | null = null;
+
   const redraw = (): void => {
+    // Undo can take away the line on screen, when it was made this session.
+    if (!onPlayer() && !SPECIES[speciesId]) {
+      speciesId = lines()[0]?.id ?? "";
+      forms = [];
+      dragging = null;
+    }
+    // Rebuilt only when the subject changes. Every other redraw would otherwise
+    // throw away a record half typed into one of its boxes.
+    const subject = onPlayer() ? null : speciesId;
+    if (subject !== dataFor) {
+      dataFor = subject;
+      data.show(subject ? SPECIES[subject] ?? null : null);
+    }
+    drawWords();
     drawTools();
     drawPieces();
     drawLines();
@@ -815,6 +1168,9 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
   const refresh = (): void => {
     // Anything already built wore the old placement.
     forgetBuiltArt();
+    // An Undo or Redo may have put a record back under a box that still shows
+    // the version it replaced.
+    data.sync();
     redraw();
   };
 
@@ -972,8 +1328,11 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     const saver = host.save;
     const b = add(saver.label, () => {
       b.disabled = true;
-      void saver.run(cosmeticsJson())
-        .then((said) => host.note(said))
+      // The placements and the data are two sets of files, and one press saves
+      // both, so nothing edited on the page is left behind by forgetting which
+      // button wrote which.
+      void Promise.all([saver.run(cosmeticsJson()), data.save()])
+        .then(([placed, stored]) => host.note(`${placed} ${stored}`))
         .catch((err: unknown) => host.note(`Could not save: ${String(err)}`))
         .finally(() => {
           b.disabled = false;
@@ -985,6 +1344,11 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
 
   // Arrow keys for the last pixel, since a drag cannot be trusted with one.
   const keys = (e: KeyboardEvent): void => {
+    // A key pressed in anything you type into belongs to that field: arrows and
+    // Shift+arrows move the caret and the selection, and Ctrl+Z undoes typing.
+    // Taken by the editor instead, they nudged a piece and redrew the panel out
+    // from under whatever was being written.
+    if (isTyping(e.target)) return;
     if (e.ctrlKey || e.metaKey) {
       const lower = e.key.toLowerCase();
       // Both spellings of redo, because the editor runs on either platform.
@@ -1006,8 +1370,6 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     };
     const move = step[e.key];
     if (!move) return;
-    // A search box wants its own arrow keys.
-    if (document.activeElement === search) return;
     e.preventDefault();
     nudge(move);
   };
@@ -1015,7 +1377,11 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
 
   redraw();
 
-  return { root, dispose: () => window.removeEventListener("keydown", keys) };
+  return {
+    root,
+    dispose: () => window.removeEventListener("keydown", keys),
+    unsavedData: () => data.dirty(),
+  };
 }
 
 const ZERO: Spot = { dx: 0, dy: 0 };

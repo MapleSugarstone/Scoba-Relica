@@ -136,6 +136,11 @@ export function buildIslandWorld(art: Art, seed: string): WorldDef {
 
   // Walk on land and on planks; everything else is water or cliff face.
   for (let i = 0; i < COLS * ROWS; i++) map.solid[i] = !land[i] && !deck[i];
+  for (let cy = 0; cy < ROWS; cy++) {
+    for (let cx = 0; cx < COLS; cx++) {
+      if (land[cy * COLS + cx]) map.setRim(cx, cy, shoreRim(land, deck, COLS, ROWS, cx, cy));
+    }
+  }
 
   const sheet = islandSheet(art);
   map.painter = islandPainter(sheet, land, deck);
@@ -210,6 +215,20 @@ export function placeProp(map: TileMap, sheet: Sheet, kind: PropKind, cx: number
     kind,
   });
   if (kind === "nest") map.interactables.push({ x: x + 8, y: y + 12, r: 22, id: "nest" });
+}
+
+/**
+ * The sides of a land cell where the painter stops the dirt a quarter tile
+ * short of the boundary, as rim bits (N = 1, E = 2, W = 8): every side that
+ * faces open water. A bridge landing there covers the rim with its cap, and
+ * the south side runs flush to the cliff, so neither takes one.
+ */
+export function shoreRim(
+  land: boolean[], deck: boolean[], cols: number, rows: number, cx: number, cy: number,
+): number {
+  const ground = (x: number, y: number): boolean =>
+    x >= 0 && y >= 0 && x < cols && y < rows && (land[y * cols + x] === true || deck[y * cols + x] === true);
+  return (ground(cx, cy - 1) ? 0 : 1) | (ground(cx + 1, cy) ? 0 : 2) | (ground(cx - 1, cy) ? 0 : 8);
 }
 
 export function islandPainter(

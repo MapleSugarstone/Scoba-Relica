@@ -10,15 +10,17 @@
 // which side it stands on changes nothing but who it aims at.
 import type { BattleState, Choice, Combatant, Slot } from "./battle";
 import {
+  castCost,
   combatantMaxHp,
   combatantStats,
+  heldMoves,
   moveReady,
   selfRunning,
   slotsAwaitingChoice,
   specsFor,
   targetOptions,
 } from "./battle";
-import { MAX_MANA, moveCost } from "./scoba";
+import { MAX_MANA } from "./scoba";
 import { MOVES, type Move } from "./species";
 import { needsPick, type TargetRef } from "./targeting";
 import { rngFrom } from "./rng";
@@ -67,7 +69,7 @@ function actFor(st: BattleState, side: 0 | 1, slot: Slot, c: Combatant, rng: Rng
   const idx = st.active[side][slot]!;
   const user: TargetRef = { side, index: idx };
 
-  const usable = c.scoba.moves
+  const usable = heldMoves(c)
     .map((id) => MOVES[id])
     .filter((m): m is Move => !!m && moveReady(c, m.id).ok);
 
@@ -106,8 +108,8 @@ function actFor(st: BattleState, side: 0 | 1, slot: Slot, c: Combatant, rng: Rng
  * be a Scoba standing about for no reason.
  */
 function savingUp(c: Combatant): boolean {
-  return c.scoba.moves.some((id) => {
-    const cost = moveCost(c.scoba, id);
+  return heldMoves(c).some((id) => {
+    const cost = castCost(c, id);
     return cost >= MAX_MANA && c.mana < cost;
   });
 }

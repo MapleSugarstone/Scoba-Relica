@@ -225,18 +225,18 @@ function migrate(data: unknown): SaveData | null {
   if (d.version === 1) {
     // v1 -> v2: combat rework. Stats became hp/str/def/res/mag/spd with genes
     // starting at 5; old moves were replaced wholesale, so refill from the
-    // current learnsets. Snares were added for catching.
+    // current move lists. Snares were added for catching.
     for (const s of [...d.party, ...d.box]) {
       const sp = SPECIES[s.speciesId];
       s.genes = sp ? { ...sp.genes } : { ...BASE_GENES };
       s.moves = s.moves.filter((m) => MOVES[m]);
       if (sp) {
-        // Top up emptied slots from the learnset, newest teachable first.
+        // Top up emptied slots from what the line knows.
         for (const m of speciesMoves(sp)) {
           if (s.moves.length >= 4) break;
           if (!s.moves.includes(m)) s.moves.push(m);
         }
-        if (s.moves.length === 0) s.moves = [sp.learnset[0]!.move];
+        if (s.moves.length === 0) s.moves = [sp.moves[0]!];
       }
       if (sp && !sp.secondaryPool.includes(s.secondaryAbility)) {
         s.secondaryAbility = sp.secondaryPool[0]!;

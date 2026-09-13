@@ -149,6 +149,12 @@ export class Actor {
       this.x = pos.x;
       this.y = pos.y;
       if (Math.abs(ax) > Math.abs(ay) * 0.9) this.dir = ax < 0 ? -1 : 1;
+    } else {
+      // Standing still is still a collision pass: a wall that closes over a
+      // body (a gate shutting, the map edited under it) pushes it clear.
+      const pos = map.moveCircle(this.x, this.y, 0, 0, this.radius);
+      this.x = pos.x;
+      this.y = pos.y;
     }
     // A walk, a placement and a mark on the battle stage all land the same way
     // here: the depth follows once it is a whole step behind.

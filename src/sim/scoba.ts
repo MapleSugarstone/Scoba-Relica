@@ -1,6 +1,8 @@
 import type { ElementType, Stats } from "./types";
 import { STAT_NAMES, capStats, statTotal } from "./types";
-import { abilityStatuses, evolutionOf, grantedMoves, MOVES, SPECIES, speciesMoves } from "./species";
+import {
+  ABILITIES, abilityStatuses, evolutionOf, grantedMoves, MOVES, SPECIES, speciesMoves,
+} from "./species";
 import { continuousEffects, foldStatEffects, newStatus, type StatusInstance } from "./status";
 import type { Rng } from "./rng";
 import { pick } from "./rng";
@@ -176,7 +178,7 @@ export function makeWild(speciesId: string, level: number, rng: Rng): ScobaInsta
     level,
     xp: 0,
     genes: { ...sp.genes },
-    moves: moves.length > 0 ? moves : [sp.learnset[0]!.move],
+    moves: moves.length > 0 ? moves : [sp.moves[0]!],
     // A line with no secondary pool has one passive and no second: Pawns are
     // built that way on purpose, and an empty string names no ability at all.
     secondaryAbility: sp.secondaryPool.length > 0 ? pick(rng, sp.secondaryPool) : "",
@@ -222,9 +224,9 @@ export const MAX_MANA = 100;
 /** What a move bred into a line costs on top of its own price. */
 export const UNNATURAL_SURCHARGE = 10;
 
-/** Is this a move the species learns, rather than one bred into it? */
+/** Is this a move the species knows, rather than one bred into it? */
 export function isNatural(speciesId: string, moveId: string): boolean {
-  return SPECIES[speciesId]?.learnset.some((l) => l.move === moveId) ?? false;
+  return SPECIES[speciesId]?.moves.includes(moveId) ?? false;
 }
 
 /**
@@ -235,7 +237,10 @@ export function isNatural(speciesId: string, moveId: string): boolean {
 export function moveCost(s: ScobaInstance, moveId: string): number {
   const sp = SPECIES[s.speciesId];
   // A move an ability hands over is not a move bred into the line, so it costs
-  // what it says rather than the surcharge a worked move pays for good.
+  // what it says rather than the surcharge a worked move pays for good. The
+  // same goes for one a step rewrote and handed over: it was not bred in
+  // either, and it is gone at the end of the fight.
+  if (MOVES[moveId]?.derived) return MOVES[moveId]?.manaCost ?? 0;
   if (sp && grantedMoves(sp, s.secondaryAbility).includes(moveId)) {
     return MOVES[moveId]?.manaCost ?? 0;
   }
@@ -328,7 +333,10 @@ export function evolve(s: ScobaInstance): void {
     });
     s.moves = slots;
   }
-  if (!next.secondaryPool.includes(s.secondaryAbility)) {
+  // The second passive comes through untouched. A passive outside the new
+  // line's pool is one the Scoba was bred to have, which is the whole point of
+  // breeding for one, so growing up is the last thing that should take it away.
+  if (!ABILITIES[s.secondaryAbility]) {
     s.secondaryAbility = next.secondaryPool[0] ?? s.secondaryAbility;
   }
   s.hp = maxHp(s);

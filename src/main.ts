@@ -1,6 +1,7 @@
 import { loadArt, type Art } from "./engine/assets";
 import { warmSounds } from "./engine/sfx";
 import { devMode } from "./version";
+import "@fontsource-variable/nunito";
 import { Renderer, holdUiScale } from "./engine/renderer";
 import { startLoop } from "./engine/loop";
 import { Input } from "./engine/input";

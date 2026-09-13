@@ -8,7 +8,7 @@ import {
 } from "../sim/breeding";
 import { SHINY_TURN, type ScobaInstance, type Sire, type Summoner, type Tint } from "../sim/scoba";
 import {
-  ABILITIES, MOVES, SPECIES, artNameFor, type MovementStyle, type Species,
+  ABILITIES, MOVES, SPECIES, artNameFor, babyOf, wornBy, type MovementStyle, type Species,
 } from "../sim/species";
 import {
   PLAYER_COSTUME, movementFor, placementFor, setupFor, shadowFor, type Placement, type Spot,
@@ -149,7 +149,8 @@ export function accessoryOf(
   const ability = ABILITIES[secondaryAbility];
   if (!ability?.accessory) return null;
   if (sp.secondaryPool.includes(secondaryAbility)) return null;
-  const spent = ability.grantsMove ? MOVES[ability.grantsMove]?.spendsForm : undefined;
+  const granted = ability.grantsMove ? MOVES[ability.grantsMove] : undefined;
+  const spent = granted ? wornBy(granted) : null;
   if (spent && forms.includes(spent)) return null;
   return ability.accessory;
 }
@@ -476,28 +477,33 @@ export function tintsFor(
   // does not compound: a father who wears another line's colours still hands
   // on the ones his species is drawn in.
   const his = spriteColors(art, dadSp);
-  const base = spriteColors(art, sp, undefined, false);
-  const out = forms.length === 0
-    ? pickTints(his, base)
-    : costumeTints(his, base, spriteColors(art, sp, undefined, false, forms));
+  // Measured against the drawing the line starts as, so growing up keeps the
+  // colours it already had and works out only the ones the new drawing brought
+  // with it. A line with no baby form is its own starting point.
+  const first = babyOf(sp) ?? sp;
+  const base = spriteColors(art, first, undefined, false);
+  const out = carriedTints(his, base, spriteColors(art, sp, undefined, false, forms));
   swaps.set(key, out);
   return out;
 }
 
 /**
- * The swaps for a costume, worked out from the ones the line's own art takes.
+ * The swaps one drawing takes, worked out from the ones another already takes.
+ * This is how a costume follows the art it is a redrawing of, and how a grown
+ * form follows the baby it grew out of.
  *
- * A costume is a redrawing rather than a different Scoba, so it wears what the
- * Scoba wears: every colour the two drawings share keeps the swap it already
- * had, and the one the line keeps unpainted stays unpainted here too. Only
- * colours the costume brought with it are worked out fresh, from whatever of
- * the father's palette the shared ones did not already spend.
+ * Either way it is the same Scoba: every colour the two drawings share keeps
+ * the swap it already had, and one the first drawing keeps unpainted stays
+ * unpainted here too. Only colours the new drawing brought with it are worked
+ * out fresh, from whatever of the father's palette the shared ones did not
+ * already spend.
  *
- * Computed against the costume alone instead and the two would disagree: a
- * body colour that happens to be the commonest in one drawing and the second
- * commonest in the other would be kept in one and painted over in the other.
+ * Computed against the new drawing alone instead and the two would disagree: a
+ * body colour that happens to be the commonest in one and the second commonest
+ * in the other would be kept in one and painted over in the other, which is
+ * what a Scoba losing its colours on evolving looks like.
  */
-function costumeTints(his: ColorCount[], base: ColorCount[], mine: ColorCount[]): Tint[] {
+function carriedTints(his: ColorCount[], base: ColorCount[], mine: ColorCount[]): Tint[] {
   const baseTints = pickTints(his, base);
   const here = new Set(mine.map((c) => c.hex));
   const kept = baseTints.filter((t) => here.has(t.from));

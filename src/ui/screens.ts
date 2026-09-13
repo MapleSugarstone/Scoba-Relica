@@ -22,12 +22,10 @@ import { hasPaint, type PaintSet, type PaintSlot } from "../engine/paint";
 import { PAINT_MENU, SLOT_INFO, paintScreen } from "./paintscreen";
 import { sfx } from "../engine/sfx";
 import { newCareState, advanceCare, feed, wash, careLevel, type CareState } from "../sim/care";
-import { MAX_LEVEL, makeWild, moveCost, statsAt, maxHp } from "../sim/scoba";
+import { makeWild, moveCost, statsAt, maxHp } from "../sim/scoba";
 import { critterPortrait } from "../game/critters";
 import { typeIcons } from "./typeicon";
-import { ABILITIES, MOVES, SPECIAL, SPECIES, STARTER_IDS, rosterSpecies, typeLabel } from "../sim/species";
-import { statTotal } from "../sim/types";
-import { describeAbility } from "../sim/describe";
+import { SPECIAL, SPECIES, STARTER_IDS, rosterSpecies, typeLabel } from "../sim/species";
 import type { StarterTurn } from "../net/lobby";
 import { rngFrom } from "../sim/rng";
 import {
@@ -109,6 +107,10 @@ export class UI {
   transitioning = false;
   /** The doors the bag folds out, in the order they hang under it. */
   private bagDoors: BagDoor[] = [];
+  /** The row for each door, in the same order, so a key or a hover can find it. */
+  private bagRows: HTMLButtonElement[] = [];
+  /** Which row the triangle mark sits on. */
+  private bagIndex = 0;
   private bagEl = document.getElementById("bag")!;
   private bagBtn = document.getElementById("bagBtn") as HTMLButtonElement;
   private bagMenu = document.getElementById("bagMenu")!;
@@ -127,6 +129,23 @@ export class UI {
     this.dialogEl.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       this.advanceDialog();
+    });
+    // Escape is handled by the caller, which already knows whether a screen
+    // or the bag itself is what should close; this only ever moves the mark
+    // or confirms the door it is on.
+    window.addEventListener("keydown", (e) => {
+      if (!this.bagOpen()) return;
+      const k = e.key;
+      if (k === "ArrowDown" || k === "s" || k === "S") {
+        e.preventDefault();
+        this.moveBagCursor(1);
+      } else if (k === "ArrowUp" || k === "w" || k === "W") {
+        e.preventDefault();
+        this.moveBagCursor(-1);
+      } else if (k === "Enter" || k === "e" || k === "E") {
+        e.preventDefault();
+        this.chooseDoor(this.bagIndex);
+      }
     });
   }
 
@@ -155,15 +174,39 @@ export class UI {
   setBagDoors(doors: BagDoor[]): void {
     this.bagDoors = doors;
     this.bagMenu.innerHTML = "";
-    for (const door of doors) {
-      const b = el("button", undefined, door.label);
-      b.addEventListener("click", () => {
-        sfx.confirm();
-        this.closeBag();
-        door.open();
+    this.bagRows = doors.map((door, i) => {
+      const row = el("button", "doorRow", door.label);
+      row.type = "button";
+      // Hovering moves the mark without confirming, the way the keys do.
+      row.addEventListener("mouseenter", () => {
+        this.bagIndex = i;
+        this.markBagCursor();
       });
-      this.bagMenu.appendChild(b);
-    }
+      row.addEventListener("click", () => this.chooseDoor(i));
+      this.bagMenu.appendChild(row);
+      return row;
+    });
+    this.bagIndex = 0;
+    this.markBagCursor();
+  }
+
+  /** Moves the highlighted row by `delta`, wrapping at either end. */
+  private moveBagCursor(delta: number): void {
+    if (this.bagRows.length === 0) return;
+    this.bagIndex = (this.bagIndex + delta + this.bagRows.length) % this.bagRows.length;
+    this.markBagCursor();
+  }
+
+  private markBagCursor(): void {
+    this.bagRows.forEach((row, i) => row.classList.toggle("cur", i === this.bagIndex));
+  }
+
+  private chooseDoor(i: number): void {
+    const door = this.bagDoors[i];
+    if (!door) return;
+    sfx.confirm();
+    this.closeBag();
+    door.open();
   }
 
   bagOpen(): boolean {
@@ -180,6 +223,9 @@ export class UI {
     this.bagMenu.hidden = false;
     this.bagBtn.classList.add("on");
     this.bagBtn.setAttribute("aria-expanded", "true");
+    // Every open starts the mark back at the top door.
+    this.bagIndex = 0;
+    this.markBagCursor();
   }
 
   closeBag(): void {
@@ -348,7 +394,11 @@ export function titleScreen(
     face.style.height = `${face.height * 3}px`;
     plinth.appendChild(face);
     crest.appendChild(plinth);
-    s.appendChild(crest);
+    // The crest and the ways in stand side by side: stacked, the plate and
+    // three buttons ran past the foot of the frame.
+    const cols = el("div", "titleCols");
+    cols.appendChild(crest);
+    s.appendChild(cols);
 
     // One way in stands ahead of the others, so the screen has a first button
     // rather than four of equal weight. Which one it is depends on whether
@@ -360,7 +410,6 @@ export function titleScreen(
     // one and spend the evening unable to see each other.
     ways.appendChild(bigBtn("Start new adventure", opts.onNew, !opts.hasSave));
     ways.appendChild(bigBtn("Join someone's adventure", opts.onJoin));
-    s.appendChild(ways);
 
     // A rarely used door, kept at the weight it deserves rather than at the
     // weight of the three routes into the game.
@@ -369,7 +418,8 @@ export function titleScreen(
       sfx.confirm();
       opts.onImport();
     });
-    s.appendChild(imp);
+    ways.appendChild(imp);
+    cols.appendChild(ways);
     // Small and out of the way, but on screen: a tester saying "it broke" is
     // worth much more when they can also say which build broke.
     s.appendChild(el("div", "buildTag", `v${PROTOCOL_VERSION} · ${BUILD_VERSION}`));
@@ -415,6 +465,16 @@ const PARTS: { key: PartKey; label: string; count: number; none: boolean; box: B
   { key: "shirtStyle", label: "Shirt", count: SHIRT_URLS.length, none: true, box: TORSO_BOX },
 ];
 
+/** The stock style picker a custom-art tab stands in front of, where one exists. */
+const PART_BY_SLOT: Partial<Record<PaintSlot, PartKey>> = {
+  hair: "hairStyle",
+  eyes: "eyeStyle",
+  shirt: "shirtStyle",
+};
+
+/** Which of the creator's tabs is open: a custom-art slot or a colour channel. */
+type CreatorTab = { kind: "part"; slot: PaintSlot } | { kind: "color"; index: number };
+
 /** Thumbnail of one part option: the doll cropped to the region it changes. */
 function partThumb(art: Art, look: Look, box: Box): HTMLCanvasElement {
   const cv = el("canvas") as HTMLCanvasElement;
@@ -441,7 +501,9 @@ function customizeScreen(
     look: { ...def.look, ...(def.look.paint ? { paint: { ...def.look.paint } } : {}) },
     starter: def.starter,
   };
-  let channel = 0;
+  // Which tab is open, kept across a rebuild so returning from the painter
+  // or picking a name does not reset it back to the first one.
+  let sel: CreatorTab = { kind: "part", slot: PAINT_MENU[0]! };
   // Painting a layer takes over the screen, so coming back rebuilds this one.
   // Everything it shows lives in `d`, which outlives the rebuild; only where
   // the page had been scrolled to has to be carried over by hand.
@@ -459,15 +521,21 @@ function customizeScreen(
 
   const render = (): void => {
     const root = ui.screen((s) => {
+      s.classList.add("tight");
       s.appendChild(el("h2", undefined, heading));
       if (note) s.appendChild(el("div", "sub", note));
 
+      const layout = el("div", "creator");
+
+      // Left: the doll, name and pronouns. Fixed contents, so this column
+      // never changes height while the right one is switching tabs.
+      const left = el("div", "creatorLeft");
       const stage = el("div", "dollWrap");
       const preview = el("canvas", "doll") as HTMLCanvasElement;
       preview.width = DOLL_W;
       preview.height = DOLL_H;
       stage.appendChild(preview);
-      s.appendChild(stage);
+      left.appendChild(stage);
 
       const idCard = el("div", "card");
       idCard.appendChild(el("label", undefined, "Name"));
@@ -479,12 +547,12 @@ function customizeScreen(
       idCard.appendChild(name);
 
       idCard.appendChild(el("label", undefined, "Pronouns"));
-      const pronRow = el("div", "choices");
+      const pronRow = el("div", "row");
       const renderProns = (): void => {
         pronRow.innerHTML = "";
         PRONOUN_PRESETS.forEach((p) => {
-          const sel = d.pronouns.subject === p.subject;
-          const b = el("button", `pill${sel ? " sel" : ""}`, `${p.subject}/${p.object}`);
+          const on = d.pronouns.subject === p.subject;
+          const b = el("button", `pill sm${on ? " sel" : ""}`, `${p.subject}/${p.object}`);
           b.addEventListener("click", () => {
             sfx.tap();
             d.pronouns = { ...p };
@@ -495,24 +563,115 @@ function customizeScreen(
       };
       renderProns();
       idCard.appendChild(pronRow);
-      s.appendChild(idCard);
+      left.appendChild(idCard);
+      layout.appendChild(left);
 
-      // Parts: one thumbnail row per layer, rebuilt whenever a color changes so
-      // the options always show the colors currently picked.
-      const partsCard = el("div", "card");
-      const partRows: (() => void)[] = [];
-      for (const part of PARTS) {
-        partsCard.appendChild(el("label", undefined, part.label));
-        // Hand-drawn eyes replace the stock pair outright, so a row of options
-        // that nothing on the doll would show would be a lie.
-        if (part.key === "eyeStyle" && hasPaint(d.look.paint, "eyes")) {
-          partsCard.appendChild(el("div", "dim", "Custom eyes are on."));
-          continue;
+      // Right: one row of tabs, custom art and stock parts first and then
+      // the colour channels, and under it the grid the open tab owns. The
+      // grid holds its height across every tab so nothing below it moves.
+      const right = el("div", "creatorRight");
+      const tabs = el("div", "creatorTabs");
+      const partTabs = el("div", "choices");
+      const colorTabs = el("div", "choices wide");
+      tabs.appendChild(partTabs);
+      tabs.appendChild(colorTabs);
+      right.appendChild(tabs);
+      const detail = el("div", "creatorGrid");
+      right.appendChild(detail);
+      layout.appendChild(right);
+      s.appendChild(layout);
+
+      let dots: HTMLElement[] = [];
+
+      const renderTabs = (): void => {
+        partTabs.innerHTML = "";
+        for (const slot of PAINT_MENU) {
+          const on = sel.kind === "part" && sel.slot === slot;
+          const b = el("button", `pill${on ? " sel" : ""}`, SLOT_INFO[slot].label);
+          b.addEventListener("click", () => {
+            sfx.tap();
+            sel = { kind: "part", slot };
+            renderTabs();
+            renderDetail();
+          });
+          partTabs.appendChild(b);
         }
-        const row = el("div", "thumbs");
-        partsCard.appendChild(row);
-        const renderRow = (): void => {
-          row.innerHTML = "";
+
+        colorTabs.innerHTML = "";
+        dots = [];
+        CHANNELS.forEach((c, i) => {
+          const on = sel.kind === "color" && sel.index === i;
+          const b = el("button", `pill chan${on ? " sel" : ""}`);
+          const dot = el("i");
+          dot.style.background = d.look[c.key];
+          b.appendChild(dot);
+          b.appendChild(el("span", undefined, c.label));
+          b.addEventListener("click", () => {
+            sfx.tap();
+            sel = { kind: "color", index: i };
+            renderTabs();
+            renderDetail();
+          });
+          dots.push(dot);
+          colorTabs.appendChild(b);
+        });
+      };
+
+      const syncDots = (): void => {
+        CHANNELS.forEach((c, i) => { dots[i]!.style.background = d.look[c.key]; });
+      };
+
+      const renderDetail = (): void => {
+        detail.innerHTML = "";
+
+        if (sel.kind === "color") {
+          const ch = CHANNELS[sel.index]!;
+          const cur = d.look[ch.key].toLowerCase();
+          const grid = el("div", "swatches");
+          const swatches: { el: HTMLElement; color: string }[] = [];
+          for (const color of ch.colors) {
+            const b = el("button", `swatch${color.toLowerCase() === cur ? " sel" : ""}`);
+            b.style.setProperty("--fill", color);
+            b.addEventListener("click", () => {
+              sfx.tap();
+              d.look[ch.key] = color;
+              redrawArt();
+            });
+            swatches.push({ el: b, color });
+            grid.appendChild(b);
+          }
+          detail.appendChild(grid);
+
+          const custom = el("label", "custom");
+          const well = el("input") as HTMLInputElement;
+          well.type = "color";
+          well.value = d.look[ch.key];
+          // Dragging in the OS picker fires input continuously, so this
+          // handler must not rebuild the card the well lives in.
+          well.addEventListener("input", () => {
+            d.look[ch.key] = well.value;
+            const ctx = preview.getContext("2d")!;
+            ctx.clearRect(0, 0, DOLL_W, DOLL_H);
+            drawPaperdoll(ctx, art.doll, d.look);
+            syncDots();
+            const now = well.value.toLowerCase();
+            for (const sw of swatches) sw.el.classList.toggle("sel", sw.color.toLowerCase() === now);
+          });
+          custom.appendChild(well);
+          custom.appendChild(el("span", undefined, `Custom ${ch.label.toLowerCase()}`));
+          detail.appendChild(custom);
+          return;
+        }
+
+        const paintSlot = sel.slot;
+        const partKey = PART_BY_SLOT[paintSlot];
+        const part = partKey ? PARTS.find((p) => p.key === partKey) : undefined;
+        // Hand-drawn eyes replace the stock pair outright, so a row of
+        // options that nothing on the doll would show would be a lie.
+        const eyesCustom = paintSlot === "eyes" && hasPaint(d.look.paint, "eyes");
+
+        if (part && !eyesCustom) {
+          const row = el("div", "thumbs");
           const options = part.none ? [-1] : [];
           for (let i = 0; i < part.count; i++) options.push(i);
           for (const i of options) {
@@ -527,106 +686,30 @@ function customizeScreen(
             });
             row.appendChild(b);
           }
-        };
-        partRows.push(renderRow);
-      }
-      s.appendChild(partsCard);
+          detail.appendChild(row);
+        } else {
+          detail.appendChild(el("div", "dim", eyesCustom ? "Custom eyes are on." : SLOT_INFO[paintSlot].hint));
+        }
 
-      const artCard = el("div", "card");
-      artCard.appendChild(el("label", undefined, "Custom art"));
-      const artRow = el("div", "choices");
-      for (const target of PAINT_MENU) {
-        const b = el("button", `pill${hasPaint(d.look.paint, target) ? " sel" : ""}`,
-          SLOT_INFO[target].label);
-        b.addEventListener("click", () => {
+        const artBtn = el("button", `pill${hasPaint(d.look.paint, paintSlot) ? " sel" : ""}`, "Draw your own");
+        artBtn.addEventListener("click", () => {
           sfx.tap();
           scrolled = root.scrollTop;
-          openPainter(target);
+          openPainter(paintSlot);
         });
-        artRow.appendChild(b);
-      }
-      artCard.appendChild(artRow);
-      artCard.appendChild(el("div", "dim", "Draw your own pixels on any of these."));
-      s.appendChild(artCard);
-
-      // Colors: a channel picker, that channel's swatches, and a free color well.
-      const colorCard = el("div", "card");
-      let dots: HTMLElement[] = [];
-      let swatches: { el: HTMLElement; color: string }[] = [];
-
-      const syncColors = (): void => {
-        CHANNELS.forEach((c, i) => {
-          dots[i]!.style.background = d.look[c.key];
-        });
-        const cur = d.look[CHANNELS[channel]!.key].toLowerCase();
-        for (const sw of swatches) sw.el.classList.toggle("sel", sw.color.toLowerCase() === cur);
+        detail.appendChild(artBtn);
       };
 
       const redrawArt = (): void => {
         const ctx = preview.getContext("2d")!;
         ctx.clearRect(0, 0, DOLL_W, DOLL_H);
         drawPaperdoll(ctx, art.doll, d.look);
-        for (const render of partRows) render();
-        syncColors();
+        syncDots();
+        renderDetail();
       };
 
-      const renderColors = (): void => {
-        colorCard.innerHTML = "";
-        dots = [];
-        swatches = [];
-        colorCard.appendChild(el("label", undefined, "Colors"));
-
-        const tabs = el("div", "choices wide");
-        CHANNELS.forEach((c, i) => {
-          const b = el("button", `pill chan${i === channel ? " sel" : ""}`);
-          const dot = el("i");
-          dot.style.background = d.look[c.key];
-          b.appendChild(dot);
-          b.appendChild(el("span", undefined, c.label));
-          b.addEventListener("click", () => {
-            sfx.tap();
-            channel = i;
-            renderColors();
-            syncColors();
-          });
-          dots.push(dot);
-          tabs.appendChild(b);
-        });
-        colorCard.appendChild(tabs);
-
-        const ch = CHANNELS[channel]!;
-        const grid = el("div", "swatches");
-        for (const color of ch.colors) {
-          const b = el("button", "swatch");
-          b.style.setProperty("--fill", color);
-          b.addEventListener("click", () => {
-            sfx.tap();
-            d.look[ch.key] = color;
-            redrawArt();
-          });
-          swatches.push({ el: b, color });
-          grid.appendChild(b);
-        }
-        colorCard.appendChild(grid);
-
-        const custom = el("label", "custom");
-        const well = el("input") as HTMLInputElement;
-        well.type = "color";
-        well.value = d.look[ch.key];
-        // Dragging in the OS picker fires input continuously, so this handler
-        // must not rebuild the card the well lives in.
-        well.addEventListener("input", () => {
-          d.look[ch.key] = well.value;
-          redrawArt();
-        });
-        custom.appendChild(well);
-        custom.appendChild(el("span", undefined, `Custom ${ch.label.toLowerCase()}`));
-        colorCard.appendChild(custom);
-      };
-
-      renderColors();
+      renderTabs();
       redrawArt();
-      s.appendChild(colorCard);
 
       s.appendChild(
         bigBtn("Next", () => {
@@ -683,11 +766,13 @@ function starterScreen(
   readGate();
 
   ui.screen((s) => {
+    s.classList.add("tight");
     const heading = el("h2");
     const sub = el("div", "sub");
     s.appendChild(heading);
     s.appendChild(sub);
 
+    const top = el("div", "starterTop");
     const grid = el("div", "starters");
     const detail = el("div", "card pick");
 
@@ -746,19 +831,14 @@ function starterScreen(
         return;
       }
       const sp = SPECIES[chosen]!;
-      const head = el("div", "row");
-      head.appendChild(el("strong", undefined, sp.name));
-      head.appendChild(typeBadge(sp.id));
-      detail.appendChild(head);
-      if (sp.blurb) detail.appendChild(el("div", "sub", sp.blurb));
-      const ability = ABILITIES[sp.primaryAbility];
-      if (ability) detail.appendChild(el("div", "dim", `Passive: ${ability.name}. ${describeAbility(ability.id)}`));
-      const g = sp.genes;
-      detail.appendChild(el("div", "dim",
-        `HP ${g.hp} · Str ${g.str} · Def ${g.def} · Res ${g.res} · Mag ${g.mag} · Spd ${g.spd}`));
-      detail.appendChild(el("div", "dim", `${statTotal(g)} base points at Lv ${MAX_LEVEL}.`));
-      detail.appendChild(el("div", "dim",
-        `Starts with ${sp.learnset.filter((l) => l.level <= 5).map((l) => MOVES[l.move]?.name ?? l.move).join(", ")}`));
+      const stage = el("div", "pickStage");
+      const face = critterPortrait(art, sp);
+      face.style.width = `${face.width * 2}px`;
+      face.style.height = `${face.height * 2}px`;
+      stage.appendChild(face);
+      detail.appendChild(stage);
+      detail.appendChild(el("div", "pickName", sp.name));
+      detail.appendChild(typeBadge(sp.id));
     };
 
     const renderGrid = (): void => {
@@ -809,8 +889,9 @@ function starterScreen(
     renderGrid();
     renderDetail();
     renderState();
-    s.appendChild(grid);
-    s.appendChild(search);
+    top.appendChild(grid);
+    top.appendChild(search);
+    s.appendChild(top);
     s.appendChild(detail);
     s.appendChild(confirm);
 
@@ -1158,7 +1239,9 @@ export function relicaScreen(
   },
 ): void {
   ui.screen((s) => {
+    s.classList.add("tight");
     s.appendChild(el("h2", undefined, "Relica"));
+    const cols = el("div", "relicaCols");
     const card = el("div", "card");
     const render = (): void => {
       card.innerHTML = "";
@@ -1192,7 +1275,7 @@ export function relicaScreen(
       card.appendChild(actions);
     };
     render();
-    s.appendChild(card);
+    cols.appendChild(card);
 
     if (cb.reminders) {
       const control = cb.reminders;
@@ -1222,10 +1305,11 @@ export function relicaScreen(
       });
       remind.appendChild(button);
       remind.appendChild(note);
-      s.appendChild(remind);
+      cols.appendChild(remind);
       refresh();
     }
 
+    s.appendChild(cols);
     s.appendChild(bigBtn("Back", cb.onBack, true));
   });
 }
@@ -1387,7 +1471,10 @@ export function settingsScreen(
   },
 ): void {
   ui.screen((s) => {
+    s.classList.add("tight");
     s.appendChild(el("h2", undefined, "Settings"));
+
+    const grid = el("div", "settingsGrid");
 
     const audio = el("div", "card");
     audio.appendChild(el("strong", undefined, "Sound"));
@@ -1397,15 +1484,15 @@ export function settingsScreen(
       sfx.tap();
     }));
     audio.appendChild(levelBar("Music", sfx.musicVolume(), (v) => sfx.setMusicVolume(v)));
-    audio.appendChild(el("div", "dim", "There is no music yet. The bar keeps its level for when there is."));
-    s.appendChild(audio);
+    audio.appendChild(el("div", "dim", "Music has no track yet. This bar is ready for it."));
+    grid.appendChild(audio);
 
     const play = el("div", "card");
     play.appendChild(el("strong", undefined, "Playing"));
-    // How fast a round plays is a matter of taste rather than of the
-    // campaign, so it is kept on the machine the way the sound level is.
-    play.appendChild(el("label", undefined, "Battle speed"));
-    const paceRow = el("div", "choices");
+    // Speed and EZ mode are both a matter of taste rather than of the
+    // campaign, so both live in one row of controls kept on the machine.
+    const playRow = el("div", "row");
+    const paceRow = el("div", "row");
     const renderPace = (): void => {
       paceRow.innerHTML = "";
       for (const [name, value] of Object.entries(PACES)) {
@@ -1420,10 +1507,7 @@ export function settingsScreen(
       }
     };
     renderPace();
-    play.appendChild(paceRow);
-    play.appendChild(el("div", "dim", "Fast plays every hit, walk and call at twice the pace."));
-    play.appendChild(el("label", undefined, "EZ mode"));
-    const ezRow = el("div", "row");
+    playRow.appendChild(paceRow);
     const ezB = el("button", "pill", save.ez ? "EZ Mode on" : "EZ Mode off");
     ezB.addEventListener("click", () => {
       sfx.confirm();
@@ -1431,41 +1515,40 @@ export function settingsScreen(
       ezB.textContent = save.ez ? "EZ Mode on" : "EZ Mode off";
       cb.onEzChange();
     });
-    ezRow.appendChild(ezB);
-    play.appendChild(ezRow);
+    playRow.appendChild(ezB);
+    play.appendChild(playRow);
+    play.appendChild(el("div", "dim", "Fast doubles the pace of every hit, walk and call."));
     play.appendChild(el("div", "dim",
-      "In battle, your Scobas count every level as 4 to each stat instead of 1. It is hung on them as the fight opens and goes with it, so nothing about them changes outside a battle and turning this off takes it straight back. Wild Scobas and other trainers' are left alone."));
-    s.appendChild(play);
+      "Every level counts as 4 to each stat in battle. Wild Scobas and trainers are left alone."));
+    grid.appendChild(play);
 
     const saveCard = el("div", "card");
-    saveCard.appendChild(el("strong", undefined, "This save"));
-    saveCard.appendChild(el("div", "dim", "The game saves itself as you play. Export writes a copy you can keep."));
-    const saveRow = el("div", "row");
-    const exportB = el("button", "pill", "Export a copy");
+    const saveHead = el("div", "cardHead");
+    saveHead.appendChild(el("strong", undefined, "This save"));
+    const exportB = el("button", "pill tiny", "Export a copy");
     exportB.addEventListener("click", () => {
       sfx.confirm();
       cb.onExport();
     });
-    saveRow.appendChild(exportB);
-    saveCard.appendChild(saveRow);
-    s.appendChild(saveCard);
+    saveHead.appendChild(exportB);
+    saveCard.appendChild(saveHead);
+    saveCard.appendChild(el("div", "dim", "The game saves itself. Export keeps a copy for you."));
+    grid.appendChild(saveCard);
 
     if (cb.diagnostics) {
       const control = cb.diagnostics;
       const diag = el("div", "card diag");
-      diag.appendChild(el("strong", undefined, "Diagnostics"));
-      diag.appendChild(el("div", "dim",
-        "If something is not working, screenshot this and send it over."));
+      const diagHead = el("div", "cardHead");
+      diagHead.appendChild(el("strong", undefined, "Diagnostics"));
+      const copyB = el("button", "pill tiny", "Copy");
+      diagHead.appendChild(copyB);
+      const refreshB = el("button", "pill tiny", "Refresh");
+      diagHead.appendChild(refreshB);
+      diag.appendChild(diagHead);
+      diag.appendChild(el("div", "dim", "Screenshot this if something is not working."));
       const rows = el("div", "diagRows");
       rows.appendChild(el("div", "dim", "Reading..."));
       diag.appendChild(rows);
-
-      const copyRow = el("div", "row");
-      const copyB = el("button", "pill", "Copy as text");
-      copyRow.appendChild(copyB);
-      const refreshB = el("button", "pill", "Refresh");
-      copyRow.appendChild(refreshB);
-      diag.appendChild(copyRow);
 
       let latest: { label: string; value: string; ok: boolean }[] = [];
       const fill = (): void => {
@@ -1495,16 +1578,20 @@ export function settingsScreen(
         sfx.tap();
         fill();
       });
-      s.appendChild(diag);
+      grid.appendChild(diag);
       fill();
     }
 
-    s.appendChild(bigBtn("Back", cb.onBack, true));
+    s.appendChild(grid);
+
+    const ways = el("div", "settingsWays");
+    ways.appendChild(bigBtn("Back", cb.onBack, true));
     const quit = el("button", "big", "Quit to Title");
     quit.addEventListener("click", () => {
       sfx.back();
       cb.onQuit();
     });
-    s.appendChild(quit);
+    ways.appendChild(quit);
+    s.appendChild(ways);
   });
 }

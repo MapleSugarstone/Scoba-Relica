@@ -1,6 +1,8 @@
 // Keyboard (WASD/arrows, E/Enter to interact) plus a dynamic touch joystick:
-// touching the left 60% of the screen plants the stick there, dragging sets
+// touching the left 60% of the frame plants the stick there, dragging sets
 // the axis. Touching the right side or the A button interacts.
+import { uiZoom } from "./renderer";
+
 export class Input {
   x = 0;
   y = 0;
@@ -30,12 +32,17 @@ export class Input {
       if ((e.target as HTMLElement).closest("button, #dialog")) return;
       if (e.pointerType === "mouse") return;
       document.body.classList.add("touch");
-      if (e.clientX < window.innerWidth * 0.6 && this.stickId === null) {
+      // The stick side is the left of the frame, not of the window, and the
+      // stick is placed in the interface's own units, which the frame's zoom
+      // separates from where the pointer landed.
+      const box = hud.getBoundingClientRect();
+      const zoom = uiZoom();
+      if (e.clientX < box.left + box.width * 0.6 && this.stickId === null) {
         this.stickId = e.pointerId;
         this.stickOrigin = { x: e.clientX, y: e.clientY };
         this.stickEl.style.display = "block";
-        this.stickEl.style.left = `${e.clientX - 55}px`;
-        this.stickEl.style.top = `${e.clientY - 55}px`;
+        this.stickEl.style.left = `${(e.clientX - box.left) / zoom - 55}px`;
+        this.stickEl.style.top = `${(e.clientY - box.top) / zoom - 55}px`;
         this.moveKnob(0, 0);
         hud.setPointerCapture(e.pointerId);
       } else {

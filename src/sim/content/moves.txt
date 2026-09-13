@@ -1,0 +1,497 @@
+# Every move in the game.
+# The language this file is written in is described in docs/move-script.md.
+
+move crush "Crush"
+  type plain
+  costs 30 mana
+  aim any enemy
+  text "A straight swing at one enemy. Deals [damage] damage."
+  cast:
+    caster lunge
+    hit target 110% strength
+
+move slam "Slam"
+  type plain
+  costs 45 mana
+  cooldown 1
+  aim any enemy
+  text "Comes down on one enemy with its whole weight. Deals [damage] damage."
+  cast:
+    caster rear
+    hit target 150% strength
+
+move nuzzle-nap "Nuzzle Nap"
+  type plain
+  costs 60 mana
+  cooldown 3
+  starts on cooldown 2
+  aim any ally
+  text "Settles down against an ally until it feels better. Heals [heal]."
+  cast:
+    caster focus
+    heal target 50% of their max hp
+
+move moonbeam "Moonbeam"
+  type moon
+  costs 35 mana
+  aim any enemy
+  text "Draws a thin line of moonlight through one enemy. Deals [damage] damage."
+  cast:
+    caster shake
+    throw as bolt to target
+    hit target 120% magic
+
+move eclipse "Eclipse"
+  type moon
+  costs 55 mana
+  cooldown 2
+  starts on cooldown 1
+  aim any enemy
+  text "Puts out the light over one enemy. Deals [damage] damage."
+  cast:
+    caster focus
+    throw as beam to target
+    hit target 170% magic
+
+move cinder-spit "Cinder Spit"
+  type sun
+  costs 35 mana
+  aim any enemy
+  text "Spits a hot coal at one enemy. Deals [damage] damage."
+  cast:
+    caster shake
+    throw as bolt to target
+    hit target 120% magic
+
+move flame-burst "Flame Burst"
+  type sun
+  costs 55 mana
+  cooldown 2
+  starts on cooldown 1
+  aim any enemy
+  text "Opens into flame around one enemy. Deals [damage] damage."
+  cast:
+    caster focus
+    hit target 170% magic
+
+move tide-whip "Tide Whip"
+  type flux
+  costs 35 mana
+  aim any enemy
+  text "Lashes one enemy with a rope of water. Deals [damage] damage."
+  cast:
+    caster shake
+    throw as bolt to target
+    hit target 120% magic
+
+move riptide "Riptide"
+  type flux
+  costs 50 mana
+  cooldown 2
+  aim any enemy
+  text "Pulls the ground out from under one enemy. Deals [damage] damage."
+  cast:
+    caster shake
+    throw as lob to target
+    hit target 160% magic
+
+move leaf-flick "Leaf Flick"
+  type moss
+  costs 30 mana
+  aim any enemy
+  text "Flicks a leaf edge-on at one enemy. Deals [damage] damage."
+  cast:
+    caster shake
+    throw as bolt to target
+    hit target 110% magic
+
+move vine-lash "Vine Lash"
+  type moss
+  costs 40 mana
+  cooldown 1
+  aim any enemy
+  text "Whips a vine across one enemy. Deals [damage] damage."
+  cast:
+    caster lunge
+    throw as beam to target
+    hit target 140% strength
+
+move decode "Decode"
+  type cipher
+  costs 35 mana
+  aim any enemy
+  text "Reads one enemy and strikes where it is thinnest. Deals [damage] damage."
+  cast:
+    caster shake
+    throw as bolt to target
+    hit target 120% magic
+
+move null-key "Null Key"
+  type cipher
+  costs 45 mana
+  cooldown 1
+  aim any enemy
+  text "Turns a key in one enemy and stops it. Deals [damage] damage."
+  cast:
+    caster blink
+    hit target 150% strength
+
+move hex "Hex"
+  type mystic
+  costs 35 mana
+  aim any enemy
+  text "Puts a word on one enemy. Deals [damage] damage."
+  cast:
+    caster shake
+    throw as bolt to target
+    hit target 120% magic
+
+move third-eye "Third Eye"
+  type mystic
+  costs 50 mana
+  cooldown 2
+  aim any enemy
+  text "Opens on one enemy and looks straight through it. Deals [damage] damage."
+  cast:
+    caster focus
+    throw as beam to target
+    hit target 160% magic
+
+move sugar-rush "Sugar Rush"
+  type sugar
+  costs 35 mana
+  aim any enemy
+  text "Barrels into one enemy and cannot stop. Deals [damage] damage."
+  cast:
+    caster lunge
+    hit target 120% strength
+
+move gumsnap "Gumsnap"
+  type sugar
+  costs 45 mana
+  cooldown 1
+  aim any enemy
+  text "Stretches back and snaps into one enemy. Deals [damage] damage."
+  cast:
+    caster lunge
+    throw as lob to target
+    hit target 150% strength
+
+move lucky-strike "Lucky Strike"
+  type fortuna
+  costs 35 mana
+  aim any enemy
+  text "Swings at one enemy and trusts the odds. Deals [damage] damage."
+  cast:
+    caster lunge
+    hit target 120% strength
+
+move jackpot "Jackpot"
+  type fortuna
+  costs 60 mana
+  cooldown 3
+  starts on cooldown 1
+  aim any enemy
+  text "Everything it has, on one enemy, all at once. Deals [damage] damage."
+  cast:
+    caster blink
+    hit target 190% strength
+
+move ember "Ember"
+  type sun
+  costs 30 mana
+  cooldown 1
+  aim any enemy
+  text "Spits a coal that catches. Deals [damage] damage and leaves one enemy [status:fire|burning] for [damage:fire] a turn."
+  cast:
+    caster shake
+    hit target 70% magic
+    inflict fire on target
+
+move hairline "Hairline"
+  type cipher
+  costs 35 mana
+  cooldown 2
+  aim any enemy
+  text "Finds the crack in one enemy. Deals [damage] damage and leaves it [status:fragile]."
+  cast:
+    caster focus
+    throw as beam to target
+    hit target 80% magic
+    inflict fragile on target
+
+move fury "Fury"
+  type plain
+  costs 25 mana
+  cooldown 1
+  aim self "Work up"
+  text "Works itself up. Leaves it [status:rage|raging]."
+  cast:
+    caster rear
+    inflict rage on target
+
+move brace-up "Brace Up"
+  type moss
+  costs 30 mana
+  cooldown 2
+  aim any ally "Shield"
+  text "Sets an ally for what is coming. Leaves it [status:guard|guarded]."
+  cast:
+    caster focus
+    inflict guard on target
+
+move scatter-shot "Scatter Shot"
+  type flux
+  costs 50 mana
+  cooldown 2
+  starts on cooldown 1
+  aim all enemies "The whole line"
+  text "Sprays the whole enemy line at once. Deals [damage] damage to each of them."
+  cast:
+    caster shake
+    throw as lob to target
+    hit target 80% magic
+
+move rally "Rally"
+  type sugar
+  costs 55 mana
+  cooldown 3
+  starts on cooldown 1
+  aim all allies "Everyone"
+  text "Picks the whole team up together. Heals [heal] on each of them."
+  cast:
+    caster focus
+    heal target 25% of their max hp
+
+move wild-bolt "Wild Bolt"
+  type fortuna
+  costs 40 mana
+  cooldown 1
+  aim random enemy "Wherever it lands"
+  text "Throws a bolt without aiming it. Deals [damage] damage to an enemy nobody picked."
+  cast:
+    caster shake
+    throw as bolt to target
+    hit target 190% magic
+
+move snipe "Snipe"
+  type cipher
+  costs 45 mana
+  cooldown 2
+  starts on cooldown 1
+  aim benched enemy "Reach past the front"
+  text "Reaches past the front line. Deals [damage] damage to one enemy on the bench."
+  cast:
+    caster blink
+    hit target 130% strength
+
+move mirror-mark "Mirror Mark"
+  type mystic
+  costs 45 mana
+  cooldown 3
+  starts on cooldown 1
+  aim any scoba "Copy from"
+  aim any ally "Copy onto"
+  text "Copies every mark one Scoba is carrying, good or bad, onto an ally."
+  cast:
+    caster focus
+    copy marks from target to target2
+
+move cleanse "Cleanse"
+  type moon
+  costs 35 mana
+  cooldown 2
+  aim any ally "Clear"
+  text "Washes an ally clean of everything bad on it."
+  cast:
+    caster focus
+    cleanse bad marks from target
+
+move blood-pact "Blood Pact"
+  type mystic
+  costs 40 mana
+  cooldown 3
+  starts on cooldown 1
+  aim other ally "Draw from"
+  aim all enemies "Spend it on"
+  text "Takes a quarter of an ally's health and spends the whole of it on the enemy line."
+  cast:
+    caster rear
+    take 25% hp from target, deal it to target2
+
+move tithe "Tithe"
+  type moss
+  costs 35 mana
+  cooldown 2
+  aim self "Give up"
+  aim other ally "Pass it to"
+  text "Gives a fifth of its own health to an ally."
+  cast:
+    caster focus
+    take 20% hp from target, heal target2 with it
+
+move call-swarm "Call Swarm"
+  type moss
+  costs 60 mana
+  cooldown 4
+  starts on cooldown 2
+  aim self "Call"
+  text "Calls a Catsquito out of the undergrowth to fight beside it."
+  cast:
+    caster rear
+    summon catsquito at level 5
+
+move forage "Forage"
+  type sugar
+  costs 20 mana
+  cooldown 3
+  aim self "Rummage"
+  text "Roots around and turns something up: one Snare."
+  cast:
+    caster shake
+    find 1 snare
+
+move icecream-soup "Ice Cream Soup"
+  type sugar
+  costs 30 mana
+  aim any ally "Pour it over"
+  text "Tips the whole bowl over an ally. Heals [heal]."
+  cast:
+    caster focus
+    throw icecreamsoup as toss to target
+    heal target 50% of caster magic, sound heal
+
+move tentacle-slap "Tentacle Slap"
+  type moon
+  costs 50 mana
+  aim any enemy
+  text "A wet slap across one enemy. Deals [damage] damage and leaves it [status:slowed]."
+  cast:
+    caster lunge
+    hit target 50% magic, sound tentacleslap
+    inflict slowed on target
+
+move cold-wave "Cold Wave"
+  type moon, sugar
+  costs 70 mana
+  cooldown 3
+  aim all enemies "The whole line"
+  text "Washes over the whole enemy line at once. Deals [damage] damage to each of them, and [status:cold|chills] them."
+  cast:
+    caster focus
+    throw coldwave as bolt to target, sound coldwave
+    hit target 100% magic
+    inflict cold on target
+
+move card-throw "Card Throw"
+  type fortuna
+  costs 15 mana
+  aim any enemy
+  text "Deals a card face up onto one enemy for [damage] damage, and adds it to the hand that enemy is [status:dealt|holding]. Exactly 21 pays out. Over 21 busts."
+  cast:
+    caster rear
+    draw a card, swap #bc0006 for #000000 50% of the time
+    throw drawn card as toss to target
+    hit target 30% strength
+    deal drawn card to target, hand dealt, 21 pays 230% strength
+
+move black "Black"
+  type fortuna, flux
+  costs 30 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy and puts it [status:in-the-black|off its pace]."
+  cast:
+    caster rear
+    throw black as toss to target
+    hit target 100% strength
+    inflict in-the-black on target
+
+move red "Red"
+  type fortuna, sun
+  costs 30 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy and leaves it [status:in-the-red|burning] for [damage:in-the-red] a turn, three turns over."
+  cast:
+    caster rear
+    throw red as toss to target
+    hit target 110% strength
+    inflict in-the-red on target
+
+move green "Green"
+  type fortuna, moss
+  costs 80 mana
+  aim all enemies "The whole line"
+  text "Deals [damage] damage to the whole enemy line and leaves every one of them [status:in-the-green|opening up]."
+  cast:
+    caster rear
+    throw green as toss to target
+    hit target 100% strength + 100% defense
+    inflict in-the-green on target
+
+move tantalizing-sweets "Tantalizing Sweets"
+  type sugar
+  costs 100 mana
+  cooldown 5
+  aim any enemy
+  text "Drops something nobody can refuse on one enemy. Deals [damage] damage, and a kill with it hands the mana and the cooldown straight back."
+  cast:
+    caster rear
+    throw "tantalizing sweet" as drop to target
+    hit target 140% magic, sound tantalizingsweet
+    if target fell:
+      refund
+
+move cherry-on-top "Cherry on Top"
+  type sugar
+  costs 0 mana
+  priority 1
+  once per battle
+  aim any enemy
+  text "Throws the cherry, once a battle and ahead of anything slower. Deals [damage], which nothing on the far side can reduce."
+  cast:
+    caster shake
+    caster wears cherryless
+    throw cherry as lob from cherry to target
+    hit target 2 per level
+
+move court-call "Court Call"
+  type fortuna
+  costs 50 mana
+  cooldown 2
+  aim self "Call the court"
+  text "Calls up a Cottlecorn, at her own level, to stand on the field beside her."
+  cast:
+    caster rear
+    summon cottlecorn at level 1
+
+move pawn-dart "Pawn Dart"
+  type fortuna
+  costs 20 mana
+  aim any enemy
+  text "A small dart at one enemy. Deals [damage] damage."
+  cast:
+    caster shake
+    throw as bolt to target
+    hit target 80% magic
+
+move pawn-mend "Pawn Mend"
+  type fortuna
+  costs 25 mana
+  cooldown 1
+  aim any ally "Patch up"
+  text "Patches an ally up as best it can. Heals [heal]."
+  cast:
+    caster focus
+    heal target 12% of their max hp
+
+move sunfall "Sunfall"
+  type sun
+  costs 100 mana
+  cooldown 2
+  starts on cooldown 1
+  aim any enemy
+  text "Brings the sun down on one enemy. Deals [damage] damage."
+  cast:
+    caster rear
+    throw as beam to target
+    hit target 220% magic

@@ -2,11 +2,10 @@
 // ground, read straight out of `assets/Sigils` by lower-cased file name.
 // Anywhere a status is shown rather than named, this is what says it.
 //
-// Several statuses share one sigil on purpose: what a mark reads as at a
-// glance is what kind of thing it is, and the small window a player gets by
-// hovering it is what says which. A status with nothing drawn for it falls
-// back to the placeholder, so a new status turns up as a mark it can be
-// hovered rather than as a gap.
+// Which sigil a status is shown as is its `icon` line in the move script. A
+// status with no icon, or an icon with nothing drawn for it, falls back to the
+// placeholder, so a new status turns up as a mark it can be hovered rather
+// than as a gap.
 import { FIELDS, STATUSES } from "../sim/status";
 import { describeField, describeStatus } from "../sim/describe";
 
@@ -22,28 +21,12 @@ const URLS = Object.fromEntries(
 ) as Record<string, string | undefined>;
 
 /**
- * Which sigil stands for which status or field. Anything unnamed takes the
- * placeholder. Statuses and fields share the one table because they share the
- * row under a card: what tells the two apart is the window over them.
+ * The sigil for a status or a field, by id. Statuses and fields share the one
+ * row under a card, and what tells the two apart is the window over them.
  */
-const SIGILS: Record<string, string> = {
-  fire: "sun",
-  sunblessed: "sun",
-  fragile: "broken_bone",
-  gored: "broken_bone",
-  wane: "moon",
-  moonward: "moon",
-  quickstep: "boot",
-  // The Octoshake line. Cold is the clock and Chill is what it leaves behind,
-  // so both read as the same kind of thing at a glance.
-  cold: "cold",
-  chill: "cold",
-  sticky: "sticky",
-  slowed: "boot",
-};
-
 export function sigilUrl(id: string): string | null {
-  return URLS[SIGILS[id] ?? "placeholder"] ?? null;
+  const icon = (STATUSES[id]?.icon ?? FIELDS[id]?.icon)?.toLowerCase();
+  return (icon ? URLS[icon] : undefined) ?? URLS["placeholder"] ?? null;
 }
 
 /** What a hover window says: what the mark is, and what it is doing. */

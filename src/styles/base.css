@@ -1,0 +1,1396 @@
+/* Scoba Relica: palette, the frame recipe, the viewport, and the shared components. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/*
+ * The palette, in one place. Every role is named for the job it does
+ * rather than for its colour, so a panel that wants to be quieter asks for
+ * the quiet fill instead of picking a darker blue of its own, which is how
+ * the sheet ended up with four near-identical slates.
+ *
+ * There is no ramp per role because there does not need to be one: `--lit`
+ * and `--shade` below derive the light and dark faces of whatever fill a
+ * component sets, so a swatch carrying a player's own colour is shaded the
+ * same way the confirm button is.
+ */
+:root {
+  --p-ink: #171b2c;
+  /* What a shaded face mixes toward. Cool rather than black, so a shadow
+     stays part of the picture instead of going grey. */
+  --p-deep: #0c0f1c;
+  /* What a lit face mixes toward. Warm, for the same reason inverted. */
+  --p-lit: #fff3d0;
+
+  --p-ground: #2a3049;
+  /* The ground with a little light on it, which is what the weave below
+     is drawn in. Derived rather than picked, so it cannot drift away from
+     the ground it belongs to. */
+  --p-ground2: color-mix(in srgb, var(--p-ground) 97%, var(--p-lit));
+  --p-panel: #363d5e;
+  --p-quiet: #2f3556;
+  --p-raised: #46507e;
+  --p-dead: #242a40;
+
+  --p-text: #f3f2c0;
+  --p-dim: #9aa0c3;
+  /* Text on a fill that is already light: the sub-label under a coloured
+     button, a stat line inside a card. */
+  --p-dim2: #c9c4ee;
+  --p-dead-text: #7a80a6;
+
+  --p-action: #5c4e92;
+  --p-action-down: #473b74;
+  --p-confirm: #7aa74a;
+  --p-confirm-down: #5f843a;
+  --p-highlight: #eae178;
+
+  --p-mana: #7c9df0;
+  --p-mana-trail: #d3e2ff;
+  --p-hp-trail: #f2e3b0;
+  --p-warning: #e7a03c;
+  --p-danger: #d9553f;
+  --p-danger-text: #e8a0a0;
+
+  --p-doll: #ded9ee;
+
+  /*
+   * The ground under every menu. Two tones on a 16 px grid, drawn as four
+   * axis-aligned hard-stop gradients so no edge is ever a curve or a
+   * blend: a flat fill behind a screen of panels reads as an unpainted
+   * page, and this is the least that stops it without becoming pattern.
+   */
+  --weave:
+    repeating-linear-gradient(90deg, var(--p-ground2) 0 2px, #0000 2px 16px),
+    repeating-linear-gradient(0deg, var(--p-ground2) 0 2px, #0000 2px 16px);
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--p-ground);
+  background-image: var(--weave);
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Bundled, so every machine spaces a label the same way. */
+  font-family: "Nunito Variable", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  color: var(--p-text);
+  /* Hard-edged glyphs: no greyscale or subpixel blending anywhere. */
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+  font-smooth: never;
+  text-rendering: geometricPrecision;
+}
+/*
+ * The frame the game lives in. It is the same box on every screen, 800 by
+ * 450 interface px, scaled as a whole by the root zoom that `holdUiScale`
+ * sets; a window held upright gets the prompt below instead. The page's
+ * ground shows round it where the window is the wrong shape, with an ink
+ * line marking where the game ends; against a window it fills exactly, that
+ * line falls outside and is never seen.
+ */
+#frame {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: var(--ui-w, 800px);
+  height: var(--ui-h, 450px);
+  overflow: hidden;
+  background: var(--p-ground);
+  box-shadow: 0 0 0 3px var(--p-ink);
+}
+#game {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+/* Drawn at its own size and shrunk to fit: the one case a soft edge beats a dropped row. */
+html.soft #game { image-rendering: auto; }
+/*
+ * A window held upright is asked to turn rather than given a layout of its
+ * own: the game is one frame, played wide. It covers the frame, so nothing
+ * underneath can be pressed until the window is the right way round.
+ */
+#rotate {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background-color: var(--p-ground);
+  background-image: var(--weave);
+  color: var(--p-text);
+}
+html.portrait #rotate { display: flex; }
+#rotate svg { width: 96px; height: 96px; fill: currentColor; color: var(--p-highlight); }
+#rotate strong { font-size: 24px; color: var(--p-highlight); }
+#rotate span { font-size: 14px; color: var(--p-dim); }
+#ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#ui > * { pointer-events: auto; }
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* safe: a screen taller than the viewport pins to the top instead of
+     centering its overflow out of scroll range. */
+  justify-content: safe center;
+  gap: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background-color: var(--p-ground);
+  background-image: var(--weave);
+  overflow-y: auto;
+}
+/* A battle draws its own scene on the canvas, so the screen over it is
+   only the readouts: it lets the stage through and pins them to the
+   edges rather than centring them over the fight. */
+.screen.stage {
+  background: transparent;
+  justify-content: flex-end;
+  pointer-events: none;
+  /* The block runs edge to edge and sits on the frame's bottom. */
+  padding: 0;
+  gap: 0;
+}
+/* A screen with more on it than the usual spacing fits: everything still fits the frame. */
+.screen.tight { gap: 8px; padding: 12px 16px; }
+
+/*
+ * The game's name, cut rather than written: an ink edge on all four sides
+ * and a drop below it, which is the same light the panels take. Larger
+ * text on its own floats, and floating is what a title screen cannot do.
+ */
+.screen h1 {
+  /* The frame is never narrower than 800 layout px, so this always clamps to 52. */
+  font-size: clamp(28px, 9vw, 52px);
+  letter-spacing: 2px;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--p-highlight);
+  text-shadow:
+    3px 0 0 var(--p-ink), -3px 0 0 var(--p-ink),
+    0 3px 0 var(--p-ink), 0 -3px 0 var(--p-ink),
+    3px 3px 0 var(--p-ink), -3px 3px 0 var(--p-ink),
+    3px -3px 0 var(--p-ink), -3px -3px 0 var(--p-ink),
+    0 7px 0 var(--p-deep);
+}
+/*
+ * Every screen opens with the same header, so a player knows what kind of
+ * screen they are on before they have read it: the name in small caps over
+ * a rule the width of the block, and the line of explanation under both.
+ */
+.screen h2 {
+  font-size: 20px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--p-highlight);
+  text-shadow: 0 3px 0 var(--p-ink);
+}
+.screen h2::after {
+  content: "";
+  display: block;
+  width: 100%;
+  min-width: 120px;
+  height: 3px;
+  margin-top: 8px;
+  background: var(--p-ink);
+  box-shadow: 0 3px 0 var(--p-raised);
+}
+.screen .sub { color: var(--p-dim); font-size: 14px; text-align: center; }
+/* The pair reads as one block, so the rule belongs to the line under it. */
+.screen h2 + .sub { margin-top: -8px; }
+
+/*
+ * A screen arrives as one object: everything on it is drawn in full from
+ * the first frame and drops the last 6 px into place in three 2 px steps.
+ * Nothing fades. A part-opaque pixel is a soft edge, and a screen whose
+ * pieces turn up one after another reads as a page loading rather than a
+ * window opening. Only the arrival moves, and closing is instant.
+ */
+@keyframes dropIn { from { transform: translateY(6px); } }
+.screen:not(.stage) > * {
+  animation: dropIn 100ms steps(3, end) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen:not(.stage) > * { animation: none; }
+}
+
+
+/*
+ * Every panel and button is one shape: a 3 px outline with stepped corners
+ * over a flat fill. It is built from four axis-aligned rectangles per
+ * layer (fill first, so it paints over the outline's middle) because a
+ * border-radius corner is a curve the browser has to antialias, and a
+ * rectangle edge never is. The steps run 4, 2, 1, 1, 0 px in from the
+ * corner, which reads as a radius without ever softening a pixel.
+ *
+ * Over the fill sit two more pairs of rectangles: a 2 px lit face along
+ * the inside top and left, and a 2 px shaded face along the inside bottom
+ * and right. That is the whole light model, and it is the difference
+ * between a panel and a rectangle. One light source, up and to the left,
+ * everywhere in the game, so a raised thing and a sunken thing are told
+ * apart at a glance rather than read.
+ *
+ * `--lit` and `--shade` are mixed from whatever `--fill` the component
+ * set, so nothing has to carry three colours: a swatch holding a colour a
+ * player chose gets shaded the same way the confirm button does. The
+ * highlight mixes toward a warm near-white and the shadow toward a cool
+ * near-black, because a shadow that only darkens goes grey and drops out
+ * of the picture.
+ *
+ * Every layer is anchored from the top left with `calc()` sizes. A
+ * percentage in `background-position` resolves against the difference
+ * between the box and the layer rather than against the box, so an offset
+ * written from the right edge would move as the box changed width. The
+ * bottom and right faces are cut by the gradient's own hard stop instead.
+ */
+.card, button.big, button.act, button.starter, button.thumb, .pill, .swatch,
+#bagBtn, #bagMenu, #actBtn, #dialog, .bcard, .bmsg, .mgbar, .dollWrap, #toast,
+.list .item, #stick, #stickKnob, .card input[type="text"], .card input[type="password"],
+label.custom input[type="color"],
+.bxPanel, .bxCell, .bxName, .bxChip, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
+.bxSwap, .bxCard, .bxPortrait, .bxSlot, .bxNote, .bxCardBack, .bxGrid,
+.plinth, button.starter .stage, .pickStage, .ixRow, .ixFace, .pface, .partyCard, .partyActions, .partyMsg {
+  --ink: var(--p-ink);
+  --fill: var(--p-panel);
+  --lit: color-mix(in srgb, var(--fill) 76%, var(--p-lit));
+  --shade: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  /* What a hover lays over the face. It has to be a layer of its own
+     rather than a lighter `--fill`, because a rule computing `--fill` from
+     `--fill` is a cycle and leaves the property with no value at all. It is
+     opaque, drawn on the fill's own four rectangles under the two faces, so
+     the whole face lightens as one: see-through layers overlapped in the
+     middle and lit it twice, and a layer inset from the faces left a ring. */
+  --gloss: #0000;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(var(--lit) 0 0) 7px 3px / calc(100% - 14px) 2px no-repeat,
+    linear-gradient(var(--lit) 0 0) 3px 7px / 2px calc(100% - 14px) no-repeat,
+    linear-gradient(to top, var(--shade) 0 2px, #0000 2px) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+    linear-gradient(to left, var(--shade) 0 2px, #0000 2px) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 0 4px / 100% calc(100% - 8px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 4px 0 / calc(100% - 8px) 100% no-repeat,
+    linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
+}
+/*
+ * A box light falls into rather than off: the two faces swap, so the top
+ * and left are the ones in shadow. Text fields, bar tracks, scrolling
+ * wells and the stage behind a portrait are all sunken, and a button being
+ * pressed becomes sunken for as long as it is held, which is what makes a
+ * press read without anything moving.
+ */
+.sunk {
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+}
+/*
+ * Scrollbars. The browser's own is a rounded grey capsule, which is the
+ * one piece of soft geometry the interface cannot otherwise get rid of.
+ * Drawn instead as a square thumb in the raised fill on a sunken track,
+ * so a scrolling box says so in the same language as everything else.
+ */
+.screen, .ixList, .list.scroll, .xlist, #bagMenu, .bxCard, .devList, .diagRows {
+  scrollbar-width: thin;
+  scrollbar-color: var(--p-raised) var(--p-ground);
+}
+.screen::-webkit-scrollbar,
+.ixList::-webkit-scrollbar,
+.list.scroll::-webkit-scrollbar,
+.xlist::-webkit-scrollbar,
+#bagMenu::-webkit-scrollbar,
+.diagRows::-webkit-scrollbar { width: 10px; height: 10px; }
+.screen::-webkit-scrollbar-track,
+.ixList::-webkit-scrollbar-track,
+.list.scroll::-webkit-scrollbar-track,
+.xlist::-webkit-scrollbar-track,
+#bagMenu::-webkit-scrollbar-track,
+.diagRows::-webkit-scrollbar-track { background: var(--p-ground); }
+.screen::-webkit-scrollbar-thumb,
+.ixList::-webkit-scrollbar-thumb,
+.list.scroll::-webkit-scrollbar-thumb,
+.xlist::-webkit-scrollbar-thumb,
+#bagMenu::-webkit-scrollbar-thumb,
+.diagRows::-webkit-scrollbar-thumb {
+  background: var(--p-raised);
+  border: 2px solid var(--p-ink);
+}
+
+/* Selection reads as a second frame rather than a soft glow. */
+.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
+/*
+ * Where a keyboard or a gamepad is. It has to survive a selected cell and
+ * a coloured fill, so it is the highlight rather than the text colour and
+ * it is drawn inside the frame like every other second frame here.
+ */
+:focus-visible { outline: 3px solid var(--p-highlight); outline-offset: -3px; }
+/*
+ * A pointer that can hover is a mouse, so the lift is only offered there.
+ * On a touch screen the state sticks after the finger has gone and leaves
+ * the last thing tapped looking chosen.
+ */
+@media (hover: hover) {
+  button.big:hover:not(:disabled),
+  button.act:hover:not(:disabled),
+  button.starter:hover:not(.taken),
+  button.thumb:hover,
+  .pill:hover:not(:disabled),
+  #bagBtn:hover,
+  .bxCell:hover:not(:disabled),
+  .bxWide:hover:not(:disabled),
+  .bxSlot:hover,
+  .bxArrow:hover,
+  .bxSwap:hover,
+  .bxOwnerBtn:hover,
+  .bxCardBack:hover,
+  .swatch:hover {
+    --gloss: color-mix(in srgb, var(--fill) 84%, var(--p-lit));
+  }
+}
+/*
+ * Pressed. The faces swap and the label drops by the width of one face, so
+ * the button goes down into the page rather than changing colour at it.
+ * A transform is used rather than padding, so nothing around it moves.
+ */
+button.big:active:not(:disabled),
+button.act:active:not(:disabled),
+button.starter:active:not(.taken),
+button.thumb:active,
+.pill:active:not(:disabled),
+#bagBtn:active,
+.bxCell:active:not(:disabled),
+.bxWide:active:not(:disabled),
+.bxSlot:active,
+.bxArrow:active,
+.bxSwap:active,
+.bxOwnerBtn:active,
+.bxCardBack:active,
+.swatch:active {
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  transform: translateY(2px);
+}
+@media (prefers-reduced-motion: reduce) {
+  button.big:active, button.act:active, button.starter:active,
+  button.thumb:active, .pill:active, #bagBtn:active,
+  .bxCell:active, .bxWide:active, .bxSlot:active, .bxArrow:active,
+  .bxSwap:active, .bxOwnerBtn:active, .bxCardBack:active, .swatch:active {
+    transform: none;
+  }
+}
+
+button.big {
+  font: inherit;
+  font-size: 16px;
+  padding: 12px 24px;
+  width: min(100%, 260px);
+  --fill: var(--p-action);
+  color: var(--p-text);
+  cursor: pointer;
+}
+button.big:active { --fill: var(--p-action-down); }
+button.big.primary { --fill: var(--p-confirm); }
+button.big.primary:active { --fill: var(--p-confirm-down); }
+button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: default; }
+
+.row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
+/*
+ * A set of choices, rather than a row of things that happen to be next to
+ * each other. Laid out as equal cells so "Hair" and "Accessories" are the
+ * same button: a wrapped row of content-sized pills came out at five
+ * different widths, which reads as a mistake before it reads as anything
+ * else. Cells wrap on their own, so no screen width needs its own rule.
+ */
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+/* Channel pills carry a swatch and a longer label. */
+.choices.wide { grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); }
+.choices > .pill { width: 100%; }
+.card {
+  --fill: var(--p-panel);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  max-width: 420px;
+  width: min(100%, 420px);
+}
+/*
+ * A card that opens with a name gets that name as a band across its top in
+ * the outline colour, rather than as bold text floating over its contents.
+ * The band is held 4 px in from the border box so the frame's own stepped
+ * corners still read around it.
+ */
+.card > strong:first-child,
+.card > .cardHead:first-child {
+  align-self: stretch;
+  margin: -12px -12px 0;
+  padding: 4px 12px;
+  background: var(--p-ink);
+  color: var(--p-highlight);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-align: left;
+}
+/* The same band, for a card whose name has something standing beside it. */
+.card > .cardHead:first-child { display: flex; align-items: center; gap: 8px; }
+.card label {
+  font-size: 10px;
+  color: var(--p-dim);
+  align-self: flex-start;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.card input[type="text"], .card input[type="password"] {
+  font: inherit;
+  font-size: 16px;
+  width: 100%;
+  padding: 8px 8px;
+  --fill: var(--p-ground);
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  color: var(--p-text);
+}
+.card input[type="text"]::placeholder,
+.card input[type="password"]::placeholder { color: var(--p-dead-text); }
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch {
+  width: 34px; height: 34px;
+  cursor: pointer;
+  padding: 0;
+}
+.pill {
+  font: inherit; font-size: 14px;
+  padding: 8px 16px;
+  --fill: var(--p-ground);
+  color: var(--p-text);
+  cursor: pointer;
+}
+/* Ink on the confirm green: the text colour is too close to it to read. */
+.pill.sel { --fill: var(--p-confirm); color: var(--p-ink); }
+
+/* Something that stops setting up working, said on the screen rather than
+   in a toast: a toast is gone in two seconds and gets overwritten by the
+   errors that follow from the same cause. */
+.lobbyProblem {
+  max-width: 420px;
+  width: min(100%, 420px);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--p-danger-text);
+  text-align: center;
+}
+.lobbyProblem[hidden] { display: none; }
+
+/* The build, on the title screen. Quiet enough to ignore while playing and
+   legible enough to read off a screenshot when something has gone wrong. */
+.buildTag {
+  font-size: 12px;
+  color: var(--p-dead-text);
+  letter-spacing: 1px;
+}
+
+/*
+ * The title screen. The name, the line under it and the Scoba the game is
+ * named for read as one block rather than as three stacked things, so the
+ * screen has a top half that is the game and a bottom half that is the way
+ * in. The three ways in are one group at one width, and the rarely used
+ * door beside the build tag is a rank below them.
+ */
+.crest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+/* The stage the art stands on. Sunken and darker than the ground, so the
+   Scoba reads as a specimen in a case rather than as a stray image. */
+.plinth {
+  --fill: var(--p-doll);
+  --ink: var(--p-ink);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 8px 16px 4px;
+  margin-top: 8px;
+}
+.plinth canvas { image-rendering: pixelated; display: block; }
+.ways { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+/* The title's crest beside its ways in, so the plate and the buttons share the frame's height. */
+.titleCols { display: flex; align-items: center; justify-content: center; gap: 32px; width: 100%; }
+/* Two big buttons on one row, each at a big button's own width. */
+.settingsWays { display: grid; grid-template-columns: repeat(2, 260px); gap: 8px; justify-content: center; width: 100%; }
+.settingsWays > button.big { width: 100%; }
+
+/* Diagnostics. Read off a screenshot as often as off a screen, so the
+   label and value sit on one line each and the value is the one that
+   wraps, keeping the labels a scannable column. */
+.card.diag { --fill: var(--p-quiet); }
+/* A fixed well rather than a card that grows with the list, so a long
+   reading scrolls in place instead of pushing the screen taller. */
+.diagRows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  height: 96px;
+  overflow-y: auto;
+}
+.diagRow {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 12px; line-height: 1.45;
+}
+.diagName { color: var(--p-dim); flex: 0 0 84px; }
+.diagVal { color: var(--p-text); flex: 1 1 auto; word-break: break-word; }
+/* Something that will stop a feature working, marked so it survives a
+   small screenshot without needing the text read closely. */
+.diagRow.bad .diagVal { color: var(--p-danger-text); }
+.diagRow.bad .diagName::after { content: " !"; color: var(--p-danger-text); }
+
+/* The home-screen nudge. Quieter fill than a .card that holds the screen's
+   actual work, so it reads as an aside under the title buttons. */
+.card.install { --fill: var(--p-quiet); gap: 8px; margin-top: 8px; }
+.card.install > strong:first-child { font-size: 12px; }
+.card.install .dim { align-self: center; text-align: center; line-height: 1.5; }
+.card.install .steps {
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 8px;
+  font-size: 12px; color: var(--p-text);
+}
+.card.install .steps svg {
+  width: 16px; height: 16px;
+  fill: currentColor;
+  display: block;
+}
+
+/*
+ * The index. Every Scoba there is, numbered, with one cell per face
+ * whether or not that face has been met: a set with gaps in it reads as
+ * something to fill, and a short list of what you happen to have does not.
+ *
+ * Laid out as four columns rather than as a row of things, so the numbers
+ * line up down one edge, the faces down another, and the names start at
+ * the same place on every row however long the number or the name is.
+ */
+.ixList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  max-height: calc(var(--ui-h, 450px) * 0.52);
+  overflow-y: auto;
+}
+.ixRow {
+  --fill: var(--p-ink);
+  --ink: var(--p-raised);
+  display: grid;
+  grid-template-columns: 32px 64px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+/* An entry with nothing behind it yet: present, numbered, and plainly not
+   filled in. The outline goes quiet rather than the row going away. */
+.ixRow.blank { --ink: var(--p-quiet); }
+.ixNo {
+  font-size: 12px;
+  color: var(--p-dead-text);
+  text-align: right;
+  letter-spacing: 1px;
+}
+/* One box for every face, so the column of faces is a column. The art is
+   bottom aligned inside it and never scaled. */
+.ixFace {
+  --fill: var(--p-ground);
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+}
+.ixFace canvas { image-rendering: pixelated; display: block; }
+.ixQ { align-self: center; font-size: 24px; color: var(--p-dead-text); }
+.ixBody { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+/* The name is what the row is looked up by, so it is the largest thing in
+   it by two steps rather than by weight alone. */
+.ixName { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ixWho {
+  font-size: 20px;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ixRow.blank .ixWho { color: var(--p-dead-text); }
+.ixLine { font-size: 12px; color: var(--p-dim); }
+.ixMark { display: flex; justify-content: flex-end; }
+
+/* Starter picker. Nine of them, in one strip across the top, so the detail
+   card below has the rest of the frame to show the chosen one large. */
+.starters {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+/* Holds its height before and after a pick, so choosing one never moves
+   the grid the choice was made on. */
+.card.pick { min-height: 160px; justify-content: center; padding: 8px 16px; gap: 4px; }
+/* The chosen starter's own portrait, bigger than a strip tile and cropped
+   to the box rather than resized, so every species reads at the same scale. */
+.pickStage {
+  --fill: var(--p-ground);
+  --ink: var(--p-ink);
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  height: 84px;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  padding-bottom: 4px;
+}
+.pickName { font-size: 20px; color: var(--p-text); }
+
+/*
+ * Debug controls. Dashed and muted throughout, so nothing here is mistaken
+ * for part of the game at a glance.
+ */
+.dbgSearch {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.dbgField {
+  font: inherit;
+  font-size: 12px;
+  color: var(--p-text);
+  background: var(--p-panel);
+  border: 1px dashed var(--p-dead-text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.dbgHits { display: flex; flex-direction: column; gap: 3px; }
+.dbgHit {
+  font: inherit;
+  font-size: 13px;
+  color: var(--p-text);
+  background: var(--p-panel);
+  border: 1px dashed var(--p-dead-text);
+  border-radius: 6px;
+  padding: 5px 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.dbgHit.sel { border-style: solid; background: var(--p-raised); }
+.dbgHit:disabled { color: var(--p-dead-text); cursor: default; }
+.dbgHit > .sub { color: var(--p-dead-text); }
+.bxDebug {
+  font: inherit;
+  font-size: 12px;
+  color: var(--p-dead-text);
+  background: transparent;
+  border: 1px dashed var(--p-dead-text);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 6px;
+  cursor: pointer;
+  width: 100%;
+}
+.bxDebug.on { color: var(--p-text); border-style: solid; }
+/* Stacked, so a second switch does not squeeze the first one's line. */
+.bxDebugRow { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.bxDebugRow > .bxDebug { margin-top: 0; }
+button.starter {
+  font: inherit;
+  color: var(--p-text);
+  --fill: var(--p-panel);
+  padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+button.starter.taken, button.starter:disabled { opacity: 0.4; cursor: default; }
+/*
+ * The face sits in a sunken well rather than on the button's own fill: on
+ * the fill a portrait reads as a picture printed on the panel, and in a
+ * well it reads as the thing the button is for. Cropped rather than shrunk,
+ * so the strip's tiles stay a fixed height whatever a species' art measures.
+ */
+button.starter .stage {
+  --fill: var(--p-ground);
+  --ink: var(--p-ink);
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  height: 56px;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  padding-bottom: 2px;
+}
+button.starter .nm {
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Half scale on a strip tile: the same step a battle plate's own badge
+   takes, since that is the one size a badge's outline is never scaled to. */
+button.starter .tico { width: 20.5px; height: 8.5px; }
+button.starter .ticos { gap: 2px; }
+canvas.critter { image-rendering: pixelated; display: block; }
+.tbadges { display: flex; gap: 4px; justify-content: center; }
+/* Type badges: drawn art, never scaled, so their outline stays 3 px. */
+.tico {
+  image-rendering: pixelated;
+  display: inline-block;
+  width: 41px;
+  height: 17px;
+  vertical-align: middle;
+}
+.ticos { display: inline-flex; gap: 4px; align-items: center; vertical-align: middle; }
+.tbadge {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--p-ink);
+  padding: 2px 8px;
+}
+.card .dim { color: var(--p-dim); font-size: 12px; align-self: flex-start; }
+.flip { display: block; line-height: 0; transform: scaleX(-1); }
+
+/* Character creator */
+.dollWrap {
+  --fill: var(--p-doll);
+  padding: 8px 16px 4px;
+}
+canvas.doll {
+  display: block;
+  image-rendering: pixelated;
+  width: 177px;
+  height: 208.5px;
+}
+/* The painter. The doll is the canvas, shown as wide as the screen allows,
+   since a 118 px character is worked on a pixel at a time. It caps at three
+   screen pixels per art pixel, which is where a fingertip stops missing. */
+.dollWrap.paintWrap { width: min(100%, 366px); padding: 6px; }
+/* The stage carries its own size: one whole screen pixel per art pixel at
+   whatever zoom is set, so a grid rule lands on a pixel edge rather than
+   across one. It only ever shrinks, for a screen too narrow to hold it. */
+canvas.paintStage {
+  display: block;
+  margin: 0 auto;
+  image-rendering: pixelated;
+  max-width: 100%;
+  height: auto;
+  /* A drag on the doll is a stroke, never a scroll of the screen under it. */
+  touch-action: none;
+  cursor: crosshair;
+}
+/* Thirty-two of them, so they sit four rows deep instead of eight. */
+.swatch.small { width: 26px; height: 26px; }
+
+/* Shoving the painter's window about without a wheel or a keyboard. Laid
+   out as a compass rather than a row, because a direction control that
+   reads left to right is one you have to think about. */
+.panPad {
+  display: grid;
+  grid-template-columns: repeat(3, 38px);
+  grid-auto-rows: 32px;
+  gap: 4px;
+  justify-content: center;
+}
+.panPad button { padding: 0; font-size: 12px; line-height: 1; }
+.panPad .gap { visibility: hidden; }
+
+.thumbs { display: flex; gap: 8px; flex-wrap: wrap; align-self: flex-start; }
+button.thumb {
+  padding: 4px;
+  line-height: 0;
+  --fill: var(--p-doll);
+  cursor: pointer;
+}
+button.thumb canvas { image-rendering: pixelated; display: block; }
+.pill.chan { display: inline-flex; align-items: center; gap: 8px; }
+.pill.chan i {
+  display: block;
+  width: 14px; height: 14px;
+  border: 2px solid var(--p-ink);
+}
+label.custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  font-size: 12px;
+  color: var(--p-dim);
+  cursor: pointer;
+}
+label.custom input[type="color"] {
+  width: 42px; height: 32px;
+  padding: 0;
+  --fill: var(--p-ground);
+  cursor: pointer;
+}
+
+/*
+ * A number or a mark named inside a written line. The word is highlighted
+ * where it sits in the sentence and carries the arithmetic in a window, so
+ * the sentence reads as a sentence and the scaling is a hover away.
+ */
+.pnum {
+  position: relative;
+  color: var(--p-highlight);
+  border-bottom: 1px dotted var(--p-highlight);
+  cursor: help;
+}
+.pnum:focus-visible { outline: 2px solid var(--p-highlight); outline-offset: 1px; }
+.pnum .ptip {
+  --ink: var(--p-action);
+  --fill: var(--p-ink);
+  --nudge: 0px;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%) translateX(var(--nudge));
+  z-index: 5;
+  display: none;
+  width: 186px;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: left;
+  color: var(--p-text);
+  pointer-events: none;
+  opacity: 0.96;
+  background:
+    linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 0 4px / 100% calc(100% - 8px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 4px 0 / calc(100% - 8px) 100% no-repeat,
+    linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
+}
+.pnum:hover .ptip, .pnum:focus-within .ptip { display: block; }
+
+/*
+ * The Scoba browser: search down the left, faces in the middle, the scroll
+ * column and whose box it is down the right, and the party or a Select
+ * along the bottom. One column on a phone, in the order the thing is used.
+ */
+.browser {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 740px);
+  grid-template-columns: 178px minmax(0, 1fr) 84px;
+  grid-template-areas:
+    "search grid side"
+    "info   foot side";
+}
+/* Packed tighter than a panel: it has to fit beside the grid with the
+   readout under it, all inside one screen. */
+.bxSearch { grid-area: search; }
+.bxPanel.bxSearch { gap: 4px; }
+.bxSearch .bxName { padding: 4px 8px; }
+.bxSearch .bxTypes { gap: 2px; }
+.bxSearch .bxStat input[type="range"] { height: 10px; }
+.bxSearch .bxStat input[type="range"]::-webkit-slider-thumb { height: 12px; }
+.bxSearch .bxStat input[type="range"]::-moz-range-thumb { height: 12px; }
+.bxGridPanel { grid-area: grid; padding: 8px; }
+.bxSide { grid-area: side; display: flex; flex-direction: column; gap: 8px; }
+.bxInfo { grid-area: info; }
+.bxFoot { grid-area: foot; display: flex; }
+.bxPanel {
+  --fill: var(--p-panel);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.bxGrid {
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+  /* As tall as the search panel beside it leaves once the readout and the
+     foot are under it, so the whole box fits the frame without scrolling. */
+  height: 168px;
+  overflow-y: auto;
+  --fill: var(--p-ground);
+  padding: 8px;
+  /* The column on the right is the scrollbar; the browser's own is noise. */
+  scrollbar-width: none;
+}
+.bxGrid::-webkit-scrollbar { width: 0; height: 0; }
+.bxCell {
+  font: inherit;
+  --fill: var(--p-raised);
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.bxCell.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
+.bxCell:disabled { cursor: default; }
+.bxFace { display: flex; align-items: flex-end; justify-content: center; }
+.bxFace canvas { image-rendering: pixelated; display: block; }
+.bxEmpty { grid-column: 1 / -1; color: var(--p-dim); font-size: 12px; padding: 8px 4px; }
+
+/* Search panel. */
+.bxName {
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  font: inherit;
+  font-size: 14px;
+  width: 100%;
+  padding: 8px 8px;
+  --fill: var(--p-ground);
+  color: var(--p-text);
+  text-align: center;
+}
+.bxTypes { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.bxChip {
+  --fill: var(--p-ground);
+  padding: 0;
+  line-height: 0;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.bxChip.sel { opacity: 1; outline: 3px solid var(--p-text); outline-offset: -3px; }
+.bxStat { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.bxSearchOps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.bxStatName { width: 30px; color: var(--p-text); }
+.bxStatNum { width: 26px; text-align: right; color: var(--p-dim); }
+.setBar { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.setBarName { width: 62px; color: var(--p-text); }
+.setBarNum { width: 42px; text-align: right; color: var(--p-dim); }
+.bxStat input[type="range"], .setBar input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 12px;
+  background: var(--p-ground);
+  border: 2px solid var(--p-ink);
+}
+.bxStat input[type="range"]::-webkit-slider-thumb,
+.setBar input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px; height: 18px;
+  background: var(--p-text);
+  border: 3px solid var(--p-ink);
+}
+.bxStat input[type="range"]::-moz-range-thumb,
+.setBar input[type="range"]::-moz-range-thumb {
+  width: 13px; height: 18px;
+  background: var(--p-text);
+  border: 3px solid var(--p-ink);
+  border-radius: 0;
+}
+.bxWide {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 8px;
+  --fill: var(--p-action);
+  color: var(--p-text);
+  cursor: pointer;
+  width: 100%;
+}
+.bxWide:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: default; }
+
+/* Readout under the search panel. */
+.bxRead { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 40px; justify-content: center; }
+.bxReadName { font-size: 14px; color: var(--p-text); }
+
+/* Whose party the strip is showing, and the scroll column. */
+.bxOwner { display: flex; flex-direction: column; gap: 4px; width: 84px; }
+.bxOwnerBtn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 2px;
+  --fill: var(--p-ground);
+  color: var(--p-dim);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bxOwnerBtn.sel { --fill: var(--p-confirm); color: var(--p-ink); }
+.bxArrow {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 0;
+  --fill: var(--p-raised);
+  color: var(--p-text);
+  cursor: pointer;
+}
+.bxBack { --fill: var(--p-confirm); margin-top: 8px; }
+.bxTrack {
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  flex: 1;
+  min-height: 40px;
+  position: relative;
+  --fill: var(--p-ground);
+  touch-action: none;
+  cursor: pointer;
+}
+.bxThumb { position: absolute; left: 2px; right: 2px; top: 0; height: 100%; background: var(--p-dim); }
+.bxThumb.held { background: var(--p-text); }
+
+/* The strip under the grid. */
+.bxParty { flex: 1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.bxPartyRow { display: flex; align-items: center; gap: 4px; }
+/* Narrow enough that the owner column, three cells and the ops column sit in
+   one row under the grid: wrapped, the strip doubled in height and the box
+   ran off the frame. */
+.bxParty .bxCell { width: 64px; position: relative; }
+.bxPanel.bxParty { padding: 4px 8px; }
+/* Says a Scoba on the other character's strip is one of yours, on loan. */
+.bxLent { position: absolute; top: 2px; right: 3px; font-size: 10px; color: var(--p-text); }
+.bxLendNote { flex-basis: 100%; text-align: center; font-size: 12px; }
+.bxSwap {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  --fill: var(--p-raised);
+  color: var(--p-text);
+  cursor: pointer;
+}
+.bxOps { display: flex; flex-direction: column; gap: 4px; width: 84px; }
+.bxPick { flex: 1; align-items: stretch; justify-content: center; }
+
+/*
+ * The card behind Info: face and numbers across the top, then a button per
+ * passive and per move, and a line saying what the pressed one does.
+ */
+.bxCard {
+  width: min(100%, 620px);
+  --fill: var(--p-panel);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bxCardHead { display: flex; gap: 12px; align-items: stretch; }
+.bxPortrait {
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  width: 100px;
+  min-height: 100px;
+  --fill: var(--p-ground);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 4px;
+  flex: none;
+}
+.bxFacts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.bxFactsTop { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.bxWho { min-width: 0; }
+.bxCardName { font-size: 20px; overflow-wrap: anywhere; }
+.bxCorner { text-align: right; font-size: 12px; color: var(--p-dim); flex: none; }
+/* Five readings in two columns, three lines deep instead of five, so the head fits the frame. */
+.bxStatList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; font-size: 14px; color: var(--p-text); }
+.bxCardTail { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
+.bxCardWhere { font-size: 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.bxCardBack {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 16px;
+  --fill: var(--p-raised);
+  color: var(--p-text);
+  cursor: pointer;
+  flex: none;
+}
+
+.bxSlots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.bxSlot {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 8px;
+  --fill: var(--p-raised);
+  color: var(--p-text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.bxSlot.sel { --fill: var(--p-action); outline: 3px solid var(--p-text); outline-offset: -3px; }
+.bxSlot.typed { color: var(--p-ink); }
+.bxSlot.typed .bxSlotCost { color: var(--p-ink); opacity: 0.72; }
+/* The outline is what marks a coloured slot, since its fill is spoken for. */
+.bxSlot.typed.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
+.bxSlotName { overflow-wrap: anywhere; }
+.bxSlotCost { font-size: 12px; color: var(--p-dim); }
+.bxSlot.sel .bxSlotCost { color: var(--p-dim2); }
+.bxNote {
+  --fill: var(--p-ground);
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  padding: 8px 8px;
+  min-height: 44px;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bxNote .dim { color: var(--p-dim); font-size: 12px; }
+.bxNoteHead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* The Extra window: what each Scoba has, and what its moves really do. */
+.xlist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(calc(var(--ui-w, 800px) * 0.94), 620px);
+  max-height: calc(var(--ui-h, 450px) * 0.62);
+  overflow-y: auto;
+}
+/*
+ * A group of choices standing on a screen of its own rather than inside
+ * the battle's action block. The block takes its width from `--bw`, so a
+ * bare `.bactions` outside it inherits the whole viewport instead: that is
+ * how the Extra window's Back button came out a third of the screen wide
+ * and hard against the left edge.
+ */
+.xrow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  width: min(100%, 420px);
+}
+.xrow > button.act { width: 100%; min-height: 48px; }
+
+/* Full width of the list it sits in, so a column of one card is centred
+   under the heading rather than hanging off the left of a wider box. */
+.xscoba {
+  align-items: stretch;
+  gap: 8px;
+  text-align: left;
+  width: 100%;
+  max-width: none;
+}
+/* A Scoba's own name rather than a section label, so the band keeps the
+   name at reading size and in the case it was written in. */
+.card.xscoba > .cardHead {
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--p-dim);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.card.xscoba > .cardHead strong { font-size: 16px; color: var(--p-text); }
+.xscoba .nm { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.xstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--p-dim2); }
+.xpass { display: flex; gap: 8px; font-size: 12px; color: var(--p-dim); }
+.xpass strong { color: var(--p-highlight); }
+.xinfo { font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; gap: 2px; }
+.xinfo:empty { display: none; }
+.xhead { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.xinfo .dim { color: var(--p-dim); font-size: 12px; }
+.xinfo .good { color: var(--p-confirm); }
+/*
+ * Damage reads by colour: physical warm, magic cool, true colourless.
+ * Elemental text takes its own type colour inline.
+ */
+.dmg { font-weight: bold; }
+.dmg.physical { color: var(--p-warning); }
+.dmg.magic { color: var(--p-mana); }
+.dmg.true { color: var(--p-dim2); }
+
+.mgbar { position: relative; width: min(calc(var(--ui-w, 800px) * 0.88), 420px); height: 26px; --ink: var(--p-action); --fill: var(--p-ink); }
+.mgzone { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--p-confirm) 33%, transparent); border-left: 2px solid var(--p-confirm); border-right: 2px solid var(--p-confirm); }
+.mgmark { position: absolute; width: 7px; top: -5px; bottom: -5px; background: var(--p-text); }
+
+.meter { width: 100%; }
+.meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--p-dim); margin-bottom: 4px; }
+.meter .bar { height: 12px; border: 2px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
+.meter .bar i { display: block; height: 100%; background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px); }
+/* A mark saying a thing is done, kept or won. Green, because all three of
+   the places it is used report something good; `warn` is the one that
+   reports a state to look at. */
+.badge {
+  font-size: 12px;
+  background: var(--p-confirm);
+  padding: 2px 8px;
+  color: var(--p-ink);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.badge.warn { background: var(--p-warning); }
+
+/* Dev-mode editor panel */
+#devPanel {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 300px;
+  background: color-mix(in srgb, var(--p-ink) 95%, transparent);
+  border-left: 3px solid var(--p-ink);
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+#devPanel .devHead { display: flex; justify-content: space-between; align-items: center; }
+#devPanel .devTabs { display: flex; flex-wrap: wrap; gap: 4px; }
+#devPanel .devTabs .pill { font-size: 12px; padding: 4px 8px; }
+#devPanel .devStatus { color: var(--p-dim); font-size: 12px; line-height: 1.4; }
+#devPanel .devBody { display: flex; flex-direction: column; gap: 8px; }
+#devPanel .devHint { color: var(--p-dim); font-size: 12px; line-height: 1.45; }
+#devPanel .devList { display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto; }
+#devPanel .devItem {
+  font: inherit; font-size: 12px;
+  text-align: left;
+  color: var(--p-text);
+  background: var(--p-ground);
+  border: 2px solid var(--p-ink);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+#devPanel .devItem.sel { border-color: var(--p-text); }
+#devPanel .devCard {
+  border: 2px solid var(--p-ink);
+  background: var(--p-dead);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#devPanel .devField { display: flex; flex-direction: column; gap: 4px; }
+#devPanel .devField label { color: var(--p-dim); font-size: 12px; }
+#devPanel input[type="text"], #devPanel input[type="number"],
+#devPanel textarea, #devPanel select {
+  font: inherit; font-size: 12px;
+  color: var(--p-text);
+  background: var(--p-ground);
+  border: 2px solid var(--p-ink);
+  padding: 4px 8px;
+  width: 100%;
+}
+#devPanel textarea { resize: vertical; }
+#devPanel .row { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-start; }
+#devPanel .row input[type="number"] { width: 64px; }
+#devPanel .row select { flex: 1; width: auto; min-width: 0; }
+#devPanel .pill.warn { --fill: var(--p-danger); }
+#devPanel .pill:disabled { opacity: 0.4; }
+#devPanel .palGroup { color: var(--p-dim); font-size: 12px; }
+#devPanel .tilePal { display: flex; flex-wrap: wrap; gap: 4px; }
+#devPanel .tileBtn {
+  padding: 0;
+  line-height: 0;
+  background: var(--p-ground);
+  border: 2px solid var(--p-ink);
+  cursor: pointer;
+}
+#devPanel .tileBtn.sel { border-color: var(--p-text); }
+#devPanel .tileBtn canvas { display: block; width: 30px; height: 30px; image-rendering: pixelated; }
+/* The 3x3 collision grid sits on the tile it belongs to, so a rail is set
+   by clicking the subcells the art draws it in. */
+#devPanel .maskEdit { position: relative; width: 72px; height: 72px; }
+#devPanel .maskEdit > canvas, #devPanel .maskBlank {
+  display: block; width: 72px; height: 72px; image-rendering: pixelated;
+}
+#devPanel .maskBlank { background: var(--p-ground); }
+#devPanel .maskGrid {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+}
+#devPanel .maskCell {
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--p-ink)88;
+  cursor: pointer;
+}
+#devPanel .maskCell.on { background: var(--p-danger)cc; }
+.bcard .nm .shiny, .partyTop .shiny { color: var(--p-danger); font-size: 12px; line-height: 1; flex: none; }
+
+#devPanel .layerRow { display: flex; gap: 4px; align-items: stretch; }
+#devPanel .layerRow .devItem { flex: 1; min-width: 0; }
+#devPanel .layerRow .pill { font-size: 12px; padding: 4px 8px; }
+
+/*
+ * The cover between one thing and the next. It starts on, so the page is
+ * black from the first paint rather than flashing an empty canvas, and it
+ * eats pointer events while it is up so nothing behind it can be pressed
+ * before it has finished loading.
+ */
+#fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+#fade.on { opacity: 1; }
+/* Held through the fade, so nothing is pressable until the black is gone. */
+#fade.busy { pointer-events: auto; }
+
+#toast {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  --ink: var(--p-action);
+  --fill: var(--p-ink);
+  padding: 8px 16px;
+  font-size: 14px;
+  opacity: 0;
+  white-space: nowrap;
+}
+

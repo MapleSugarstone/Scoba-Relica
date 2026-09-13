@@ -1,0 +1,155 @@
+# Every status a move or a passive can leave on a Scoba.
+# The language this file is written in is described in docs/move-script.md.
+
+status ez "EZ Mode"
+  good
+  stacks
+  while carried:
+    all stats +3
+
+status fire "Fire"
+  bad
+  icon sun
+  lasts 3 turns
+  stacks
+  when a turn ends:
+    damage holder 15% of source magic, as sun magic, fixed when applied
+
+status fragile "Fragile"
+  bad
+  icon broken_bone
+  lasts 5 turns
+  charges 3
+  when hit:
+    damage holder 10% of their max hp, as true, counts as attack
+
+status rage "Rage"
+  good
+  stacks up to 6
+  lost on switching out
+  while carried:
+    strength x1.25
+
+status guard "Guard"
+  good
+  lasts 3 turns
+  lost on switching out
+  while carried:
+    defense x1.25
+
+status moonward "Moonward"
+  good
+  icon moon
+  lasts 2 turns
+  while carried:
+    immune to moon
+
+status marked "Marked"
+  bad
+  lasts 3 turns
+  while carried:
+    takes x1.5 from cipher
+
+status second-wind "Second Wind"
+  good
+  charges 1
+  when below 50% hp:
+    heal holder 10% of their max hp
+
+status sticky "Sticky Treat"
+  bad
+  icon sticky
+  sound stickysweet
+  lasts 1 turn
+  while carried:
+    cannot switch out
+
+status slowed "Slowed"
+  bad
+  icon boot
+  stacks up to 6
+  lost on switching out
+  power 30% of source magic
+  while carried:
+    speed - power
+
+status cold "Cold"
+  bad
+  icon cold
+  lasts 3 turns
+  when a turn ends:
+    inflict chill on holder
+
+status chill "Chill"
+  bad
+  icon cold
+  stacks up to 10
+  lost on switching out
+  power 10% of source magic
+  while carried:
+    speed - power
+
+status hyper "Hyper-Mode"
+  good
+  while carried:
+    all stats + 25% of base + 15
+
+status spite "Spite"
+  good
+  charges 1
+  when it faints:
+    copy marks from holder to other
+
+status wane "Waning"
+  bad
+  icon moon
+  stacks up to 10
+  lost on switching out
+  while carried:
+    resistance x0.95
+
+status quickstep "Quickstep"
+  good
+  icon boot
+  stacks up to 6
+  lost on switching out
+  while carried:
+    speed + 10% of magic
+
+status gored "Gored"
+  bad
+  icon broken_bone
+  stacks up to 6
+  lost on switching out
+  while carried:
+    resistance x0.95
+
+status in-the-black "In the Black"
+  bad
+  lasts 3 turns
+  stacks up to 3
+  lost on switching out
+  power 10% of source strength
+  while carried:
+    speed - power
+
+status in-the-red "In the Red"
+  bad
+  lasts 3 turns
+  stacks up to 3
+  when a turn ends:
+    damage holder 20% of source strength + 50 at max level, as sun magic, fixed when applied
+
+status in-the-green "In the Green"
+  bad
+  lasts 3 turns
+  stacks up to 3
+  lost on switching out
+  power 30% of source strength
+  while carried:
+    defense - power
+
+status dealt "Dealt"
+  bad
+  stacks up to 21
+  shows a hand of cards

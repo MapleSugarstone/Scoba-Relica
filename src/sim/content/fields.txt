@@ -1,0 +1,11 @@
+# Every field that can be laid over a side of the battle.
+# The language this file is written in is described in docs/move-script.md.
+
+field sunblessed "Sunblessed"
+  icon sun
+  lasts 5 turns
+  tint #e7a03c
+  begins "Sunlight pours over the field."
+  ends "The sunlight fades."
+  while standing:
+    sun moves x1.25

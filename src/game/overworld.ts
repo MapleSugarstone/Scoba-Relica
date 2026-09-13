@@ -94,11 +94,7 @@ const SIGHT = 200;
 
 /** True when a body of radius `r` cannot stand at (x, y). */
 function blocked(map: TileMap, x: number, y: number, r: number): boolean {
-  return (
-    map.isSolidAt(x, y) ||
-    map.isSolidAt(x - r, y) || map.isSolidAt(x + r, y) ||
-    map.isSolidAt(x, y - r) || map.isSolidAt(x, y + r)
-  );
+  return map.circleHits(x, y, r);
 }
 
 /**
@@ -292,7 +288,7 @@ class Companion {
 
   /** A route to near `to`, bent onto this one's own line, or null. */
   private route(map: TileMap, to: { x: number; y: number }): { x: number; y: number }[] | null {
-    const raw = findPath(map, this.actor.x, this.actor.y, to.x, to.y, { near: true });
+    const raw = findPath(map, this.actor.x, this.actor.y, to.x, to.y, { near: true, radius: this.actor.radius });
     if (!raw || raw.length === 0) return null;
     // Nudge waypoints to this one's side so two followers handed the same
     // route do not walk it single file. The last one stays exact.
@@ -431,14 +427,14 @@ class Companion {
 
   /** Step toward a point, tracking whether it is actually getting anywhere. */
   private travel(dt: number, map: TileMap, x: number, y: number, slack: number, pace: number): number {
-    const bx = this.actor.x;
-    const by = this.actor.y;
     const left = this.actor.seek(dt, x, y, slack, map, pace);
-    const moved = Math.hypot(this.actor.x - bx, this.actor.y - by);
+    const after = Math.hypot(x - this.actor.x, y - this.actor.y);
     // Measured against the step it meant to take, since seek eases off over
-    // the last stretch and would otherwise read as stuck.
+    // the last stretch and would otherwise read as stuck. Progress is how
+    // much nearer it got rather than how far it moved: a body sliding along
+    // a wall covers ground and gets no closer.
     const wanted = this.actor.speed * Math.min(pace, Math.max(left, 1) / 24) * dt;
-    if (left > slack + 2 && moved < wanted * 0.25) this.stuckT += dt;
+    if (left > slack + 2 && left - after < wanted * 0.25) this.stuckT += dt;
     else this.stuckT = 0;
     return left;
   }
@@ -543,17 +539,7 @@ class Companion {
 
   /** The closest point to `a` this actor can actually stand on. */
   private nearestFree(map: TileMap, a: { x: number; y: number }): { x: number; y: number } {
-    const r = this.actor.radius + 1;
-    if (!blocked(map, a.x, a.y, r)) return a;
-    for (let rad = 8; rad <= 96; rad += 8) {
-      for (let i = 0; i < 12; i++) {
-        const ang = (i / 12) * Math.PI * 2;
-        const x = a.x + Math.cos(ang) * rad;
-        const y = a.y + Math.sin(ang) * rad;
-        if (!blocked(map, x, y, r)) return { x, y };
-      }
-    }
-    return a;
+    return map.nearestFree(a.x, a.y, this.actor.radius + 1, 96) ?? a;
   }
 
   /** Stand it `dist` behind the anchor, out of the way of where it is going. */
@@ -1079,6 +1065,9 @@ export class Overworld {
       // of us would do that sixty times a second.
       if (this.peerDriven && c === this.partner) continue;
       if (!blocked(this.world.map, c.actor.x, c.actor.y, c.actor.radius)) continue;
+      // Overlapping with open ground in reach is the collision's own business:
+      // its next step pushes it clear. This is for one buried with none.
+      if (this.world.map.nearestFree(c.actor.x, c.actor.y, c.actor.radius, TILE)) continue;
       c.placeNear(this.world.map, crowd);
     }
   }

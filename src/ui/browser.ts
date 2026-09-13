@@ -15,7 +15,8 @@ import { MAX_BREED_COUNT } from "../sim/breeding";
 import { STATUSES } from "../sim/status";
 import { moveCost, passiveStatuses, statsAt, maxHp, type ScobaInstance } from "../sim/scoba";
 import { ABILITIES, MOVES, SPECIES, moveTypes, typesOf, type Move } from "../sim/species";
-import { describeAbility, describeMoveEffects } from "../sim/describe";
+import { abilityText, moveText } from "../game/texts";
+import { proseBox } from "./prose";
 import { STAT_LABELS, TYPES, TYPE_COLORS, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
 import type { UI } from "./screens";
 import { typeIcon, typeIcons } from "./typeicon";
@@ -300,6 +301,8 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
   // --- the frame, built once per open ---
   function build(): void {
     ui.screen((screen) => {
+      // Tighter spacing than most screens: three panels deep has to fit the frame.
+      screen.classList.add("tight");
       screen.appendChild(el("h2", undefined, cfg.title));
       const wrap = el("div", "browser");
 
@@ -351,8 +354,11 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
         row.appendChild(num);
         search.appendChild(row);
       }
-      search.appendChild(button("bxWide", "Search", apply));
-      search.appendChild(button("bxWide bxClear", "Clear search", reset));
+      // Side by side: the panel has to fit beside the grid in one screen.
+      const ops = el("div", "bxSearchOps");
+      ops.appendChild(button("bxWide", "Search", apply));
+      ops.appendChild(button("bxWide bxClear", "Clear", reset));
+      search.appendChild(ops);
       wrap.appendChild(search);
 
       // The grid itself.
@@ -365,6 +371,9 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       side.appendChild(button("bxArrow", "▲", () => scrollBy(-1)));
       side.appendChild(track);
       side.appendChild(button("bxArrow", "▼", () => scrollBy(1)));
+      // The way back sits at the foot of the scroll column rather than in a
+      // row of its own under the panels, which is the row that did not fit.
+      side.appendChild(button("bxWide bxBack", "Back", cfg.onBack));
       wrap.appendChild(side);
 
       // Readout, and the button that opens the whole card.
@@ -378,7 +387,6 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
 
       wrap.appendChild(footWrap);
       screen.appendChild(wrap);
-      screen.appendChild(button("big", "Back", cfg.onBack));
 
       fillGrid();
       fillReadout();
@@ -402,9 +410,10 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
     const stats = statsAt(s);
     // `types` rather than one type: a move of two elements is read against
     // both, so it has to say both.
-    let showing: { name: string; note: string; desc: string; types?: ElementType[] } | null = null;
+    let showing: { name: string; note: string; desc: string; move?: Move; types?: ElementType[] } | null = null;
 
     ui.screen((screen) => {
+      screen.classList.add("tight");
       const card = el("div", "bxCard");
 
       const head = el("div", "bxCardHead");
@@ -460,7 +469,13 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
         for (const t of showing.types ?? []) head.appendChild(typeIcon(t));
         head.appendChild(el("span", "dim", showing.note));
         note.appendChild(head);
-        note.appendChild(el("div", undefined, showing.desc));
+        // Read against the Scoba whose card this is, so a damage line is the
+        // number that Scoba would actually deal.
+        note.appendChild(proseBox(showing.desc, {
+          move: showing.move ?? null,
+          stats: statsAt(s),
+          level: s.level,
+        }));
       };
 
       const slot = (label: string, cost: string, what: NonNullable<typeof showing>): void => {
@@ -490,7 +505,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       for (const id of [sp?.primaryAbility, s.secondaryAbility]) {
         const ability = id ? ABILITIES[id] : undefined;
         if (!ability) continue;
-        slot(ability.name, "passive", { name: ability.name, note: "passive", desc: describeAbility(ability.id) });
+        slot(ability.name, "passive", { name: ability.name, note: "passive", desc: abilityText(ability.id) });
       }
       for (const id of s.moves) {
         const move = MOVES[id];
@@ -499,7 +514,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
         slot(move.name, `${cost}%`, {
           name: move.name,
           note: cost > move.manaCost ? `${move.kind} · worked` : move.kind,
-          desc: moveLine(move),
+          desc: moveLine(move), move,
           types: moveTypes(move),
         });
       }
@@ -515,7 +530,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
 
 /** What a move does. The cost is on the slot beside it, so the line leaves it off. */
 function moveLine(move: Move): string {
-  return describeMoveEffects(move);
+  return moveText(move);
 }
 
 /**

@@ -7,7 +7,7 @@ import { makeWild, statsAt, type ScobaInstance } from "../src/sim/scoba";
 import { rngFrom } from "../src/sim/rng";
 import { newStatus, stacksOf, HYPER_FLAT, HYPER_SCALE } from "../src/sim/status";
 import { STAT_NAMES } from "../src/sim/types";
-import { ABILITIES, MOVES, SPECIES, artNameFor } from "../src/sim/species";
+import { ABILITIES, MOVES, SPECIES, artNameFor, wornBy } from "../src/sim/species";
 import { accessoryOf } from "../src/game/critters";
 
 const wild = (species: string, level: number, seed: string): ScobaInstance =>
@@ -278,7 +278,7 @@ describe("what a Scoba is seen wearing", () => {
 
   it("names the tag on the move rather than anywhere that draws it", () => {
     const granted = ABILITIES["cherry-on-top"]!.grantsMove!;
-    expect(MOVES[granted]!.spendsForm).toBe("cherryless");
+    expect(wornBy(MOVES[granted]!)).toBe("cherryless");
   });
 
   it("tags a combatant as it spends the move and as it goes Hyper", () => {

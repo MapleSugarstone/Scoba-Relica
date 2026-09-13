@@ -1,6 +1,6 @@
 // Team validation for online battles. Play with a friend is trust-based, but
 // ranked 2v2 re-derives what a Scoba could legally be: species, level, moves
-// reachable through its learnset plus breeding inheritance, ability from its
+// reachable through its line's list plus breeding inheritance, ability from its
 // own pool (or anyone's, via breeding), and genes reachable through the 80/20
 // breeding mix. Any two Scobas can breed, so every pool below is global.
 import type { ScobaInstance } from "./scoba";
@@ -21,7 +21,7 @@ function breedableSpecies(): Species[] {
 function inheritableMoves(): Set<string> {
   const pool = new Set<string>();
   for (const member of breedableSpecies()) {
-    for (const l of member.learnset) pool.add(l.move);
+    for (const id of member.moves) pool.add(id);
   }
   return pool;
 }
@@ -101,11 +101,11 @@ export function validateScoba(s: ScobaInstance, opts: LegalityOptions = {}): str
   if (new Set(s.moves).size !== s.moves.length) {
     errors.push(`${name}: duplicate moves`);
   }
-  // A bred child inherits mom's moves, which can sit above its own level, so
-  // breeding unlocks the full own-species learnset for legality purposes.
+  // A bred child inherits mom's moves, which can be any its line lists, so
+  // breeding unlocks the whole own-species list for legality purposes.
   const own = new Set(
     s.breedCount > 0
-      ? sp.learnset.map((l) => l.move)
+      ? sp.moves
       : speciesMoves(sp),
   );
   const inherited = inheritableMoves();

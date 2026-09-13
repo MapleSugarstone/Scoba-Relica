@@ -6,18 +6,27 @@
 // triggers up front, the cost in a trailer, and nothing described by its name
 // where it can be described by what it does.
 import {
-  ABILITIES, MOVES, SPECIES, abilityStatuses, moveTypes, type Move, type MoveEffect,
+  ABILITIES, MOVES, SPECIES, abilityStatuses, moveTypes, type Move,
 } from "./species";
 import {
   FIELDS, STATUSES,
-  type Basis, type DamageCategory, type FieldDef, type InflictScope, type StatusDef,
-  type StatusEffect, type StatusTrigger,
+  type Basis, type DamageCategory, type FieldDef, type MoveChange, type StatusDef,
+  type StatusEffect, type StatusTrigger, type Step, type Who,
   isContinuous,
 } from "./status";
 import { STAT_LABELS, STAT_NAMES, TYPE_LABELS, type ElementType, type StatName } from "./types";
+import { BLACKJACK, CARD_HIGH } from "./cards";
+import { MAX_LEVEL } from "./scoba";
 import type { TargetMode } from "./targeting";
 
 const pct = (f: number): string => `${Math.round(f * 100)}%`;
+
+/**
+ * A flat amount a status gains with its source's level, as what each level adds.
+ * The number is written in the script as what it comes to at the level ceiling,
+ * so 50 there is 1.67 a level.
+ */
+export const perLevel = (atCeiling: number): string => String(Number((atCeiling / MAX_LEVEL).toFixed(2)));
 const signed = (f: number): string => `${f >= 0 ? "+" : "-"}${pct(Math.abs(f))}`;
 const turns = (n: number): string => `${n} turn${n === 1 ? "" : "s"}`;
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -74,14 +83,18 @@ const TARGETS: Record<TargetMode, Subject> = {
   "random-scoba": one("someone at random", "someone's"),
 };
 
-const SCOPES: Record<InflictScope, Subject> = {
+/** Who a status's step reaches, named from the Scoba carrying it. */
+const SCOPES: Record<Exclude<Who, { aim: number }>, Subject> = {
   self: SELF,
+  source: one("whoever left it", "whoever left it's"),
   other: THE_TARGET,
   allies: many("every ally", "every ally's"),
   enemies: many("every enemy", "every enemy's"),
-  all: many("everyone", "everyone's"),
+  everyone: many("everyone", "everyone's"),
   others: many("every other Scoba", "every other Scoba's"),
 };
+
+const scopeOf = (w: Who): Subject => (typeof w === "object" ? THE_TARGET : SCOPES[w]);
 
 /** A sentence, and whether it opens on a trigger rather than following on. */
 interface Piece {
@@ -164,14 +177,27 @@ function grant(e: StatusEffect): string | null {
   }
 }
 
+/** What a status's `power` was measured off: "the caster's Magic", "its max HP". */
+function powerOf(basis: Basis, who: Subject): string {
+  switch (basis) {
+    case "source-str": return `the caster's ${stat("str")}`;
+    case "source-mag": return `the caster's ${stat("mag")}`;
+    case "source-max-hp": return "the caster's max HP";
+    case "holder-str": return `${who.their} ${stat("str")}`;
+    case "holder-mag": return `${who.their} ${stat("mag")}`;
+    case "holder-max-hp": return `${who.their} max HP`;
+    case "holder-hp": return `${who.their} HP as it stood`;
+  }
+}
+
 /** A standing condition, as a verb phrase: "takes no Moon damage". */
-function state(e: StatusEffect, def: StatusDef): string | null {
+function state(e: StatusEffect, def: StatusDef, who: Subject): string | null {
   switch (e.kind) {
     case "root": return "cannot switch out";
     case "stat-power": {
       const p = def.power;
       if (!p) return null;
-      const share = `${pct(Math.abs(p.frac * e.mult))} of ${p.basis === "source-mag" ? "the caster's Magic" : "the caster's Strength"}`;
+      const share = `${pct(Math.abs(p.frac * e.mult))} of ${powerOf(p.basis, who)}`;
       return `${e.mult < 0 ? "loses" : "gains"} ${share} as ${stat(e.stat)}`;
     }
     case "immune": return `takes no ${type(e.element)} damage`;
@@ -180,9 +206,29 @@ function state(e: StatusEffect, def: StatusDef): string | null {
       const n = def.charges ?? 0;
       return `absorbs ${n === 1 ? "one" : n > 1 ? String(n) : "every"} ${type(e.element)} hit${n === 1 ? "" : "s"}${n > 0 ? " a battle" : ""}`;
     }
+    case "mark-power":
+      return `makes the marks it leaves that stand for ${turns(e.minTurns)} or more ${pct(e.mult - 1)} stronger`;
     default: return null;
   }
 }
+
+/** A rewrite of a move, as the words it comes to: "Fortuna, physical and off Strength". */
+function rewriteWords(changes: MoveChange[]): string {
+  const words = changes.flatMap((c) => {
+    switch (c.set) {
+      case "type": return [type(c.to)];
+      case "category": return [c.to];
+      case "stat": return [`off ${stat(c.to)}`];
+      case "cost": return [c.mult === 0.5 ? "at half cost" : `at ${pct(c.mult)} of its cost`];
+      case "tint": case "name": return [];
+    }
+  });
+  if (words.length <= 1) return words.join("");
+  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+/** The steps that only change what is drawn and heard, and say nothing in a description. */
+const SHOWN = new Set<Step["kind"]>(["motion", "throw", "show", "sound", "wait", "wear", "say", "draw-card"]);
 
 /** Every stat raised by the same amount reads as one thing. */
 function grants(effects: StatusEffect[]): string[] {
@@ -231,7 +277,11 @@ interface StatusOpts {
 /** What a fired effect does, as a verb phrase in the third person. */
 function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts): string {
   switch (e.kind) {
-    case "damage": return `takes ${damageAmount(e.damage.basis, e.damage.frac, e.damage.element, e.damage.category, who)}`;
+    case "damage": {
+      const dealt = damageAmount(e.damage.basis, e.damage.frac, e.damage.element, e.damage.category, who);
+      const flat = e.damage.flatAtCeiling;
+      return `takes ${dealt}${flat ? ` plus ${perLevel(flat)} damage per level` : ""}`;
+    }
     case "heal": return `heals ${healAmount(e.basis, e.frac, who)}`;
     case "summon": return summons(e.species, e.level, who);
     case "mana": return `gains ${e.amount}% mana`;
@@ -242,7 +292,7 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
       // A source that overrides how long the mark stands is described by what
       // it actually leaves behind rather than by the mark's own clock.
       const held = e.turns === undefined ? inner : { ...inner, duration: e.turns };
-      return statusPieces(held, SCOPES[e.scope], { ...opts, nested: true })
+      return statusPieces(held, scopeOf(e.on), { ...opts, nested: true })
         .map((p) => low(p.text.replace(/\.$/, "")))
         .join(" and ");
     }
@@ -254,8 +304,25 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
     }
     case "grant-item": return `finds ${e.count} ${cap(e.item)}`;
     case "cleanse": return `clears ${who.their} ${e.polarity} statuses`;
-    case "copy-statuses":
+    case "copy-marks":
       return `passes ${who.their} statuses to ${def.trigger.on === "death" ? "whoever struck it down" : "whoever set it off"}`;
+    case "hit": {
+      const amount = e.perLevel !== undefined
+        ? `${e.perLevel} damage per level`
+        : e.scaling.map((s) => `${pct(s.scale)} ${stat(s.stat)}`).join(" plus ");
+      return `hits ${scopeOf(e.to).noun || "itself"} for ${amount}`;
+    }
+    case "pick-move":
+      return `picks a random move out of the whole game${e.minCost > 0 ? ` costing ${e.minCost} or more` : ""}`;
+    case "change-move": return `rewrites it as ${rewriteWords(e.changes)}`;
+    case "give-move":
+      return e.slot === null
+        ? "hands it over on top of its moves for the battle"
+        : `puts it in slot ${e.slot + 1} for the battle`;
+    case "deal-card": return `deals a card onto ${scopeOf(e.to).noun || "itself"}`;
+    case "transfer": return `takes ${pct(e.frac)} of the current HP of ${scopeOf(e.from).noun || "itself"}`;
+    case "if": return "";
+    case "refund": return "";
     default: return "";
   }
 }
@@ -294,12 +361,12 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
     out.push({ text, triggered: false });
   }
   for (const e of standing) {
-    const s = state(e, def);
+    const s = state(e, def, who);
     if (!s) continue;
     out.push({ text: `${who.noun ? `${cap(who.noun)} ${s}` : cap(s)}${dur}.`, triggered: false });
   }
 
-  const goes = def.effects.filter((e) => !isContinuous(e.kind));
+  const goes = def.effects.filter((e) => !isContinuous(e.kind) && !SHOWN.has(e.kind as Step["kind"]));
   if (goes.length > 0) {
     const lead = when(def.trigger);
     // A trigger that can only ever fire once says nothing about how often.
@@ -336,6 +403,10 @@ function join(pieces: Piece[]): string {
 export function describeStatus(id: string, opts: StatusOpts = {}): string {
   const def = (opts.statuses ?? STATUSES)[id];
   if (!def) return "";
+  if (def.hand) {
+    return `The cards it is holding. Landing on exactly ${BLACKJACK} pays out against it,`
+      + " and going over clears the hand for nothing.";
+  }
   return join(statusPieces(def, HOLDER, opts));
 }
 
@@ -379,40 +450,76 @@ function movePieces(move: Move, opts: StatusOpts): Piece[] {
     named.add(i);
     return t;
   };
+  const who = (w: Who): Subject => {
+    if (typeof w === "object") return subject(w.aim);
+    if (w === "self" || w === "source") return SELF;
+    return SCOPES[w];
+  };
   const out: Piece[] = [];
-  const category = move.kind === "physical" ? "physical" : "magic";
-  if (move.kind === "physical" || move.kind === "magical") {
-    const t = subject(0);
-    out.push({
-      text: `Deals ${pct(move.scale)} ${moveElements(move)} ${category} damage to ${t.noun || "itself"}.`,
-      triggered: false,
-    });
-  } else if (move.kind === "heal") {
-    const t = subject(0);
-    out.push({ text: `Heals ${t.noun ? `${t.noun} ` : ""}for ${pct(move.scale)} of ${t.their} max HP.`, triggered: false });
-  }
-  for (const e of move.effects ?? []) out.push(...effectPieces(e, subject, opts));
+  for (const e of move.cast) out.push(...stepPieces(e, move, who, opts));
   return out;
 }
 
-function effectPieces(e: MoveEffect, subject: (i: number) => Subject, opts: StatusOpts): Piece[] {
+function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusOpts): Piece[] {
   switch (e.kind) {
-    case "status": {
-      const def = (opts.statuses ?? STATUSES)[e.status];
-      if (!def) return [{ text: `Leaves ${e.status} on ${subject(e.target).noun || "itself"}.`, triggered: false }];
-      return statusPieces(def, subject(e.target), opts);
-    }
-    case "damage": {
-      const t = subject(e.target);
-      return [{ text: `Deals ${pct(e.scale)} Plain physical damage to ${t.noun || "itself"}.`, triggered: false }];
+    case "hit": {
+      const t = who(e.to);
+      if (e.perLevel !== undefined) {
+        return [{ text: `Deals ${e.perLevel} damage per level to ${t.noun || "itself"}, which nothing reduces.`, triggered: false }];
+      }
+      const category = e.category ?? (e.scaling[0]?.stat === "mag" ? "magic" : "physical");
+      const elements = e.element ? type(e.element) : moveElements(move);
+      return [{
+        text: `Deals ${pct(e.scaling[0]?.scale ?? 0)} ${elements} ${category} damage to ${t.noun || "itself"}.`,
+        triggered: false,
+      }];
     }
     case "heal": {
-      const t = subject(e.target);
-      return [{ text: `Heals ${t.noun ? `${t.noun} ` : ""}for ${pct(e.frac)} of ${t.their} max HP.`, triggered: false }];
+      const t = who(e.to);
+      const of = e.basis === "source-mag" ? `the caster's ${stat("mag")}`
+        : e.basis === "source-str" ? `the caster's ${stat("str")}`
+          : `${t.their} max HP`;
+      return [{ text: `Heals ${t.noun ? `${t.noun} ` : ""}for ${pct(e.frac)} of ${of}.`, triggered: false }];
     }
+    case "inflict": {
+      const def = (opts.statuses ?? STATUSES)[e.status];
+      if (!def) return [{ text: `Leaves ${e.status} on ${who(e.on).noun || "itself"}.`, triggered: false }];
+      const held = e.turns === undefined ? def : { ...def, duration: e.turns };
+      return statusPieces(held, who(e.on), opts);
+    }
+    case "if": {
+      const inner = e.then.flatMap((s) => stepPieces(s, move, who, opts));
+      if (e.then.some((s) => s.kind === "refund")) {
+        return [...inner, { text: "A kill with it refunds its cost and its cooldown.", triggered: true }];
+      }
+      return inner;
+    }
+    case "refund": return [];
+    case "damage": {
+      const t = who(e.to);
+      const d = e.damage;
+      return [{ text: `Deals ${damageAmount(d.basis, d.frac, d.element, d.category, t)} to ${t.noun || "itself"}.`, triggered: false }];
+    }
+    case "pick-move":
+      return [{ text: `Picks a random move out of the whole game${e.minCost > 0 ? ` costing ${e.minCost} or more` : ""}.`, triggered: false }];
+    case "change-move": return [{ text: `Rewrites it as ${rewriteWords(e.changes)}.`, triggered: false }];
+    case "give-move":
+      return [{
+        text: e.slot === null ? "Hands it over for the battle." : `Puts it in slot ${e.slot + 1} for the battle.`,
+        triggered: false,
+      }];
+    case "mana": return [{ text: `Gives ${who(e.on).noun || "itself"} ${e.amount}% mana.`, triggered: false }];
+    case "field": {
+      const f = FIELDS[e.field];
+      const side = e.scope === "both" ? "both sides" : e.scope === "allies" ? "its side" : "the enemy side";
+      return [{ text: `Gives ${side} ${f ? fieldClauses(f).join(", ") : e.field}.`, triggered: false }];
+    }
+    case "motion": case "throw": case "show": case "sound": case "wait": case "wear": case "say":
+    case "draw-card":
+      return [];
     case "transfer": {
-      const from = subject(e.from);
-      const to = subject(e.to);
+      const from = who(e.from);
+      const to = who(e.to);
       const split = to.plural ? ", split between them" : "";
       return [
         { text: `Takes ${pct(e.frac)} of ${from.poss || "its"} current HP.`, triggered: false },
@@ -425,18 +532,32 @@ function effectPieces(e: MoveEffect, subject: (i: number) => Subject, opts: Stat
       ];
     }
     case "cleanse": {
-      const t = subject(e.target);
+      const t = who(e.on);
       return [{ text: `Clears ${e.polarity} statuses from ${t.noun || "itself"}.`, triggered: false }];
     }
-    case "copy-statuses": {
-      const from = subject(e.from);
-      const to = subject(e.to);
+    case "copy-marks": {
+      const from = who(e.from);
+      const to = who(e.to);
       return [{ text: `Copies ${from.poss || "its"} statuses onto ${to.noun || "itself"}.`, triggered: false }];
     }
     case "summon":
       return [{ text: `${cap(summons(e.species, e.level, SELF))}.`, triggered: false }];
     case "grant-item":
       return [{ text: `Finds ${e.count} ${cap(e.item)}.`, triggered: false }];
+    case "deal-card": {
+      const t = who(e.to);
+      return [
+        {
+          text: `Deals a card onto ${t.noun || "itself"}, worth 1 to ${CARD_HIGH}.`,
+          triggered: false,
+        },
+        {
+          text: `A hand of exactly ${BLACKJACK} pays out for ${pct(e.payoff)} Strength`
+            + " and clears. Over that busts.",
+          triggered: false,
+        },
+      ];
+    }
   }
 }
 

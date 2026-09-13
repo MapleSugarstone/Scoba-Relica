@@ -6,7 +6,7 @@
 // dev hooks, and everything writes into the one WorldContent document that
 // localStorage carries between reloads and Export downloads for committing.
 import { ART, type Renderer } from "../engine/renderer";
-import { maskHas, maskWith, SUB, SUB_FULL, TILE } from "../engine/tilemap";
+import { maskHas, maskWith, RIM_PX, SUB, SUB_FULL, TILE } from "../engine/tilemap";
 import { HAIR_URLS, EYE_URLS, SHIRT_URLS } from "../engine/paperdoll";
 import {
   DEFAULT_LOOK, DETAIL_COLORS, HAIR_COLORS, SHIRT_COLORS, SKIN_COLORS, type Look,
@@ -746,6 +746,13 @@ export class DevEditor {
           } else if (m && collisionAt(m, cx, cy) === "o") {
             ctx.fillStyle = "rgba(122,167,74,0.35)";
             ctx.fillRect(px, py, TILE, TILE);
+          }
+          const rim = map.rims.get(map.idx(cx, cy));
+          if (rim) {
+            ctx.fillStyle = "rgba(217,85,63,0.4)";
+            if (rim & 1) ctx.fillRect(px, py, TILE, RIM_PX);
+            if (rim & 2) ctx.fillRect(px + TILE - RIM_PX, py, RIM_PX, TILE);
+            if (rim & 8) ctx.fillRect(px, py, RIM_PX, TILE);
           }
           // Subcell guides, so a rail can be aimed before it is painted.
           ctx.fillStyle = "rgba(255,255,255,0.12)";

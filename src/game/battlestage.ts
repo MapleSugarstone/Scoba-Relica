@@ -8,7 +8,7 @@
 // all to nothing, which is what lets the tests run a battle without waiting.
 import type { Art } from "../engine/assets";
 import type { Renderer } from "../engine/renderer";
-import { ART } from "../engine/renderer";
+import { ART, frameRect, viewport } from "../engine/renderer";
 import { DOLL_W } from "../engine/paperdoll";
 import { sfx } from "../engine/sfx";
 import { Actor, MOTIONS } from "./actors";
@@ -17,15 +17,20 @@ import {
   accessoryAnchor, centerAnchor, critterLook, critterBounds, lookOf, originAnchor, personSkin,
   type CritterBounds, type FormTag,
 } from "./critters";
-import { formsOf, statusSummary, type BattleEvent, type BattleState, type StatusMark } from "../sim/battle";
 import {
-  animOf, vfxOf, MOVES, SPECIES,
+  formsOf, statusSummary,
+  type BattleEvent, type BattleState, type Combatant, type StatusMark, type VisualStep,
+} from "../sim/battle";
+import { BLACKJACK, CARD_BACK, CARD_HIGH, cardOfValue, type CardFace } from "../sim/cards";
+import { hexToRgb, paletteSwap } from "../engine/recolor";
+import {
+  MOVES, SPECIES,
   type CasterAnim, type Move, type MoveVfx, type Species,
 } from "../sim/species";
-import { FIELDS } from "../sim/status";
+import { FIELDS, STATUSES } from "../sim/status";
 import { rngFrom } from "../sim/rng";
 import { TYPE_COLORS } from "../sim/types";
-import { ALL_SLOTS, SCOBA_SLOTS, isPawnSlot, type TargetRef } from "../sim/targeting";
+import { ALL_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, isPawnSlot, type TargetRef } from "../sim/targeting";
 import type { SaveData, SlotId } from "../save/save";
 
 /** Where a fighter stands, as a share of the view. */
@@ -81,6 +86,12 @@ interface Fighter {
    * steam rather than standing there while its replacement arrives.
    */
   leaving: Retreat | null;
+  /**
+   * The hand it is holding: the last card dealt onto it, as it was thrown, and
+   * what the cards add up to. Drawn over its head and kept between turns,
+   * because the hand is against the Scoba until it pays out.
+   */
+  hand: { face: CardFace; count: number } | null;
 }
 
 /** A walk off the field: out and down a little, then out and away. */
@@ -135,7 +146,7 @@ interface FieldWash {
 }
 
 interface Effect {
-  kind: MoveVfx | "impact" | "poof";
+  kind: MoveVfx | "impact" | "poof" | "wheel";
   t: number;
   dur: number;
   from: Anchor;
@@ -149,6 +160,8 @@ interface Effect {
    * so a move with art and one without travel and land the same way.
    */
   sprite?: HTMLCanvasElement | HTMLImageElement;
+  /** Drawn over the sprite and never turned with it: the wheel's pointer. */
+  pin?: HTMLCanvasElement | HTMLImageElement;
 }
 
 /**
@@ -243,12 +256,6 @@ const RANK = {
    */
   castBack: 0.77,
   castFront: 0.83,
-  /**
-   * The court gathers at the very front of its own side, in a row down at the
-   * bottom corner beside the buttons. Far enough back off the action bar that
-   * the small cards under them still clear it.
-   */
-  pawns: 0.93,
 };
 
 /**
@@ -308,6 +315,12 @@ const CAST_STAGGER = 20;
 const PAWN_STEP = 16;
 /** Air between two Pawn cards, and between the outermost one and the edge. */
 const PAWN_GAP = 4;
+/**
+ * How far below the band's foot the court stands, in world units. Its cards
+ * hang under it, so with the card and its gap this has to fit inside the
+ * plate room the action bar leaves (a Scoba's readout is taller than that).
+ */
+const PAWN_SINK = 15;
 
 /**
  * Slack around a Scoba's drawn pixels, in world units: air under the ring and
@@ -317,8 +330,6 @@ const TOUCH_PAD = 3;
 /** How far over a head a marker floats, and how far it bobs. */
 const MARKER_GAP = 2;
 const MARKER_BOB = 1.5;
-/** How thick the ring around a target is drawn, in art pixels. */
-const RETICLE_BRUSH = 3;
 /**
  * How high a shot is thrown over the line between its ends, per world unit of
  * ground it climbs, and the most it ever is. Enough to clear the readout of
@@ -477,12 +488,20 @@ export class BattleStage {
   setPawnCard(px: number): void {
     if (px <= 0) return;
     const world = px * this.cssScale();
-    this.pawnStep = Math.max(PAWN_STEP, world + PAWN_GAP);
-    this.pawnEdge = Math.max(EDGE, world / 2 + PAWN_GAP);
+    const step = Math.max(PAWN_STEP, world + PAWN_GAP);
+    const edge = Math.max(EDGE, world / 2 + PAWN_GAP);
+    const changed = step !== this.pawnStep || edge !== this.pawnEdge;
+    this.pawnStep = step;
+    this.pawnEdge = edge;
+    // A court that arrives before any card exists to measure stands at the
+    // fallback step, so the row goes back on its marks once one has been.
+    if (changed && this.queue.length === 0) this.resnap();
   }
 
   setSafeBottom(px: number): void {
-    this.safeWant = Math.min(this.view.h * 0.5, Math.max(0, px) * this.cssScale());
+    // Up to six tenths of the view: the block takes four, and the readouts
+    // hanging under the front rank need the rest to clear it.
+    this.safeWant = Math.min(this.view.h * 0.6, Math.max(0, px) * this.cssScale());
     // The first reading is the layout, not a change to it.
     if (this.safeBottom === 0) this.safeBottom = this.safeWant;
   }
@@ -519,11 +538,18 @@ export class BattleStage {
     // inward from the edge, where it fills the ground beside the buttons
     // instead of floating about behind everybody.
     if (isPawnSlot(slot)) {
-      const i = slot - SCOBA_SLOTS;
+      // The first Pawn slot is the one nearest the Scobas, and the row runs
+      // out from there to the edge: a court fills in from its own side's
+      // Scobas, and closes ranks toward them when one falls.
+      const i = PAWN_SLOTS - 1 - (slot - SCOBA_SLOTS);
       const along = this.pawnEdge + i * this.pawnStep;
+      // Below the band, in the room kept for the readouts: the court stands
+      // at the foot of the field with its cards straight under it, clear of
+      // the readouts hanging from the ranks above.
+      const b = this.band();
       return {
         x: side === 0 ? along : this.view.w - along,
-        y: this.rankY(RANK.pawns),
+        y: b.top + b.height + PAWN_SINK,
       };
     }
     const across = SCOBA_ACROSS[slot] ?? SCOBA_ACROSS[0]!;
@@ -656,6 +682,9 @@ export class BattleStage {
           bounds, head: bounds.top + idleLift(sp.movement, actor.idleMix),
           alpha: pawn ? 0 : 1, shake: 0, hurt: 0, heal: 0, flare: 0,
           settled: !pawn, plate: pawn ? 0 : 1, leaving: null,
+          // A hand already dealt is read back off the battle, so one standing
+          // on a Scoba that walks off and back on is still over its head.
+          hand: handOf(c),
         });
         continue;
       }
@@ -776,7 +805,10 @@ export class BattleStage {
   private spotOn(f: Fighter, anchor: { x: number; y: number }): Anchor {
     const at = this.posOf(f);
     const facing = f.side === 0 ? 1 : -1;
-    return { x: at.x + anchor.x * ART * facing, y: at.y - anchor.y * ART };
+    // The anchor is already in world units, the same as everything else the
+    // stage measures in. Scaling it by the art's own density here put every
+    // throw four times too far from the feet it was measured off.
+    return { x: at.x + anchor.x * facing, y: at.y - anchor.y };
   }
 
   /**
@@ -791,16 +823,15 @@ export class BattleStage {
   }
 
   /**
-   * Where a move leaves the caster from. A move thrown off a piece the caster
-   * wears leaves from where that piece sits, drawn in or worn on top alike;
-   * anything else leaves from the middle of the Scoba.
+   * Where a throw leaves the caster from. A throw off a piece the caster wears
+   * leaves from where that piece sits, drawn in or worn on top alike. Anything
+   * else leaves from the middle of the Scoba.
    */
-  private originOf(f: Fighter, move: Move | null): Anchor {
+  private originOf(f: Fighter, piece?: string): Anchor {
     const drawn = this.drawnAs(f);
     if (!drawn) return this.posOf(f);
-    const worn = move?.vfxOrigin;
-    const anchor = worn
-      ? accessoryAnchor(this.art, drawn.sp, worn, drawn.forms)
+    const anchor = piece
+      ? accessoryAnchor(this.art, drawn.sp, piece, drawn.forms)
       : originAnchor(this.art, drawn.sp, drawn.forms);
     return this.spotOn(f, anchor);
   }
@@ -988,7 +1019,14 @@ export class BattleStage {
     this.stepRetreats(dt);
     for (const f of this.fighters) {
       if (f.leaving) continue;
-      f.actor.step(dt, 0, 0, NO_MAP);
+      // The court closes ranks: a Pawn whose slot moved in after a round
+      // walks to its new mark while nothing else is playing.
+      const home = f.pawn && f.settled && this.queue.length === 0 ? this.anchor(f.side, f.slot) : null;
+      if (home && Math.hypot(home.x - f.actor.x, home.y - f.actor.y) > 0.5) {
+        f.actor.seek(dt, home.x, home.y, 0.5, NO_MAP, 1, WALK_ON);
+      } else {
+        f.actor.step(dt, 0, 0, NO_MAP);
+      }
       f.shake *= Math.max(0, 1 - dt * 9);
       f.hurt = Math.max(0, f.hurt - dt * 8);
       // Slower than a hit's flash: what a heal reads as is the colour draining
@@ -1348,21 +1386,40 @@ export class BattleStage {
     };
 
     switch (ev.kind) {
+      case "show":
+        // Nothing to say in the log: the step is only what is drawn and heard.
+        if (ev.visual) this.queueVisual(ev, ev.visual);
+        return;
       case "spell": {
-        const move = ev.moveId ? MOVES[ev.moveId] ?? null : null;
         const self = this.find(ev.at);
         if (!self) return say(0.2);
-        const anim = animOf(move);
-        // The movement runs beside the queue, so whatever the move throws
-        // leaves while the throw is still happening rather than after it. The
-        // step itself is only the beat before the first hit lands.
+        // A move's own steps say how its caster moves and when. A basic attack
+        // has no steps, so it steps at what it is swinging at.
+        if (ev.moveId) return say(0, { start: () => this.reskinAll() });
+        // The movement runs beside the queue, so the blow lands while the swing
+        // is still happening rather than after it.
         say(CAST_LEAD, {
-          // A move that uses something up changes what the caster looks like as
-          // it is cast rather than when the hit lands, so the cherry leaves the
-          // glass on the throw and the throw is what it leaves on.
           start: () => {
             this.reskinAll();
-            this.startMotion(self, anim);
+            this.startMotion(self, "lunge");
+          },
+        });
+        return;
+      }
+      case "card": {
+        // Whatever threw the card has already played. The card it threw is the
+        // one that stays over the head it landed on, until a hand of 21 or more
+        // is settled and taken away.
+        const target = this.find(ev.at);
+        if (!target) return say(0.2);
+        const face = ev.face;
+        const count = ev.count;
+        say(HAND_SHOWN, {
+          start: () => {
+            if (face && count !== undefined) target.hand = { face, count };
+          },
+          end: () => {
+            if (count !== undefined && count >= BLACKJACK) target.hand = null;
           },
         });
         return;
@@ -1404,61 +1461,16 @@ export class BattleStage {
       }
       case "hit": {
         // A hit that the volley ahead of it already landed is only its own log
-        // line: the throw, the arrival and the flash all happened together.
+        // line: the arrival and the flash all happened together.
         if (follows) return say(FOLLOW_BEAT);
         const target = this.find(ev.at);
-        const from = this.find(ev.by ?? caster);
-        const move = ev.moveId ? MOVES[ev.moveId] ?? null : null;
-        const vfx = vfxOf(move);
-        const color = move ? TYPE_COLORS[move.type] : "#f3f2c0";
-        const sprite = move?.art ? this.art.powers[move.art] : undefined;
         if (!target) return say(0.2);
-        // Everyone this cast reaches, so one throw goes out per target and
-        // they all land on the same frame.
+        const move = ev.moveId ? MOVES[ev.moveId] ?? null : null;
+        const color = colorOf(move);
+        // Everyone this cast reaches, so they all land on the same frame.
         const struckRefs = volley ?? (ev.at ? [ev.at] : []);
-        const travel = TRAVEL[vfx] ?? 0;
-        const land = 0.15;
-        const seed = `${this.st.seed}:spin:${this.st.turn}`;
-        let struck = false;
-        let thrown = false;
-        say(travel + land, {
+        say(LAND, {
           start: () => {
-            thrown = false;
-            for (const ref of struckRefs) {
-              const hitF = this.find(ref);
-              if (!hitF) continue;
-              const b = this.centerOf(hitF);
-              // Where it comes from: a piece the caster wears throws from
-              // where that piece sits, and anything that falls starts over
-              // the target it is falling on.
-              const a = vfx === "drop"
-                ? { x: b.x, y: b.y - this.view.h * DROP_HEIGHT }
-                : from ? this.originOf(from, move) : b;
-              // A turning piece is given its spin here rather than where it is
-              // drawn, so it keeps the same one the whole way across. Off the
-              // seed, so both clients throw it the same way.
-              const spin = vfx === "toss"
-                ? (rngFrom(`${seed}:${ref.side}:${ref.index}`)() * 2 - 1) * 2.4
-                : 0;
-              if (travel > 0) {
-                this.effects.push({ kind: vfx, t: 0, dur: travel, from: a, to: b, color, sprite, spin });
-                thrown = true;
-              } else if (vfx === "beam") {
-                this.effects.push({ kind: "beam", t: 0, dur: 0.18, from: a, to: b, color, sprite });
-              } else if (sprite) {
-                this.effects.push({ kind: "burst", t: 0, dur: 0.3, from: b, to: b, color, sprite });
-              }
-            }
-            // One noise for the throw however many went out, so a move that
-            // reaches a whole line does not sound like several. A move that
-            // brought its own noise for firing plays that instead, because it
-            // is already the sound of the thing leaving.
-            if (move?.soundOn === "cast") sfx.play(move.sound);
-            else if (thrown) sfx.play("wooshthrow", MIX.throw);
-          },
-          run: (k) => {
-            if (struck || k < travel / (travel + land)) return;
-            struck = true;
             // The freeze is what makes the blow read, so it lands on the same
             // frame the flash and the shake do.
             if (!this.instant) this.hold = HIT_STOP;
@@ -1470,11 +1482,9 @@ export class BattleStage {
               const b = this.centerOf(hitF);
               this.effects.push({ kind: "impact", t: 0, dur: 0.22, from: b, to: b, color });
             }
-            // Whatever the move brought its own noise or not, a landed hit
-            // makes one, so nothing lands in silence. A move that spent its
-            // noise on firing falls back to the generic blow here.
-            const own = move?.soundOn !== "cast" && sfx.play(move?.sound);
-            if (!own) sfx.play("generichit", MIX.blow);
+            // A landed hit always makes a noise, so nothing lands in silence:
+            // the sample its step names, or the generic blow.
+            if (!sfx.play(ev.sound)) sfx.play("generichit", MIX.blow);
           },
           end: () => {
             for (const ref of struckRefs) {
@@ -1492,7 +1502,7 @@ export class BattleStage {
           start: () => {
             const b = this.centerOf(target);
             this.effects.push({ kind: "flames", t: 0, dur: 0.45, from: b, to: b, color: "#e7a03c" });
-            sfx.play(STATUS_SOUNDS[statusIn(ev.text) ?? ""], MIX.status);
+            sfx.play(STATUSES[ev.status ?? ""]?.sound, MIX.status);
           },
         });
         return;
@@ -1500,34 +1510,14 @@ export class BattleStage {
       case "heal": {
         const target = this.find(ev.at);
         if (!target) return say(0.3);
-        const move = ev.moveId ? MOVES[ev.moveId] ?? null : null;
-        const from = this.find(ev.by ?? caster);
-        const vfx = move ? vfxOf(move) : "glow";
-        const sprite = move?.art ? this.art.powers[move.art] : undefined;
-        // A heal that is thrown crosses the field first and is gone the moment
-        // it lands. One that is simply cast lands where it stands.
-        const travel = sprite && from && from !== target ? TRAVEL[vfx] ?? 0 : 0;
-        const spin = vfx === "toss"
-          ? (rngFrom(`${this.st.seed}:spin:${this.st.turn}:h${ev.at?.index ?? 0}`)() * 2 - 1) * 2.4
-          : 0;
-        let landed = false;
-        say(travel + 0.3, {
+        say(0.3, {
           start: () => {
-            const b = this.centerOf(target);
-            if (travel <= 0) return;
-            const a = this.originOf(from!, move);
-            this.effects.push({ kind: vfx, t: 0, dur: travel, from: a, to: b, color: "#7aa74a", sprite, spin });
-            sfx.play("wooshthrow", MIX.throw);
-          },
-          run: (k) => {
-            if (landed || k < travel / (travel + 0.3)) return;
-            landed = true;
-            // The green goes on as what was thrown reaches them, and drains
-            // back out over the rest of the step.
+            // The green goes on as the heal reaches them, and drains back out
+            // over the rest of the step.
             target.heal = 1;
             const b = this.centerOf(target);
             this.effects.push({ kind: "glow", t: 0, dur: 0.45, from: b, to: b, color: "#7aa74a" });
-            sfx.play(move?.sound);
+            sfx.play(ev.sound);
           },
         });
         return;
@@ -1688,6 +1678,108 @@ export class BattleStage {
   }
 
   /**
+   * Plays a step that only changes what is drawn and heard, in the place the
+   * battle ran it. Each is a beat of its own, so a throw is in the air for
+   * exactly as long as it travels and whatever the step after it does starts
+   * as it lands.
+   */
+  private queueVisual(ev: BattleEvent, step: VisualStep): void {
+    const move = ev.moveId ? MOVES[ev.moveId] ?? null : null;
+    const color = colorOf(move);
+    const reached = (): Fighter[] =>
+      (ev.to ?? []).map((ref) => this.find(ref)).filter((f): f is Fighter => f !== null);
+    switch (step.kind) {
+      case "motion":
+        // The movement runs beside the queue, so whatever comes next leaves
+        // while the movement is still happening rather than after it. The step
+        // is only the beat before it.
+        this.push({ dur: CAST_LEAD, start: () => { for (const f of reached()) this.startMotion(f, step.anim); } });
+        return;
+      case "wear":
+        this.push({ dur: 0, start: () => this.reskinAll() });
+        return;
+      case "sound":
+        this.push({ dur: 0, start: () => playNamed(step.name) });
+        return;
+      case "wait":
+        this.push({ dur: Math.max(0, step.seconds) });
+        return;
+      case "show": {
+        const dur = SHOW_TIME[step.path];
+        this.push({
+          dur,
+          start: () => {
+            const sprite = artNamed(this.art, step.art, move?.tint);
+            for (const f of reached()) {
+              if (step.path === "wheel") {
+                // Over the head rather than on it, so the wheel reads as
+                // something being consulted rather than something landing.
+                const b = this.posOf(f);
+                const up = { x: b.x, y: b.y - f.head - WHEEL_LIFT };
+                this.effects.push({
+                  kind: "wheel", t: 0, dur, from: up, to: up, color, sprite,
+                  pin: artNamed(this.art, step.pointer, undefined),
+                });
+              } else {
+                const b = this.centerOf(f);
+                this.effects.push({ kind: step.path, t: 0, dur, from: b, to: b, color, sprite });
+              }
+            }
+          },
+        });
+        return;
+      }
+      case "throw": {
+        const travel = TRAVEL[step.path] ?? 0;
+        const seed = `${this.st.seed}:spin:${this.st.turn}`;
+        this.push({
+          dur: travel,
+          start: () => {
+            const from = this.find(ev.at);
+            const sprite = step.drawn
+              ? ev.face ? faceArt(this.art, ev.face, move?.tint) : undefined
+              : artNamed(this.art, step.art, move?.tint);
+            let thrown = false;
+            for (const ref of ev.to ?? []) {
+              const target = this.find(ref);
+              if (!target) continue;
+              // Something thrown at whoever is throwing it has nowhere to go.
+              if (from === target && travel > 0) continue;
+              const b = this.centerOf(target);
+              // Where it comes from: a piece the caster wears throws from where
+              // that piece sits, and anything that falls starts over the target
+              // it is falling on.
+              const a = step.path === "drop"
+                ? { x: b.x, y: b.y - this.view.h * DROP_HEIGHT }
+                : from ? this.originOf(from, step.from?.toLowerCase()) : b;
+              // A turning piece is given its spin here rather than where it is
+              // drawn, so it keeps the same one the whole way across. Off the
+              // seed, so both clients throw it the same way.
+              const spin = step.path === "toss"
+                ? (rngFrom(`${seed}:${ref.side}:${ref.index}`)() * 2 - 1) * 2.4
+                : 0;
+              if (travel > 0) {
+                this.effects.push({ kind: step.path, t: 0, dur: travel, from: a, to: b, color, sprite, spin });
+                thrown = true;
+              } else if (step.path === "beam") {
+                this.effects.push({ kind: "beam", t: 0, dur: 0.18, from: a, to: b, color, sprite });
+              } else if (sprite) {
+                this.effects.push({ kind: "burst", t: 0, dur: 0.3, from: b, to: b, color, sprite });
+              }
+            }
+            // One noise for the throw however many went out, so a move that
+            // reaches a whole line does not sound like several.
+            if (step.sound === null) return;
+            if (step.sound !== undefined) playNamed(step.sound);
+            else if (thrown) sfx.play("wooshthrow", MIX.throw);
+          },
+        });
+        return;
+      }
+    }
+  }
+
+  /**
    * Moves the readouts on by one event. A hit's bar snaps to what it left the
    * subject on and the highlight behind it closes the gap over the next half
    * second; a faint only counts once its own line plays.
@@ -1768,9 +1860,11 @@ export class BattleStage {
     this.turn = turn;
   }
 
-  /** World units per CSS pixel, for turning a click into a place on the field. */
+  /** World units per screen pixel, for turning a click into a place on the field. */
   private cssScale(): number {
-    return window.innerWidth > 0 ? this.view.w / window.innerWidth : 1;
+    const v = viewport();
+    const cssW = v.ui.w * v.zoom;
+    return cssW > 0 ? this.view.w / cssW : 1;
   }
 
   /** Where a fighter is standing, in CSS pixels from the top left. */
@@ -1871,11 +1965,16 @@ export class BattleStage {
     return this.posOf(f).y - f.head - MARKER_GAP + bob;
   }
 
-  /** Which fighter a click at this CSS point lands on, if any. */
+  /** Which fighter a click at this screen point lands on, if any. */
   hitTest(cssX: number, cssY: number): TargetRef | null {
+    // The point is measured from the window's corner and the frame is not
+    // always in it: with the ground showing round the frame, a click has to
+    // be read from the frame's own corner or every box sits up and to the
+    // left of the Scoba it belongs to.
+    const origin = frameRect();
     const scale = this.cssScale();
-    const x = cssX * scale;
-    const y = cssY * scale;
+    const x = (cssX - origin.left) * scale;
+    const y = (cssY - origin.top) * scale;
     let best: { ref: TargetRef; d: number } | null = null;
     for (const f of this.fighters) {
       const b = this.boxOf(f);
@@ -1899,6 +1998,26 @@ export class BattleStage {
    * markers and the aiming ring, which have to stay readable whatever the
    * field is doing.
    */
+  /**
+   * The cards a Scoba is holding, over its head. The count is drawn on them,
+   * because past one card the number is the whole of what the hand says.
+   */
+  private drawHand(ctx: CanvasRenderingContext2D, f: Fighter): void {
+    if (!f.hand || f.alpha <= 0.02) return;
+    const art = faceArt(this.art, f.hand.face, undefined);
+    if (!art) return;
+    const at = this.posOf(f);
+    const bob = Math.sin(performance.now() / 1000 * HAND_RATE + f.index) * HAND_BOB;
+    const u = 1 / ART;
+    const w = art.width * u;
+    const h = art.height * u;
+    ctx.save();
+    ctx.globalAlpha = f.alpha;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(art, at.x - w / 2, at.y - f.head - HAND_LIFT - h + bob, w, h);
+    ctx.restore();
+  }
+
   private drawWashes(ctx: CanvasRenderingContext2D): void {
     const { w, h } = this.view;
     const mid = Math.round(w / 2);
@@ -1940,8 +2059,6 @@ export class BattleStage {
     for (const f of this.fighters) {
       if (!this.isTarget(f)) continue;
       arrow(ctx, this.posOf(f).x, this.markerY(f, Math.sin(t * 5) * MARKER_BOB));
-      const hover = this.aim.hover;
-      if (hover && hover.side === f.side && hover.index === f.index) reticle(ctx, this.boxOf(f));
     }
   }
 
@@ -2059,6 +2176,9 @@ export class BattleStage {
           if (f.heal > 0) f.actor.drawTint(ctx, 0, 0, "#7aa74a", f.heal * 0.55);
           if (f.flare > 0) f.actor.drawTint(ctx, 0, 0, "#ffffff", f.flare);
           ctx.restore();
+          // The hand rides over the head rather than with the body, so a lunge
+          // does not take the cards with it.
+          this.drawHand(ctx, f);
         },
       });
     }
@@ -2112,20 +2232,129 @@ function flash(
  * Effects are drawn as square chunks rather than smooth arcs, so they stay in
  * the same pixel idiom as everything else on the canvas.
  */
-/**
- * A drawn sample for a mark landing. Keyed by the status's name as the log
- * writes it, since a status event says what it is in its line rather than
- * naming the status it came from.
- */
-const STATUS_SOUNDS: Record<string, string> = {
-  "Sticky Treat": "stickysweet",
+/** How long a landed hit holds the queue for its flash and shake. */
+const LAND = 0.15;
+
+/** How long each way of showing something in place holds the queue. */
+const SHOW_TIME: Record<"wheel" | "glow" | "burst" | "flames", number> = {
+  wheel: 0.9,
+  glow: 0.45,
+  burst: 0.3,
+  flames: 0.45,
 };
+
+/** Sounds the game makes itself rather than reading from a file, by the name a step uses. */
+const TONES: Record<string, () => void> = {
+  confirm: () => sfx.confirm(),
+  tap: () => sfx.tap(),
+  back: () => sfx.back(),
+  summon: () => sfx.summon(),
+};
+
+/** Plays a sound a step names: one of the game's own tones, or a drawn sample. */
+function playNamed(name: string): void {
+  const tone = TONES[name];
+  if (tone) tone();
+  else sfx.play(name);
+}
+
+/** The color a move is played back in: what a rewrite tinted it, or its element's. */
+function colorOf(move: Move | null): string {
+  if (move?.tint) return move.tint;
+  return move ? TYPE_COLORS[move.type] : "#f3f2c0";
+}
 
 /**
  * Where each layer sits under a move's own sound, which plays at full. Every
  * sample is already levelled to one loudness as it loads, so these say what
  * belongs in the background rather than correcting how a file was recorded.
  */
+const tintedArt = new Map<string, WeakMap<CanvasImageSource, HTMLCanvasElement>>();
+
+/**
+ * Art in a rewritten move's color. Every drawn pixel keeps its own value and
+ * takes the tint's hue, so the shape still reads and the color says where the
+ * move came from. Built once per drawing and color and kept.
+ */
+function tinted(img: HTMLCanvasElement | HTMLImageElement, tint: string): HTMLCanvasElement {
+  let byImg = tintedArt.get(tint);
+  if (!byImg) {
+    byImg = new WeakMap();
+    tintedArt.set(tint, byImg);
+  }
+  const hit = byImg.get(img);
+  if (hit) return hit;
+  const w = (img as HTMLImageElement).naturalWidth || img.width;
+  const h = (img as HTMLImageElement).naturalHeight || img.height;
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0);
+  // Luminosity keeps the drawing's own light and shade under the color, which
+  // a flat fill would paint out.
+  ctx.globalCompositeOperation = "color";
+  ctx.fillStyle = tint;
+  ctx.fillRect(0, 0, w, h);
+  // Put back the shape, since the fill above covered the transparent pixels too.
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.drawImage(img, 0, 0);
+  byImg.set(img, cv);
+  return cv;
+}
+
+/** Art by name, in a rewritten move's color where it has one. */
+function artNamed(art: Art, name: string | undefined, tint: string | undefined): HTMLCanvasElement | HTMLImageElement | undefined {
+  // Art is filed by lower-case file name, so a script can write a name either way.
+  const drawn = name ? art.powers[name.toLowerCase()] : undefined;
+  if (!drawn) return undefined;
+  return tint ? tinted(drawn, tint) : drawn;
+}
+
+const recolored = new Map<string, WeakMap<CanvasImageSource, HTMLCanvasElement>>();
+
+/**
+ * A card as it was drawn: its drawing with the draw's color changes made, in a
+ * rewritten move's tint where it has one. Built once per drawing and changes.
+ */
+function faceArt(art: Art, face: CardFace, tint: string | undefined): HTMLCanvasElement | HTMLImageElement | undefined {
+  const drawn = art.powers[face.art.toLowerCase()];
+  if (!drawn) return undefined;
+  let out: HTMLCanvasElement | HTMLImageElement = drawn;
+  if (face.changes.length > 0) {
+    const key = face.changes.map((c) => `${c.from}>${c.to}`).join(",");
+    let byImg = recolored.get(key);
+    if (!byImg) {
+      byImg = new WeakMap();
+      recolored.set(key, byImg);
+    }
+    const hit = byImg.get(drawn);
+    if (hit) out = hit;
+    else {
+      const swapped = paletteSwap(drawn, face.changes.map((c) => [hexToRgb(c.from), hexToRgb(c.to)]));
+      byImg.set(drawn, swapped);
+      out = swapped;
+    }
+  }
+  return tint ? tinted(out, tint) : out;
+}
+
+/**
+ * The hand a combatant is holding, read off its marks: the card on top of it
+ * as it was dealt, and what the cards add up to. A hand from before cards kept
+ * their faces shows the card worth the whole hand, or the back of one.
+ */
+function handOf(c: Combatant | null | undefined): { face: CardFace; count: number } | null {
+  const dealt = c?.statuses.find((s) => STATUSES[s.id]?.hand === true);
+  if (!dealt) return null;
+  const face = dealt.face ?? {
+    art: dealt.stacks <= CARD_HIGH ? cardOfValue(dealt.stacks).art : CARD_BACK,
+    changes: [],
+  };
+  return { face, count: dealt.stacks };
+}
+
 const MIX = {
   /** Under whatever the move itself does, because it is the arm and not the blow. */
   throw: 0.7,
@@ -2134,15 +2363,7 @@ const MIX = {
   status: 0.8,
 };
 
-/** Which named status a log line is about, or null for one about none. */
-function statusIn(text: string): string | null {
-  for (const name of Object.keys(STATUS_SOUNDS)) {
-    if (text.includes(name)) return name;
-  }
-  return null;
-}
-
-  /**
+/**
  * Which hits belong to one cast. A move that reaches a whole line lands on
  * everyone at once rather than walking down the row, so the first hit of a
  * run throws at every target and lands them all, and the rest are only their
@@ -2190,6 +2411,25 @@ const TRAVEL: Partial<Record<MoveVfx, number>> = {
   drop: 0.34,
 };
 
+/** How far over a head the wheel is held while it is being spun, in world units. */
+const WHEEL_LIFT = 10;
+
+/** Turns the wheel makes before it stops. */
+const WHEEL_TURNS = 3;
+
+/** How far the pointer overlaps the wheel, so it reads as resting against it. */
+const WHEEL_BITE = 6;
+
+/** Where a hand sits over the head it was dealt to, in world units. */
+const HAND_LIFT = 7;
+
+/** How long the scene holds on a card that has just landed in a hand. */
+const HAND_SHOWN = 0.3;
+
+/** How far a held hand drifts as it hovers, and how fast. */
+const HAND_BOB = 1.2;
+const HAND_RATE = 2.2;
+
 /** How far over a target something that falls on it starts, as a share of the view. */
 const DROP_HEIGHT = 0.36;
 
@@ -2202,11 +2442,38 @@ const HYPER_WHITE = 0.45;
 function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
   const k = Math.min(1, e.t / e.dur);
   const u = 1 / ART;
+  // The wheel is read before anything else: it turns rather than travelling,
+  // so the path every other drawn effect takes is not the one it wants.
+  if (e.kind === "wheel") {
+    if (!e.sprite) return;
+    // It slows to a stop, and the pointer over it holds still while it does,
+    // which is what makes it read as a wheel being spun rather than a spinning
+    // picture.
+    const spun = WHEEL_TURNS * Math.PI * 2 * (1 - (1 - k) * (1 - k));
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(e.to.x, e.to.y);
+    ctx.save();
+    ctx.rotate(spun);
+    ctx.scale(u, u);
+    ctx.drawImage(e.sprite, -e.sprite.width / 2, -e.sprite.height / 2);
+    ctx.restore();
+    if (e.pin) {
+      ctx.scale(u, u);
+      ctx.drawImage(e.pin, -e.pin.width / 2, -e.sprite.height / 2 - e.pin.height + WHEEL_BITE);
+    }
+    ctx.restore();
+    return;
+  }
   const chunk = (x: number, y: number, s: number, color: string): void => {
     ctx.fillStyle = color;
     ctx.fillRect(Math.round((x - s / 2) * ART) * u, Math.round((y - s / 2) * ART) * u, s, s);
   };
-  const lift = 14;
+  // Both ends of a path are real anchors on the two drawings now: a throw
+  // leaves the spot the costume says it leaves and lands on the spot the
+  // costume says it lands on. This used to raise a path that ran between two
+  // pairs of feet, and raising it again would put every shot over the target.
+  const lift = 0;
   /**
    * How far a shot arcs over the straight line between its two ends. A shot
    * between two Scobas on the same rank stays flat; one that climbs the field,
@@ -2374,31 +2641,6 @@ function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
  * own pixel grid a row at a time rather than stroked, so no edge softens. It
  * takes its size from the Scoba it is drawn around, so a Pawn gets a small one.
  */
-function reticle(ctx: CanvasRenderingContext2D, b: { x: number; y: number; w: number; h: number }): void {
-  const u = 1 / ART;
-  const cx = Math.round((b.x + b.w / 2) * ART);
-  const cy = Math.round((b.y + b.h / 2) * ART);
-  const outer = Math.max(RETICLE_BRUSH, Math.round((Math.max(b.w, b.h) / 2) * ART));
-  const inner = outer - RETICLE_BRUSH;
-  /** Half the width of a circle of this radius at this row, or -1 outside it. */
-  const half = (r: number, dy: number): number =>
-    r <= 0 || Math.abs(dy) > r ? -1 : Math.floor(Math.sqrt(r * r - dy * dy));
-  ctx.fillStyle = "#eae178";
-  for (let dy = -outer; dy <= outer; dy++) {
-    const out = half(outer, dy);
-    if (out < 0) continue;
-    const y = (cy + dy) * u;
-    const cut = half(inner, dy);
-    if (cut < 0) {
-      // Past the top or bottom of the hole: the row is solid across.
-      ctx.fillRect((cx - out) * u, y, (out * 2 + 1) * u, u);
-      continue;
-    }
-    ctx.fillRect((cx - out) * u, y, (out - cut) * u, u);
-    ctx.fillRect((cx + cut + 1) * u, y, (out - cut) * u, u);
-  }
-}
-
 /**
  * How high a species' head rides over its mark while it stands there, in world
  * units: its constant float plus the top of the bob it keeps up at rest. A
@@ -2417,24 +2659,38 @@ function idleLift(movement: keyof typeof MOTIONS, idleMix: number): number {
  * matter of naming where the point goes.
  */
 function turnMarker(ctx: CanvasRenderingContext2D, cx: number, tipY: number): void {
-  const x = Math.round(cx);
-  const y = Math.round(tipY);
-  ctx.fillStyle = "#171b2c";
-  for (let i = 0; i < 6; i++) ctx.fillRect(x - 6 + i, y - 5 + i, 13 - i * 2, 1);
-  ctx.fillStyle = "#7c9df0";
-  for (let i = 0; i < 4; i++) ctx.fillRect(x - 4 + i, y - 4 + i, 9 - i * 2, 1);
+  pointer(ctx, cx, tipY, "#7c9df0");
 }
 
 /** A stubby downward arrow, built from rows so it stays hard-edged. */
 function arrow(ctx: CanvasRenderingContext2D, cx: number, tipY: number): void {
-  const x = Math.round(cx);
-  const y = Math.round(tipY);
-  ctx.fillStyle = "#171b2c";
-  for (let i = 0; i < 5; i++) ctx.fillRect(x - 6 + i, y - 4 + i, 13 - i * 2, 1);
-  ctx.fillRect(x - 3, y - 9, 7, 5);
-  ctx.fillStyle = "#eae178";
-  for (let i = 0; i < 4; i++) ctx.fillRect(x - 4 + i, y - 3 + i, 9 - i * 2, 1);
-  ctx.fillRect(x - 2, y - 8, 5, 5);
+  pointer(ctx, cx, tipY, "#eae178");
+}
+
+/**
+ * A plain triangle pointing down at somebody, drawn at the art's own
+ * resolution rather than in whole world units so it reads as part of the
+ * picture rather than as a chunk of coarser pixels floating over it. No
+ * edge: it is a mark over the scene, not a thing standing in it. The target
+ * arrow and the turn marker are this in two colours.
+ */
+function pointer(ctx: CanvasRenderingContext2D, cx: number, tipY: number, color: string): void {
+  const px = 1 / ART;
+  const snap = (v: number): number => Math.round(v * ART) / ART;
+  const x = snap(cx);
+  const y = snap(tipY);
+  const tri = (width: number, height: number, tip: number, color: string): void => {
+    ctx.fillStyle = color;
+    const rows = Math.round(height / px);
+    for (let i = 0; i < rows; i++) {
+      const half = (width / 2) * (1 - i / rows);
+      const left = snap(x - half);
+      const right = snap(x + half);
+      if (right <= left) continue;
+      ctx.fillRect(left, tip - height + i * px, right - left, px);
+    }
+  };
+  tri(10, 7, y, color);
 }
 
 function beamRects(ctx: CanvasRenderingContext2D, e: Effect, thick: number): void {

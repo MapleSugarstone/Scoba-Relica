@@ -1,65 +1,15 @@
 import type { ElementType, Stats } from "./types";
 import type { TargetSpec } from "./targeting";
-import type { StatusPolarity } from "./status";
-import { BASE_GENES, TYPE_LABELS, effectiveness, stats } from "./types";
+import type { Step } from "./status";
+import { TYPE_LABELS, effectiveness } from "./types";
+import { CONTENT_TABLES } from "./content/tables";
+import SPECIES_DATA from "./content/species.json";
+
+export type { CasterAnim, MoveVfx } from "./status";
 
 // Spells cost mana (battles start at 40, +20 per turn, cap 100) and may have
 // a cooldown (turns to wait after use) and a starting cooldown (turns to wait
-// at battle start). Damage scales off Strength for physical, Magic for
-// magical. Block and the basic attack are innate, not moves.
-/**
- * What a move does past its own hit. `target` and `from`/`to` are indices
- * into the move's `targets` list, which is how a two-target move says which
- * of the two it is talking about.
- */
-export type MoveEffect =
-  | { kind: "status"; target: number; status: string }
-  | { kind: "damage"; target: number; scale: number }
-  | { kind: "heal"; target: number; frac: number }
-  /**
-   * Takes a share of one target's current HP and delivers it to the other,
-   * either as healing or as a hit. The sacrifice moves are built from this.
-   */
-  | { kind: "transfer"; from: number; to: number; frac: number; deliver: "damage" | "heal" }
-  | { kind: "cleanse"; target: number; polarity: StatusPolarity }
-  | { kind: "copy-statuses"; from: number; to: number }
-  | { kind: "summon"; species: string; level: number }
-  | { kind: "grant-item"; item: string; count: number };
-
-/**
- * How the caster carries itself while the move goes off. Physical moves
- * default to `lunge`, magic to `cast`, healing and utility to `focus`.
- */
-export type CasterAnim =
-  /** Rattle in place. */
-  | "shake"
-  /** Quick step at the target and back. */
-  | "lunge"
-  /** Vanish, appear over the target, rattle, vanish back. */
-  | "blink"
-  /** Rise and slam down. */
-  | "rear"
-  /** Hold still and gather. */
-  | "focus";
-
-/** What is drawn, and where it travels. */
-export type MoveVfx =
-  /** Straight shot from caster to target, then a burst. */
-  | "bolt"
-  /** Arcing shot that bursts where it lands. */
-  | "lob"
-  /** A slow arc, turning as it goes, that is gone the moment it lands. */
-  | "toss"
-  /** Appears over the target and falls onto it, slowing into the ground. */
-  | "drop"
-  /** A burst on the target with nothing thrown. */
-  | "burst"
-  /** Licking flames over the target. */
-  | "flames"
-  /** A halo on whoever it lands on. */
-  | "glow"
-  /** A line drawn straight through, all at once. */
-  | "beam";
+// at battle start). Block and the basic attack are innate, not moves.
 
 export interface Move {
   id: string;
@@ -71,23 +21,23 @@ export interface Move {
    * defender lands at 4x, the same way a two-type species is read.
    */
   type2?: ElementType;
-  /** `utility` has no hit of its own and does its work through `effects`. */
+  /**
+   * What its first hit or heal makes it, for anything that sorts moves rather
+   * than casting them. Worked out from `cast` when the move is read.
+   */
   kind: "physical" | "magical" | "heal" | "utility";
-  /** Damage: fraction of Str/Mag dealt (1.1 = 110%). Heal: fraction of max HP. */
+  /** The share its first hit or heal reads, worked out the same way. */
   scale: number;
   manaCost: number;
   cooldown: number;
   startCooldown: number;
   /**
-   * What it asks you to aim at, in order. The move's own hit or heal lands on
-   * the first entry; every move has at least one, so picking a move always
-   * asks for a target even when only one thing can be hit.
+   * What it asks you to aim at, in order. Every move has at least one, so
+   * picking a move always asks for a target even when only one thing can be hit.
    */
   targets: TargetSpec[];
-  effects?: MoveEffect[];
-  /** Overrides the animation its kind would otherwise get. */
-  anim?: CasterAnim;
-  vfx?: MoveVfx;
+  /** What happens when it is cast, in order: what is drawn, what is heard and what is done. */
+  cast: Step[];
   /**
    * Resolves ahead of everything slower than it, whatever the Speed either
    * side is carrying. 0 is where every ordinary move sits.
@@ -96,37 +46,19 @@ export interface Move {
   /** Casts once a battle, however much mana and cooldown would allow. */
   oncePerBattle?: boolean;
   /**
-   * A fixed number times the caster's level, in place of the stat scaling.
-   * Flat damage ignores Defense, Resistance, the chart and same-type damage
-   * alike, and still counts as move damage everywhere else.
+   * What it does, in words, with the numbers left in brackets for the reader to
+   * hover. See `sim/prose.ts` for what a bracket may hold. A move with none
+   * falls back to the long sentence the game builds out of its own data, and
+   * the cosmetics editor can write over either.
    */
-  flatPerLevel?: number;
-  /** What a heal is a share of. Defaults to the target's own pool. */
-  healBasis?: "max-hp" | "magic";
-  /** A kill with this puts its mana back and clears its cooldown. */
-  refreshOnKill?: boolean;
+  text?: string;
+  /** The color it is played back in, over its element's, where a rewrite gave it one. */
+  tint?: string;
   /**
-   * The costume the caster is seen in once this has been spent, for a move
-   * that visibly uses something up. It lasts as long as the battle does,
-   * because that is how long the move stays spent.
+   * Built while a battle runs by rewriting another move, rather than read from
+   * a file. `by` names the rewrite.
    */
-  spendsForm?: string;
-  /** Drawn art for the effect it throws, by file name in `assets/Powers`. */
-  art?: string;
-  /** A drawn sample for casting it, by file name in `assets/Sounds`. */
-  sound?: string;
-  /**
-   * When `sound` plays. "hit" is where a move that lands a blow wants it, and
-   * is the default. "cast" is for a move whose noise is the firing rather than
-   * the landing: it plays as the move goes out, in place of the throw.
-   */
-  soundOn?: "cast" | "hit";
-  /**
-   * Where what it throws comes from: an accessory by name, rather than the
-   * middle of the caster. A line that has the piece drawn into its own art
-   * throws from where the piece is drawn all the same.
-   */
-  vfxOrigin?: string;
+  derived?: { from: string; by: string };
 }
 
 /**
@@ -151,6 +83,12 @@ export interface Ability {
    * own already has it drawn in and wears nothing.
    */
   accessory?: string;
+  /**
+   * What it does, in words, with the numbers left in brackets for the reader to
+   * hover, the same way a move carries one. A passive with none falls back to
+   * the sentence the game builds out of the effects its statuses carry.
+   */
+  text?: string;
 }
 
 /** The statuses an ability puts on its Scoba. */
@@ -243,7 +181,8 @@ export interface Species {
   genes: Stats;
   primaryAbility: string;
   secondaryPool: string[];
-  learnset: { level: number; move: string }[];
+  /** The moves it knows, all from the start. See `speciesMoves`. */
+  moves: string[];
   sprite: SpriteDef;
   movement: MovementStyle;
   /**
@@ -290,257 +229,40 @@ export interface Species {
   inheritsFromCaller?: boolean;
 }
 
-const M = (
-  id: string, name: string, type: ElementType, kind: Move["kind"],
-  scale: number, manaCost: number, cooldown = 0, startCooldown = 0,
-  extra: {
-    targets?: TargetSpec[]; effects?: MoveEffect[]; anim?: CasterAnim; vfx?: MoveVfx;
-    type2?: ElementType; priority?: number; oncePerBattle?: boolean;
-    flatPerLevel?: number; healBasis?: "max-hp" | "magic"; refreshOnKill?: boolean;
-    spendsForm?: string; art?: string; sound?: string; soundOn?: "cast" | "hit";
-    vfxOrigin?: string;
-  } = {},
-): Move => ({
-  id, name, type, kind, scale, manaCost, cooldown, startCooldown,
-  targets: extra.targets ?? [{ mode: kind === "heal" ? "any-ally" : "any-enemy" }],
-  ...(extra.effects ? { effects: extra.effects } : {}),
-  ...(extra.anim ? { anim: extra.anim } : {}),
-  ...(extra.vfx ? { vfx: extra.vfx } : {}),
-  ...(extra.type2 ? { type2: extra.type2 } : {}),
-  ...(extra.priority ? { priority: extra.priority } : {}),
-  ...(extra.oncePerBattle ? { oncePerBattle: true } : {}),
-  ...(extra.flatPerLevel ? { flatPerLevel: extra.flatPerLevel } : {}),
-  ...(extra.healBasis ? { healBasis: extra.healBasis } : {}),
-  ...(extra.refreshOnKill ? { refreshOnKill: true } : {}),
-  ...(extra.spendsForm ? { spendsForm: extra.spendsForm } : {}),
-  ...(extra.art ? { art: extra.art } : {}),
-  ...(extra.sound ? { sound: extra.sound } : {}),
-  ...(extra.soundOn ? { soundOn: extra.soundOn } : {}),
-  ...(extra.vfxOrigin ? { vfxOrigin: extra.vfxOrigin } : {}),
-});
+/**
+ * Every move, from `content/moves.txt`. The file is the source of truth and
+ * the cosmetics editor reads and writes it, so a move is changed there rather
+ * than here.
+ */
+export const MOVES: Record<string, Move> = CONTENT_TABLES.moves;
 
-/** The animation a move falls back on when it names none. */
-export function animOf(move: Move | null): CasterAnim {
-  if (!move) return "lunge";
-  if (move.anim) return move.anim;
-  if (move.kind === "physical") return "lunge";
-  if (move.kind === "magical") return "shake";
-  return "focus";
+/** Every passive, from `content/passives.txt`. */
+export const ABILITIES: Record<string, Ability> = CONTENT_TABLES.abilities;
+
+/** The first step of a kind in a move's cast, looking inside any `if` too. */
+export function firstStep<K extends Step["kind"]>(move: Move, kind: K): Extract<Step, { kind: K }> | null {
+  const walk = (steps: Step[]): Extract<Step, { kind: K }> | null => {
+    for (const s of steps) {
+      if (s.kind === kind) return s as Extract<Step, { kind: K }>;
+      if (s.kind === "if") {
+        const inner = walk(s.then);
+        if (inner) return inner;
+      }
+    }
+    return null;
+  };
+  return walk(move.cast);
 }
 
-export function vfxOf(move: Move | null): MoveVfx {
-  if (!move) return "burst";
-  if (move.vfx) return move.vfx;
-  if (move.kind === "physical") return "burst";
-  if (move.kind === "magical") return "bolt";
-  if (move.kind === "heal") return "glow";
-  return "glow";
+/** Every step in a move's cast, `if` blocks opened out, in the order they are written. */
+export function allSteps(steps: Step[]): Step[] {
+  return steps.flatMap((s) => (s.kind === "if" ? [s, ...allSteps(s.then)] : [s]));
 }
 
-export const MOVES: Record<string, Move> = Object.fromEntries(
-  [
-    M("crush", "Crush", "plain", "physical", 1.1, 30, 0, 0, { anim: "lunge", vfx: "burst" }),
-    M("slam", "Slam", "plain", "physical", 1.5, 45, 1, 0, { anim: "rear", vfx: "burst" }),
-    M("nuzzle-nap", "Nuzzle Nap", "plain", "heal", 0.5, 60, 3, 2, { anim: "focus", vfx: "glow" }),
-    M("moonbeam", "Moonbeam", "moon", "magical", 1.2, 35),
-    M("eclipse", "Eclipse", "moon", "magical", 1.7, 55, 2, 1, { anim: "focus", vfx: "beam" }),
-    M("cinder-spit", "Cinder Spit", "sun", "magical", 1.2, 35),
-    M("flame-burst", "Flame Burst", "sun", "magical", 1.7, 55, 2, 1, { anim: "focus", vfx: "burst" }),
-    M("tide-whip", "Tide Whip", "flux", "magical", 1.2, 35),
-    M("riptide", "Riptide", "flux", "magical", 1.6, 50, 2, 0, { anim: "shake", vfx: "lob" }),
-    M("leaf-flick", "Leaf Flick", "moss", "magical", 1.1, 30),
-    M("vine-lash", "Vine Lash", "moss", "physical", 1.4, 40, 1, 0, { anim: "lunge", vfx: "beam" }),
-    M("decode", "Decode", "cipher", "magical", 1.2, 35),
-    M("null-key", "Null Key", "cipher", "physical", 1.5, 45, 1, 0, { anim: "blink", vfx: "burst" }),
-    M("hex", "Hex", "mystic", "magical", 1.2, 35),
-    M("third-eye", "Third Eye", "mystic", "magical", 1.6, 50, 2, 0, { anim: "focus", vfx: "beam" }),
-    M("sugar-rush", "Sugar Rush", "sugar", "physical", 1.2, 35),
-    M("gumsnap", "Gumsnap", "sugar", "physical", 1.5, 45, 1, 0, { anim: "lunge", vfx: "lob" }),
-    M("lucky-strike", "Lucky Strike", "fortuna", "physical", 1.2, 35),
-    M("jackpot", "Jackpot", "fortuna", "physical", 1.9, 60, 3, 1, { anim: "blink", vfx: "burst" }),
-
-    // Moves built on the targeting and status systems.
-    M("ember", "Ember", "sun", "magical", 0.7, 30, 1, 0, {
-      anim: "shake", vfx: "flames",
-      effects: [{ kind: "status", target: 0, status: "fire" }],
-    }),
-    M("hairline", "Hairline", "cipher", "magical", 0.8, 35, 2, 0, {
-      anim: "focus", vfx: "beam",
-      effects: [{ kind: "status", target: 0, status: "fragile" }],
-    }),
-    M("fury", "Fury", "plain", "utility", 0, 25, 1, 0, {
-      anim: "rear", vfx: "glow",
-      targets: [{ mode: "self", prompt: "Work up" }],
-      effects: [{ kind: "status", target: 0, status: "rage" }],
-    }),
-    M("brace-up", "Brace Up", "moss", "utility", 0, 30, 2, 0, {
-      anim: "focus", vfx: "glow",
-      targets: [{ mode: "any-ally", prompt: "Shield" }],
-      effects: [{ kind: "status", target: 0, status: "guard" }],
-    }),
-    M("scatter-shot", "Scatter Shot", "flux", "magical", 0.8, 50, 2, 1, {
-      anim: "shake", vfx: "lob",
-      targets: [{ mode: "enemy-team", prompt: "The whole line" }],
-    }),
-    M("rally", "Rally", "sugar", "heal", 0.25, 55, 3, 1, {
-      anim: "focus", vfx: "glow",
-      targets: [{ mode: "ally-team", prompt: "Everyone" }],
-    }),
-    M("wild-bolt", "Wild Bolt", "fortuna", "magical", 1.9, 40, 1, 0, {
-      anim: "shake", vfx: "bolt",
-      targets: [{ mode: "random-enemy", prompt: "Wherever it lands" }],
-    }),
-    M("snipe", "Snipe", "cipher", "physical", 1.3, 45, 2, 1, {
-      anim: "blink", vfx: "burst",
-      targets: [{ mode: "benched-enemy", prompt: "Reach past the front" }],
-    }),
-    M("mirror-mark", "Mirror Mark", "mystic", "utility", 0, 45, 3, 1, {
-      anim: "focus", vfx: "beam",
-      targets: [
-        { mode: "any-scoba", prompt: "Copy from" },
-        { mode: "any-ally", prompt: "Copy onto" },
-      ],
-      effects: [{ kind: "copy-statuses", from: 0, to: 1 }],
-    }),
-    M("cleanse", "Cleanse", "moon", "utility", 0, 35, 2, 0, {
-      anim: "focus", vfx: "glow",
-      targets: [{ mode: "any-ally", prompt: "Clear" }],
-      effects: [{ kind: "cleanse", target: 0, polarity: "bad" }],
-    }),
-    M("blood-pact", "Blood Pact", "mystic", "utility", 0, 40, 3, 1, {
-      anim: "rear", vfx: "beam",
-      targets: [
-        { mode: "other-ally", prompt: "Draw from" },
-        { mode: "enemy-team", prompt: "Spend it on" },
-      ],
-      effects: [{ kind: "transfer", from: 0, to: 1, frac: 0.25, deliver: "damage" }],
-    }),
-    M("tithe", "Tithe", "moss", "utility", 0, 35, 2, 0, {
-      anim: "focus", vfx: "glow",
-      targets: [
-        { mode: "self", prompt: "Give up" },
-        { mode: "other-ally", prompt: "Pass it to" },
-      ],
-      effects: [{ kind: "transfer", from: 0, to: 1, frac: 0.2, deliver: "heal" }],
-    }),
-    M("call-swarm", "Call Swarm", "moss", "utility", 0, 60, 4, 2, {
-      anim: "rear", vfx: "burst",
-      targets: [{ mode: "self", prompt: "Call" }],
-      effects: [{ kind: "summon", species: "catsquito", level: 5 }],
-    }),
-    M("forage", "Forage", "sugar", "utility", 0, 20, 3, 0, {
-      anim: "shake", vfx: "glow",
-      targets: [{ mode: "self", prompt: "Rummage" }],
-      effects: [{ kind: "grant-item", item: "snare", count: 1 }],
-    }),
-
-    // The Octoshake line. A drink that fights: it heals off its own Magic,
-    // slows whatever it touches, and cashes its whole bar in on one hit.
-    M("icecream-soup", "Ice Cream Soup", "sugar", "heal", 0.5, 30, 0, 0, {
-      anim: "focus", vfx: "toss", healBasis: "magic",
-      art: "icecreamsoup", sound: "heal",
-      targets: [{ mode: "any-ally", prompt: "Pour it over" }],
-    }),
-    M("tentacle-slap", "Tentacle Slap", "moon", "magical", 0.5, 50, 0, 0, {
-      anim: "lunge", vfx: "burst", sound: "tentacleslap",
-      effects: [{ kind: "status", target: 0, status: "slowed" }],
-    }),
-    M("cold-wave", "Cold Wave", "moon", "magical", 1, 70, 3, 0, {
-      anim: "focus", vfx: "bolt", type2: "sugar",
-      art: "coldwave", sound: "coldwave", soundOn: "cast",
-      targets: [{ mode: "enemy-team", prompt: "The whole line" }],
-      effects: [{ kind: "status", target: 0, status: "cold" }],
-    }),
-    M("tantalizing-sweets", "Tantalizing Sweets", "sugar", "magical", 1.4, 100, 5, 0, {
-      anim: "rear", vfx: "drop", refreshOnKill: true,
-      art: "tantalizing sweet", sound: "tantalizingsweet",
-    }),
-    // What Cherry on Top hands over. It is never in a slot, so it costs no
-    // mana and is spent by being cast rather than by a cooldown.
-    M("cherry-on-top", "Cherry on Top", "sugar", "physical", 0, 0, 0, 0, {
-      anim: "shake", vfx: "lob", priority: 1, oncePerBattle: true, flatPerLevel: 2,
-      // No sound of its own: everything thrown gets the woosh as it leaves,
-      // and a second one landing would only be the same noise twice.
-      spendsForm: "cherryless", art: "cherry", vfxOrigin: "cherry",
-    }),
-
-    // The Cottle line. A summon of a Pawn takes the caller's own level, so the
-    // level named here is only what a non-Pawn summon would come out at.
-    M("court-call", "Court Call", "fortuna", "utility", 0, 50, 2, 0, {
-      anim: "rear", vfx: "glow",
-      targets: [{ mode: "self", prompt: "Call the court" }],
-      effects: [{ kind: "summon", species: "cottlecorn", level: 1 }],
-    }),
-    M("pawn-dart", "Pawn Dart", "fortuna", "magical", 0.8, 20, 0, 0, {
-      anim: "shake", vfx: "bolt",
-    }),
-    M("pawn-mend", "Pawn Mend", "fortuna", "heal", 0.12, 25, 1, 0, {
-      anim: "focus", vfx: "glow",
-      targets: [{ mode: "any-ally", prompt: "Patch up" }],
-    }),
-    // A full bar to cast and a full bar is all anything can hold, so it only
-    // ever goes off on a Pawn that has spent a few turns saving for it.
-    M("sunfall", "Sunfall", "sun", "magical", 2.2, 100, 2, 1, {
-      anim: "rear", vfx: "beam",
-    }),
-  ].map((m) => [m.id, m]),
-);
-
-export const ABILITIES: Record<string, Ability> = Object.fromEntries(
-  (
-    [
-      { id: "swift", name: "Swift" },
-      { id: "brawn", name: "Brawn" },
-      { id: "thick-coat", name: "Thick Coat" },
-      { id: "warded", name: "Warded" },
-      { id: "mystic", name: "Mystic" },
-      { id: "hearty", name: "Hearty" },
-      { id: "moss-skin", name: "Moss Skin" },
-      { id: "old-soul", name: "Old Soul" },
-      { id: "sun-heart", name: "Sun Heart" },
-      { id: "flux-heart", name: "Flux Heart" },
-      { id: "moss-heart", name: "Moss Heart" },
-      // Starter passives.
-      { id: "moonlit", name: "Moonlit" },
-      { id: "shifting", name: "Shifting" },
-      { id: "rooted", name: "Rooted" },
-      { id: "encrypted", name: "Encrypted" },
-      { id: "far-sight", name: "Far Sight" },
-      { id: "sweet-tooth", name: "Sweet Tooth" },
-      { id: "lucky", name: "Lucky" },
-      { id: "plainspoken", name: "Plainspoken" },
-      // The wilds. Each carries two of these: a signature primary, and a
-      // secondary its pool always hands over, so every one of the line has
-      // both halves of what it is.
-      { id: "thirst", name: "Thirst" },
-      { id: "restless", name: "Restless" },
-      {
-        id: "moonwane", name: "Moonwane",
-      },
-      { id: "moonwell", name: "Moonwell" },
-      {
-        id: "sun-bloom", name: "Sun Bloom",
-      },
-      { id: "sun-ward", name: "Sun Ward" },
-      // The Cottle line: a queen who brings her court, and the court itself.
-      {
-        id: "cottle-court", name: "Cottle Court",
-      },
-      { id: "queens-guard", name: "Queen's Guard" },
-      {
-        id: "piercing-horn", name: "Piercing Horn",
-      },
-      // The Octoshake line. Cherry on Top is the only passive so far that
-      // hands over a move rather than changing a number.
-      { id: "sticky-treat", name: "Sticky Treat" },
-      {
-        id: "cherry-on-top", name: "Cherry on Top",
-        statuses: [], grantsMove: "cherry-on-top", accessory: "cherry",
-      },
-      { id: "sticky-mess", name: "Sticky Mess" },
-    ] as Ability[]
-  ).map((a) => [a.id, a]),
-);
+/** The costume a move leaves its caster in, for a move that uses something up. */
+export function wornBy(move: Move): string | null {
+  return firstStep(move, "wear")?.form ?? null;
+}
 
 /** Which form a species is. Everything drawn so far is a first form. */
 export function stageOf(sp: Species): number {
@@ -568,12 +290,22 @@ export function isStab(sp: Species, element: ElementType): boolean {
 }
 
 /**
- * The chart multiplier against a species. A second type multiplies the first:
- * a move strong into both halves lands at 4x, and one strong into one half and
- * weak into the other comes out even.
+ * How the chart's readings stack. Each weakness adds one more multiple and
+ * each resistance one more divisor, rather than each doubling or halving the
+ * last: a move strong into both halves of a pairing lands at 3x, not 4x, weak
+ * into both at a third, and one of each comes out even. Anything the chart
+ * calls immune stays immune.
  */
+function stacked(readings: number[]): number {
+  if (readings.some((r) => r === 0)) return 0;
+  const weak = readings.filter((r) => r > 1).length;
+  const resist = readings.filter((r) => r < 1).length;
+  return (1 + weak) / (1 + resist);
+}
+
+/** The chart multiplier against a species, its types stacked as `stacked` says. */
 export function effectivenessAgainst(attack: ElementType, sp: Species): number {
-  return typesOf(sp).reduce((mult, t) => mult * effectiveness(attack, t), 1);
+  return stacked(typesOf(sp).map((t) => effectiveness(attack, t)));
 }
 
 /** Both of a move's elements, primary first. */
@@ -581,12 +313,14 @@ export function moveTypes(move: Move): ElementType[] {
   return move.type2 ? [move.type, move.type2] : [move.type];
 }
 
+/** The chart multiplier for an attack of these elements, against a set of elements. */
+export function typesEffectiveness(types: readonly ElementType[], against: readonly ElementType[]): number {
+  return stacked(types.flatMap((t) => against.map((d) => effectiveness(t, d))));
+}
+
 /** The chart multiplier for a whole move, against a set of elements. */
 export function moveEffectiveness(move: Move, against: readonly ElementType[]): number {
-  return moveTypes(move).reduce(
-    (mult, t) => mult * against.reduce((m, d) => m * effectiveness(t, d), 1),
-    1,
-  );
+  return typesEffectiveness(moveTypes(move), against);
 }
 
 /** Does the caster share either of the move's elements? */
@@ -612,186 +346,17 @@ export function grantedMoves(sp: Species, secondaryAbility: string): string[] {
   return out;
 }
 
-const L = (level: number, move: string) => ({ level, move });
-
-// One starter per primary type. Stats and passives here are first-pass
-// placeholders: every line totals 32 gene points against the 30 of a plain
-// line, spent differently.
-const STARTERS: Species[] = [
-  {
-    id: "cresce", name: "Cresce", type: "moon",
-    genes: stats(145, 50, 60, 100, 105, 40),
-    primaryAbility: "moonlit", secondaryPool: ["mystic", "warded"],
-    learnset: [L(1, "moonbeam"), L(4, "crush"), L(7, "cleanse"), L(10, "eclipse"), L(14, "nuzzle-nap")],
-    sprite: { kind: "art", art: "cresce" }, movement: "scamper",
-    blurb: "A tide-pull caster that leans on Magic and Resistance.",
-    starter: true,
-  },
-  {
-    id: "flarea", name: "Flarea", type: "sun",
-    genes: stats(120, 85, 55, 55, 95, 90),
-    primaryAbility: "sun-heart", secondaryPool: ["swift", "brawn"],
-    learnset: [L(1, "cinder-spit"), L(4, "crush"), L(7, "ember"), L(10, "flame-burst"), L(14, "slam")],
-    sprite: { kind: "art", art: "flarea" }, movement: "hover",
-    blurb: "Quick and hot-headed, trading bulk for speed.",
-    starter: true,
-  },
-  {
-    id: "grima", name: "Grima", type: "flux",
-    genes: stats(110, 70, 65, 70, 90, 95),
-    primaryAbility: "shifting", secondaryPool: ["flux-heart", "swift"],
-    learnset: [L(1, "tide-whip"), L(4, "crush"), L(8, "scatter-shot"), L(10, "riptide"), L(14, "hex")],
-    sprite: { kind: "art", art: "grima" }, movement: "scamper",
-    blurb: "Slippery and hard to pin down; strikes before it is struck.",
-    starter: true,
-  },
-  {
-    id: "obera", name: "Obera", type: "moss",
-    genes: stats(180, 70, 105, 80, 40, 25),
-    primaryAbility: "rooted", secondaryPool: ["moss-heart", "thick-coat"],
-    learnset: [L(1, "leaf-flick"), L(4, "crush"), L(7, "brace-up"), L(10, "vine-lash"), L(12, "tithe"), L(14, "nuzzle-nap")],
-    sprite: { kind: "art", art: "obera" }, movement: "hover",
-    blurb: "Slow and stubborn. Outlasts more than it outhits.",
-    starter: true,
-  },
-  {
-    id: "clikkit", name: "Clikkit", type: "cipher",
-    genes: stats(140, 50, 85, 110, 85, 30),
-    primaryAbility: "encrypted", secondaryPool: ["warded", "mystic"],
-    learnset: [L(1, "decode"), L(4, "crush"), L(8, "hairline"), L(10, "null-key"), L(13, "snipe"), L(14, "third-eye")],
-    sprite: { kind: "art", art: "clikkit" }, movement: "skitter",
-    blurb: "Reads the fight before it happens. Very hard to burn down.",
-    starter: true,
-  },
-  {
-    id: "wispen", name: "Wispen", type: "mystic",
-    genes: stats(95, 30, 40, 85, 145, 105),
-    primaryAbility: "far-sight", secondaryPool: ["mystic", "swift"],
-    learnset: [L(1, "hex"), L(4, "crush"), L(9, "mirror-mark"), L(10, "third-eye"), L(12, "blood-pact"), L(14, "moonbeam")],
-    sprite: { kind: "art", art: "wispen" }, movement: "hover",
-    blurb: "Glass and starlight: the biggest Magic, the thinnest skin.",
-    starter: true,
-  },
-  {
-    id: "pieble", name: "Pieble", type: "sugar",
-    genes: stats(195, 85, 95, 70, 35, 20),
-    primaryAbility: "sweet-tooth", secondaryPool: ["hearty", "thick-coat"],
-    learnset: [L(1, "sugar-rush"), L(4, "crush"), L(7, "forage"), L(10, "gumsnap"), L(12, "rally"), L(14, "slam")],
-    sprite: { kind: "art", art: "pieble" }, movement: "scamper",
-    blurb: "A sticky wall of a Scoba. Takes hits all day.",
-    starter: true,
-  },
-  {
-    id: "aulium", name: "Aulium", type: "fortuna",
-    genes: stats(135, 85, 75, 75, 75, 55),
-    primaryAbility: "lucky", secondaryPool: ["swift", "brawn"],
-    learnset: [L(1, "lucky-strike"), L(4, "crush"), L(8, "wild-bolt"), L(10, "jackpot"), L(14, "slam")],
-    sprite: { kind: "art", art: "aulium" }, movement: "scamper",
-    blurb: "No weak spot and no specialty. Hits Plain types hardest.",
-    starter: true,
-  },
-  {
-    id: "plib", name: "Plib", type: "plain",
-    genes: stats(150, 115, 95, 70, 25, 45),
-    primaryAbility: "plainspoken", secondaryPool: ["brawn", "thick-coat"],
-    learnset: [L(1, "crush"), L(4, "sugar-rush"), L(7, "fury"), L(10, "slam"), L(14, "nuzzle-nap")],
-    sprite: { kind: "art", art: "plib" }, movement: "skitter",
-    blurb: "Nothing resists it and nothing fears it. Just honest work.",
-    starter: true,
-  },
-];
-
+/**
+ * Every line in the game, from `content/species.json`, in the order the file
+ * lists them. That order is the order the index and the starter picker show.
+ */
 export const SPECIES: Record<string, Species> = Object.fromEntries(
-  (
-    [
-      ...STARTERS,
-      // Wilds. Every line is drawn art; there is no stand-in pack any more.
-      {
-        id: "catsquito", name: "Catsquito", type: "plain",
-        genes: stats(95, 100, 50, 50, 90, 115),
-        primaryAbility: "thirst", secondaryPool: ["restless"],
-        learnset: [L(1, "crush"), L(4, "fury"), L(8, "sugar-rush"), L(12, "slam")],
-        sprite: { kind: "art", art: "catsquito" }, movement: "hover",
-      },
-      {
-        id: "meepa", name: "Meepa", type: "moon", type2: "plain",
-        genes: stats(130, 45, 60, 85, 130, 50),
-        primaryAbility: "moonwane", secondaryPool: ["moonwell"],
-        learnset: [L(1, "moonbeam"), L(4, "crush"), L(9, "cleanse"), L(13, "eclipse")],
-        sprite: { kind: "art", art: "meepa" }, movement: "hop",
-      },
-      {
-        id: "cactunny", name: "Cactunny", type: "moss", type2: "sun",
-        genes: stats(165, 75, 100, 75, 65, 20),
-        primaryAbility: "sun-bloom", secondaryPool: ["sun-ward"],
-        learnset: [L(1, "leaf-flick"), L(5, "ember"), L(9, "brace-up"), L(13, "cinder-spit")],
-        sprite: { kind: "art", art: "cactunny" }, movement: "scamper",
-      },
-      {
-        id: "cottlequeen", name: "Cottlequeen", type: "fortuna",
-        genes: stats(155, 45, 75, 80, 120, 25),
-        primaryAbility: "cottle-court", secondaryPool: ["queens-guard"],
-        learnset: [L(1, "lucky-strike"), L(4, "crush"), L(6, "court-call"), L(10, "jackpot")],
-        sprite: { kind: "art", art: "cottlequeen" }, movement: "hover",
-      },
-      // The Pawn her court is made of. Weak across the board, three moves, one
-      // passive, and no way onto the field but being called.
-      {
-        id: "cottlecorn", name: "Cottlecorn", type: "fortuna",
-        genes: stats(60, 40, 35, 35, 45, 35),
-        primaryAbility: "piercing-horn", secondaryPool: [],
-        learnset: [L(1, "pawn-dart"), L(1, "pawn-mend"), L(1, "sunfall")],
-        sprite: { kind: "art", art: "cottlecorn" }, movement: "skitter",
-        pawn: true, autonomous: true,
-      },
-      // The Octoshake line: the only one with a baby form drawn so far. Sqwoop
-      // grows into Octoshake at the usual level and the two share one kit.
-      {
-        id: "sqwoop", name: "Sqwoop", type: "sugar", type2: "moon",
-        genes: stats(130, 0, 30, 40, 70, 30),
-        primaryAbility: "sticky-treat", secondaryPool: ["cherry-on-top"],
-        learnset: [
-          L(1, "icecream-soup"), L(1, "tentacle-slap"),
-          L(8, "cold-wave"), L(15, "tantalizing-sweets"),
-        ],
-        sprite: { kind: "art", art: "sqwoop", forms: { cherryless: "sqwoop-cherryless" } },
-        movement: "hop", cry: "sqwoop",
-        baby: true, evolvesTo: "octoshake",
-        blurb: "A sundae in a glass. It hops because it cannot walk.",
-      },
-      {
-        id: "octoshake", name: "Octoshake", type: "sugar", type2: "moon",
-        genes: stats(190, 0, 60, 90, 120, 40),
-        primaryAbility: "sticky-treat", secondaryPool: ["cherry-on-top"],
-        hyperAbility: "sticky-mess",
-        learnset: [
-          L(1, "icecream-soup"), L(1, "tentacle-slap"),
-          L(8, "cold-wave"), L(15, "tantalizing-sweets"),
-        ],
-        sprite: {
-          kind: "art", art: "octoshake",
-          forms: {
-            cherryless: "octoshake-cherryless",
-            hyper: "hyper-octoshake",
-            "cherryless+hyper": "hyper-octoshake-cherryless",
-          },
-        },
-        movement: "hop", cry: "octoshake",
-        blurb: "Everything Sqwoop is, and colder. Nothing it hits gets away.",
-      },
-      {
-        id: "relica", name: "Relica", type: "plain",
-        genes: { ...BASE_GENES },
-        primaryAbility: "old-soul", secondaryPool: ["moss-skin", "mystic", "hearty"],
-        learnset: [L(1, "crush"), L(1, "nuzzle-nap"), L(8, "leaf-flick"), L(15, "slam")],
-        sprite: { kind: "art", art: "relica" }, movement: "scamper",
-        special: true,
-      },
-    ] as Species[]
-  ).map((s) => [s.id, s]),
+  (SPECIES_DATA as unknown as Species[]).map((s) => [s.id, s]),
 );
 
-export const STARTER_IDS: string[] = STARTERS.map((s) => s.id);
+export const STARTER_IDS: string[] = Object.values(SPECIES)
+  .filter((s) => s.starter === true)
+  .map((s) => s.id);
 
 /**
  * The lines a player can actually keep. The special Scoba is nobody's and a
@@ -836,10 +401,10 @@ export const SPECIAL = SPECIES["relica"]!;
 export function speciesMoves(sp: Species): string[] {
   const seen = new Set<string>();
   const ids: string[] = [];
-  for (const entry of sp.learnset) {
-    if (seen.has(entry.move) || !MOVES[entry.move]) continue;
-    seen.add(entry.move);
-    ids.push(entry.move);
+  for (const id of sp.moves) {
+    if (seen.has(id) || !MOVES[id]) continue;
+    seen.add(id);
+    ids.push(id);
   }
   return sortByCost(ids).slice(0, MAX_MOVES);
 }
@@ -855,8 +420,4 @@ export function sortByCost(ids: string[]): string[] {
     if (!ma || !mb) return ma ? -1 : mb ? 1 : 0;
     return ma.manaCost - mb.manaCost || a.localeCompare(b);
   });
-}
-
-export function learnableAt(sp: Species, level: number): string[] {
-  return sp.learnset.filter((l) => l.level <= level).map((l) => l.move);
 }

@@ -92,7 +92,10 @@ describe("spending Aetus", () => {
       // next form's line.
       expect(s.genes).toEqual(next.genes);
       expect(s.moves).toEqual(speciesMoves(next));
-      expect(next.secondaryPool).toContain(s.secondaryAbility);
+      // The second passive comes through untouched, whether or not the grown
+      // form's own pool offers it. One outside that pool was bred in, and
+      // growing up is the last thing that should take it away.
+      expect(s.secondaryAbility).toBe("restless");
       // A second form is raised by evolving into it, not by buying levels.
       expect(levelUpError(s, 9999)).toMatch(/first form/i);
     } finally {

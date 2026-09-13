@@ -92,14 +92,27 @@ export interface CosmeticDoc {
   pieces: Record<string, Record<string, Placement>>;
   costumes: Record<string, CostumeSetup>;
   lines: Record<string, LineSetup>;
+  /**
+   * Words written over the ones the game works out for itself, keyed by what
+   * they are about: `species:allin`, `ability:invested`, `move:card-throw`.
+   * Plain prose with nothing read back out of it, so an entry here replaces
+   * the whole of what would have been shown and can say anything.
+   */
+  texts: Record<string, string>;
 }
+
+/** What a written line can be about. */
+export type TextKind = "species" | "ability" | "move";
+
+/** The key one is stored under. */
+export const textKey = (kind: TextKind, id: string): string => `${kind}:${id}`;
 
 /** The costume key the player characters are placed under, who have no species. */
 export const PLAYER_COSTUME = "player";
 
 /** Nothing moved: every drawing takes the answers its own art gives. */
 export function emptyCosmetics(): CosmeticDoc {
-  return { pieces: {}, costumes: {}, lines: {} };
+  return { pieces: {}, costumes: {}, lines: {}, texts: {} };
 }
 
 /**
@@ -109,14 +122,15 @@ export function emptyCosmetics(): CosmeticDoc {
 export function readCosmetics(parsed: unknown): CosmeticDoc {
   if (!parsed || typeof parsed !== "object") return emptyCosmetics();
   const doc = parsed as Partial<CosmeticDoc> & Record<string, unknown>;
-  if (doc.pieces || doc.costumes || doc.lines) {
+  if (doc.pieces || doc.costumes || doc.lines || doc.texts) {
     return {
       pieces: doc.pieces ?? {},
       costumes: doc.costumes ?? {},
       lines: doc.lines ?? {},
+      texts: doc.texts ?? {},
     };
   }
-  return { pieces: parsed as CosmeticDoc["pieces"], costumes: {}, lines: {} };
+  return { pieces: parsed as CosmeticDoc["pieces"], costumes: {}, lines: {}, texts: {} };
 }
 
 function parse(raw: string | null): CosmeticDoc | null {
@@ -155,13 +169,42 @@ export function installCosmetics(
 
 // --- stepping back ---
 //
-// A step is a copy of the whole document rather than a record of what changed.
-// The document is a few hundred numbers, so copying it costs nothing, and a
-// copy cannot fall out of step with itself the way a list of reversible edits
-// can once two of them touch the same costume.
+// A step is a copy of something as it stood rather than a record of what
+// changed. For the placements that something is the whole document, which is a
+// few hundred numbers, so copying it costs nothing, and a copy cannot fall out
+// of step with itself the way a list of reversible edits can once two of them
+// touch the same costume.
+//
+// The editor's game data shares the one history, so a single Undo takes back
+// whatever was done last, placement or record. A data step copies only the one
+// record it touched. That is safe for the same reason: an edit to a record
+// replaces the whole of it, so there is nothing partial for the copy to miss.
 
-const past: string[] = [];
-const future: string[] = [];
+/**
+ * Something a step can put back: a way to read what it is now and a way to
+ * write back what it was. Both deal in strings, so a step is only ever a copy.
+ */
+export interface Undoable {
+  read(): string;
+  write(state: string): void;
+}
+
+interface Entry {
+  target: Undoable;
+  state: string;
+}
+
+/** The placements, as a thing a step can copy and put back. */
+const docTarget: Undoable = {
+  read: () => JSON.stringify(cosmetics()),
+  write: (state) => {
+    working = parseCosmetics(state);
+    persist(working);
+  },
+};
+
+const past: Entry[] = [];
+const future: Entry[] = [];
 
 /** How far back the editor can go. */
 const HISTORY_DEPTH = 80;
@@ -179,13 +222,23 @@ let grouping = 0;
  * with the arrow keys undoes as the single move it reads as.
  */
 function remember(tag: string): void {
+  rememberStep(tag, docTarget);
+}
+
+/**
+ * Puts something as it stands on the stack, before it changes. The editor's
+ * game data comes in through here with a target of its own; the placements come
+ * in through `remember`. A run of changes to the same thing collapses into one
+ * step, whichever of the two it is.
+ */
+export function rememberStep(tag: string, target: Undoable): void {
   if (grouping > 0) return;
   const now = Date.now();
   const sameRun = tag === lastTag && now - lastAt < RUN_MS && past.length > 0;
   lastTag = tag;
   lastAt = now;
   if (sameRun) return;
-  past.push(JSON.stringify(cosmetics()));
+  past.push({ target, state: target.read() });
   if (past.length > HISTORY_DEPTH) past.shift();
   future.length = 0;
 }
@@ -216,12 +269,12 @@ export const canRedo = (): boolean => future.length > 0;
 export function undoCosmetics(): boolean {
   const back = past.pop();
   if (back === undefined) return false;
-  future.push(JSON.stringify(cosmetics()));
-  working = parseCosmetics(back);
+  // What it is now goes the other way first, so redo has it to put back.
+  future.push({ target: back.target, state: back.target.read() });
+  back.target.write(back.state);
   // The next change is its own step rather than a continuation of the one
   // that was just taken off.
   lastTag = "";
-  persist(working);
   return true;
 }
 
@@ -229,10 +282,9 @@ export function undoCosmetics(): boolean {
 export function redoCosmetics(): boolean {
   const ahead = future.pop();
   if (ahead === undefined) return false;
-  past.push(JSON.stringify(cosmetics()));
-  working = parseCosmetics(ahead);
+  past.push({ target: ahead.target, state: ahead.target.read() });
+  ahead.target.write(ahead.state);
   lastTag = "";
-  persist(working);
   return true;
 }
 
@@ -369,6 +421,30 @@ export function clearLine(costumes: readonly string[], lineId: string): void {
     delete doc.lines[lineId];
     save();
   });
+}
+
+/** What has been written over this one, or nothing where the game says it. */
+export function writtenText(kind: TextKind, id: string): string | null {
+  return cosmetics().texts[textKey(kind, id)] ?? null;
+}
+
+/** Writes over what the game would say. An empty line puts its own words back. */
+export function setText(kind: TextKind, id: string, text: string): void {
+  const trimmed = text.trim();
+  if (trimmed === "") return clearText(kind, id);
+  remember(`text:${kind}:${id}`);
+  cosmetics().texts[textKey(kind, id)] = trimmed;
+  save();
+}
+
+/** Hands one back to the game to say for itself. */
+export function clearText(kind: TextKind, id: string): void {
+  const doc = cosmetics();
+  const key = textKey(kind, id);
+  if (!(key in doc.texts)) return;
+  remember(`text:${kind}:${id}`);
+  delete doc.texts[key];
+  save();
 }
 
 /** Drops every nudge. Nothing is written until the editor saves. */

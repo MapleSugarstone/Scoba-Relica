@@ -1,0 +1,315 @@
+/* Scoba Relica: the HUD, the pause menu, dialog, and the party screen. */
+/* A screen with more to fit than the general .screen budgets for. */
+.screen.tight { gap: 8px; padding: 12px 16px; }
+#hud { position: absolute; inset: 0; display: none; }
+#hud.on { display: block; }
+#bag {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+#bagBtn {
+  width: 46px; height: 46px;
+  padding: 8px;
+  --fill: var(--p-panel);
+  color: var(--p-text);
+  display: block;
+}
+/* Rects only, and crisp edges on them, so the bag never softens a pixel
+   the way the rest of the interface never does. */
+#bagBtn svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+#bagBtn.on { --fill: var(--p-confirm); }
+/*
+ * The pause menu: a readout down the right side of the frame, nearly full
+ * height, rather than a fold-out of separate boxed buttons. Door rows sit
+ * directly on its own fill, so only the one outline is drawn.
+ */
+#bagMenu {
+  --fill: color-mix(in srgb, var(--p-ink) 90%, transparent);
+  --ink: var(--p-raised);
+  width: 220px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  overflow-y: auto;
+  animation: dropIn 100ms steps(3, end) both;
+}
+#bagMenu[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  #bagMenu { animation: none; }
+}
+.code {
+  font: inherit; font-size: 20px;
+  letter-spacing: 0.22em;
+  color: var(--p-highlight);
+  padding: 8px 4px;
+  flex: 1;
+}
+/*
+ * A door, or a Scoba action: plain text on the panel's own fill, with a
+ * triangular mark reserved to its left rather than a box of its own. The
+ * mark is a pseudo-element so the highlighted row needs no separate cursor
+ * node to keep in sync.
+ */
+.doorRow {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 16px;
+  letter-spacing: 1px;
+  color: var(--p-text);
+  text-align: left;
+  padding: 12px 16px 12px 32px;
+  cursor: pointer;
+}
+.doorRow::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--p-highlight);
+}
+.doorRow.cur {
+  color: var(--p-highlight);
+}
+.doorRow.cur::before {
+  content: "▸";
+}
+.doorRow:disabled {
+  color: var(--p-dead-text);
+  cursor: default;
+}
+@media (hover: hover) {
+  .doorRow:hover:not(:disabled) {
+    color: var(--p-highlight);
+  }
+  .doorRow:hover:not(:disabled)::before {
+    content: "▸";
+  }
+}
+.doorRow:active:not(:disabled) {
+  transform: translateY(2px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .doorRow:active { transform: none; }
+}
+#actBtn {
+  position: absolute;
+  bottom: max(26px, env(safe-area-inset-bottom));
+  right: max(22px, env(safe-area-inset-right));
+  width: 74px; height: 74px;
+  --fill: var(--p-confirm);
+  color: var(--p-text);
+  font: inherit; font-size: 16px;
+  display: none;
+}
+body.touch #actBtn { display: block; }
+#stick {
+  position: absolute;
+  width: 110px; height: 110px;
+  --ink: var(--p-text);
+  --fill: var(--p-ground);
+  opacity: 0.55;
+  display: none;
+  pointer-events: none;
+}
+#stickKnob {
+  position: absolute;
+  width: 44px; height: 44px;
+  --ink: var(--p-text);
+  --fill: var(--p-dim);
+  left: 33px; top: 33px;
+}
+
+#dialog {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: max(20px, env(safe-area-inset-bottom));
+  width: min(calc(var(--ui-w, 800px) * 0.94), 560px);
+  --ink: var(--p-action);
+  --fill: var(--p-ink);
+  padding: 16px 16px;
+  font-size: 16px;
+  line-height: 1.45;
+  display: none;
+}
+#dialog .who { color: var(--p-highlight); font-size: 12px; margin-bottom: 4px; }
+#dialog .next { color: var(--p-dim); font-size: 12px; text-align: right; margin-top: 8px; }
+
+.list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.list .item {
+  display: flex; justify-content: space-between; font-size: 14px;
+  --fill: var(--p-ink);
+  --ink: var(--p-raised);
+  padding: 8px 12px;
+}
+.list .item .dim { color: var(--p-dim); font-size: 12px; }
+.list .item .who { gap: 8px; }
+/* A box with more in it than fits scrolls inside its own card. */
+.list.scroll { max-height: calc(var(--ui-h, 450px) * 0.42); overflow-y: auto; }
+/* Roster rows: a face and a name on the left, what you can do on the right. */
+.who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* A fixed box, bottom aligned so feet line up down the column. Its size
+   comes from the caller, since a party row and a card want different
+   heights, and the art inside is only ever drawn at a whole step. */
+.pface {
+  --fill: var(--p-ground);
+  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+}
+.pface canvas { image-rendering: pixelated; display: block; }
+.ops { display: flex; align-items: center; gap: 4px; }
+.pill.tiny { font-size: 12px; padding: 4px 8px; }
+.pill:disabled { color: var(--p-dead-text); cursor: default; }
+
+/*
+ * The party: a two-column grid of cards, one per party slot whether or not
+ * a Scoba fills it, with the action list docked beside it rather than
+ * floating over whichever card is picked.
+ */
+.partyLayout {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  align-items: stretch;
+}
+.partyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  flex: 1;
+  align-content: start;
+  min-width: 0;
+}
+.partyCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  min-width: 0;
+  /* An empty slot has nothing to give it height, so both variants read it
+     from here instead: the grid keeps its shape whether a card is filled. */
+  min-height: 80px;
+}
+/* Present, numbered by its place in the grid, and plainly not filled in:
+   the box keeps the grid's shape rather than letting the row collapse. */
+.partyCard.empty { --fill: var(--p-dead); }
+.partyCard.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
+.partyBody { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; flex: 1; min-width: 0; }
+.partyTop { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.partyName { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.partyBottom { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--p-dim); }
+.hpRow { display: flex; align-items: center; gap: 8px; }
+/* Bars under 16px stay a plain square frame rather than the stepped one,
+   the same rule a battle plate's own bars follow. */
+.hpBar { flex: 1; height: 12px; border: 2px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
+.hpBar > i { display: block; height: 100%; background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px); }
+.hpBar.warn > i { background: linear-gradient(color-mix(in srgb, var(--p-warning) 62%, var(--p-lit)) 0 2px, var(--p-warning) 2px); }
+.hpBar.danger > i { background: linear-gradient(color-mix(in srgb, var(--p-danger) 62%, var(--p-lit)) 0 2px, var(--p-danger) 2px); }
+/* The dock beside the grid: a hint until a card is picked, then that
+   Scoba's own door rows, using the same cursor idiom as the pause menu. */
+.partyActions {
+  --fill: var(--p-ink);
+  --ink: var(--p-raised);
+  width: 200px;
+  flex: none;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.partyActions .doorRow { padding: 8px 8px 8px 24px; font-size: 14px; }
+.partyActions .doorRow::before { left: 8px; }
+/* The prompt readout along the bottom: what Aetus is on hand, or which
+   Scoba the open action list belongs to. */
+.partyMsg {
+  --fill: var(--p-ink);
+  --ink: var(--p-raised);
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 16px;
+}
+
+/*
+ * The character creator: the doll in a fixed column on the left, a tabbed
+ * swatch column on the right. Both columns hold their height across every
+ * tab, so switching one never resizes the row and moves Next under it.
+ */
+.creator {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: center;
+}
+.creatorLeft {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 240px;
+  flex: none;
+}
+.creatorLeft .dollWrap { padding: 0 16px; }
+.creatorLeft .card { padding: 4px 8px; gap: 4px; }
+.creatorLeft .card input[type="text"] { padding: 4px 8px; font-size: 14px; }
+/* A compact pronoun pill: three of them read fine at a caption size. */
+.pill.sm { font-size: 12px; padding: 2px 8px; }
+.creatorRight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.creatorTabs { display: flex; flex-direction: column; gap: 8px; }
+/* Fixed regardless of which tab is open: a thumbnail row, a colour grid and
+   a one-line note are all shorter than this, so the box never resizes. */
+.creatorGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 132px;
+  justify-content: flex-start;
+}
+
+/* Starter picker: the strip and the debug search share one block, so
+   switching screens does not cost the row a gap of its own. */
+.starterTop { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+
+/* Settings: the four cards in a two-by-two grid rather than a stack, at the
+   tighter padding this screen budgets for over the general .card. */
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.settingsGrid .card { padding: 12px; gap: 4px; }
+/* The band's inset is cut from the card's own padding, so a tighter card
+   needs a shallower cut to keep it held the same 4px in from the corners. */
+.settingsGrid .card > strong:first-child,
+.settingsGrid .card > .cardHead:first-child { margin: -8px -8px 0; }
+
+/* Relica: the care card and the reminders card share a row instead of
+   stacking, so Back sits under both rather than under a tall column. */
+.relicaCols { display: flex; gap: 16px; width: 100%; align-items: stretch; }
+.relicaCols > .card { flex: 1; width: auto; max-width: none; }
+

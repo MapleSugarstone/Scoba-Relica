@@ -7,7 +7,7 @@ import { STATUSES, type StatusDef } from "../src/sim/status";
 
 const move = (over: Partial<Move>): Move => ({
   id: "test", name: "Test", type: "sun", kind: "magical", scale: 1, manaCost: 30, cooldown: 0, startCooldown: 0,
-  targets: [{ mode: "any-enemy" }],
+  targets: [{ mode: "any-enemy" }], cast: [],
   ...over,
 });
 
@@ -21,11 +21,16 @@ describe("the rule, on the shapes it was written from", () => {
   it("a hit on a whole side, then an immediate follow-on", () => {
     const table = {
       ...STATUSES,
-      "mana-up": status({ id: "mana-up", trigger: { on: "battle-start" }, effects: [{ kind: "mana", amount: 10 }] }),
+      "mana-up": status({
+        id: "mana-up", trigger: { on: "battle-start" }, effects: [{ kind: "mana", on: "self", amount: 10 }],
+      }),
     };
     const m = move({
       targets: [{ mode: "enemy-team" }, { mode: "ally-team" }],
-      effects: [{ kind: "heal", target: 1, frac: 0.1 }],
+      cast: [
+        { kind: "hit", to: { aim: 0 }, scaling: [{ stat: "mag", scale: 1 }] },
+        { kind: "heal", to: { aim: 1 }, basis: "holder-max-hp", frac: 0.1 },
+      ],
     });
     expect(describeMove(m, { statuses: table })).toBe(
       "Deals 100% Sun magic damage to all enemies. Then heals all allies for 10% of their max HP. (30% mana)",
@@ -37,13 +42,16 @@ describe("the rule, on the shapes it was written from", () => {
       ...STATUSES,
       "kill-heal": status({
         id: "kill-heal", trigger: { on: "kill-attack" },
-        effects: [{ kind: "heal", basis: "holder-max-hp", frac: 1 }],
+        effects: [{ kind: "heal", to: "self", basis: "holder-max-hp", frac: 1 }],
       }),
     };
     const m = move({
       type: "plain", kind: "physical", scale: 0.1,
       targets: [{ mode: "any-enemy" }, { mode: "self" }],
-      effects: [{ kind: "status", target: 1, status: "kill-heal" }],
+      cast: [
+        { kind: "hit", to: { aim: 0 }, scaling: [{ stat: "str", scale: 0.1 }] },
+        { kind: "inflict", status: "kill-heal", on: { aim: 1 } },
+      ],
     });
     expect(describeMove(m, { statuses: table })).toBe(
       "Deals 10% Plain physical damage to an enemy. On kill, heals to full. (30% mana)",
@@ -55,13 +63,16 @@ describe("the rule, on the shapes it was written from", () => {
       ...STATUSES,
       regen: status({
         id: "regen", trigger: { on: "turn-end" }, duration: 3,
-        effects: [{ kind: "heal", basis: "holder-mag", frac: 0.1 }],
+        effects: [{ kind: "heal", to: "self", basis: "holder-mag", frac: 0.1 }],
       }),
     };
     const m = move({
       kind: "heal", scale: 0.2, manaCost: 15,
       targets: [{ mode: "self" }],
-      effects: [{ kind: "status", target: 0, status: "regen" }],
+      cast: [
+        { kind: "heal", to: { aim: 0 }, basis: "holder-max-hp", frac: 0.2 },
+        { kind: "inflict", status: "regen", on: { aim: 0 } },
+      ],
     });
     expect(describeMove(m, { statuses: table })).toBe(
       "Heals for 20% of its max HP. At the end of each turn, heals for 10% Magic for 3 turns. (15% mana)",

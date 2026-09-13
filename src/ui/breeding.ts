@@ -12,9 +12,10 @@ import {
 import { displayName } from "../sim/battle";
 import { critterPortrait, lookOf, spriteColors } from "../game/critters";
 import { openBrowser } from "./browser";
-import { costOf, maxHp, moveName, unnaturalMoves, type ScobaInstance } from "../sim/scoba";
+import { costOf, maxHp, moveName, statsAt, unnaturalMoves, type ScobaInstance } from "../sim/scoba";
+import { proseBox } from "./prose";
 import { ABILITIES, SPECIAL, SPECIES } from "../sim/species";
-import { describeAbility } from "../sim/describe";
+import { abilityText } from "../game/texts";
 import { rngFrom } from "../sim/rng";
 import type { SaveData } from "../save/save";
 import { addToParty, writeSave } from "../save/save";
@@ -241,7 +242,7 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       if (forced.length > 0) {
         card.appendChild(el("div", "dim", `Debug: ${forced.join(", and ")} rather than rolled for.`));
       }
-      if (ability) card.appendChild(el("div", "dim", describeAbility(ability.id)));
+      if (ability) card.appendChild(proseBox(abilityText(ability.id), { stats: statsAt(child), level: child.level }, "dim"));
       if (child.sire) card.appendChild(el("div", "dim", "It takes his colours, too."));
       card.appendChild(el("div", "sub", toParty ? "Joined the party." : "Sent to the box."));
       s.appendChild(card);

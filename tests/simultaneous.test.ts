@@ -57,7 +57,7 @@ describe("a strike that reaches several at once", () => {
       id: "test-yelp", name: "Yelp", polarity: "good",
       trigger: { on: "hit-any" }, duration: null, charges: null,
       stacks: false, maxStacks: 1, persists: true,
-      effects: [{ kind: "mana", amount: 5 }],
+      effects: [{ kind: "mana", on: "self", amount: 5 }],
     };
     // Catsquito is the fastest line on the roster, Obera among the slowest.
     const st = field("obera", "catsquito");

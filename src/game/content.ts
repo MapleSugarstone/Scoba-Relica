@@ -13,7 +13,7 @@ import {
 } from "./world";
 import {
   COLS, ROWS, CLIFF_H,
-  buildIslandWorld, islandPainter, placeProp,
+  buildIslandWorld, islandPainter, placeProp, shoreRim,
   PROP_KINDS, type PropKind,
 } from "./islands";
 import {
@@ -476,6 +476,20 @@ export function cellMask(
   return land[i] || deck[i] ? 0 : SUB_FULL;
 }
 
+/**
+ * The rim a shore cell keeps feet off: the sides where the painter stops the
+ * dirt a quarter tile short of the boundary. Nothing wherever a hand mask, an
+ * override or a painted tile decides the cell instead of the terrain.
+ */
+export function cellRim(
+  m: MapDef, land: boolean[], deck: boolean[], cx: number, cy: number, open: SentinelOpen = ALL_SHUT,
+): number {
+  if (!sentinelPassed(m, cx, cy, open) && (subAt(m, cx, cy) !== null || collisionAt(m, cx, cy) !== ".")) return 0;
+  for (const layer of LAYERS) if (drawnTileAt(m, layer, cx, cy, open) !== null) return 0;
+  if (!land[cy * m.cols + cx]) return 0;
+  return shoreRim(land, deck, m.cols, m.rows, cx, cy);
+}
+
 // --- validation / io ---
 
 /** Species ids as they stand today, retired ones translated and gaps dropped. */
@@ -932,6 +946,7 @@ export function applySolidCell(
 ): void {
   if (!inBounds(m, cx, cy)) return;
   map.setCellMask(cx, cy, cellMask(art, c, m, land, deck, cx, cy, open));
+  map.setRim(cx, cy, cellRim(m, land, deck, cx, cy, open));
 }
 
 /** The whole grid at once, for a fresh build or after a bulk change. */
@@ -940,6 +955,7 @@ export function applyAllCollision(
   land: boolean[], deck: boolean[], open: SentinelOpen = ALL_SHUT,
 ): void {
   map.subSolid.clear();
+  map.rims.clear();
   for (let cy = 0; cy < m.rows; cy++) {
     for (let cx = 0; cx < m.cols; cx++) applySolidCell(map, art, c, m, land, deck, cx, cy, open);
   }

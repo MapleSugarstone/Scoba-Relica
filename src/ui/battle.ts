@@ -13,6 +13,7 @@ import {
   sendIn,
   choiceError,
   castableMoves,
+  heldMoves,
   hyperError,
   moveReady,
   HYPER_COST,
@@ -24,6 +25,7 @@ import {
   itemsOnHand,
   spendItem,
   previewMove,
+  castCost,
   combatantStats,
   selfRunning,
   BASIC_ATTACK_TARGETS,
@@ -38,16 +40,18 @@ import {
   ALL_SLOTS, TARGET_LABELS, isPawnSlot, needsPick, sameRef, type TargetRef, type TargetSpec,
 } from "../sim/targeting";
 import { statusName, type StatusInstance } from "../sim/status";
-import { describeAbility, describeMoveEffects } from "../sim/describe";
+import { restoreDerived } from "../sim/rewrite";
+import { abilityText, moveText } from "../game/texts";
+import { proseBox, proseNodes } from "./prose";
 import { fieldSigilText, sigilText, sigilUrl, type SigilText } from "./sigil";
 import { enemyChoices, pawnChoices } from "../sim/ai";
 import { PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
 import { rngFrom } from "../sim/rng";
-import { gainXp, MAX_LEVEL, maxHp, moveCost, moveName, settleCaught, type ScobaInstance } from "../sim/scoba";
+import { gainXp, MAX_LEVEL, maxHp, moveName, settleCaught, type ScobaInstance } from "../sim/scoba";
 import { AETUS_PER_TRAINER, AETUS_PER_WILD } from "../sim/growth";
 import { ABILITIES, abilityStatuses, MAX_MOVES, MOVES, SPECIES, type Move } from "../sim/species";
 import { BattleStage } from "../game/battlestage";
-import { uiZoom } from "../engine/renderer";
+import { frameRect, uiZoom, viewport } from "../engine/renderer";
 import { typeIcon, typeIcons } from "./typeicon";
 import type { SaveData } from "../save/save";
 import { addToParty, autosave, partyOf, writeSave } from "../save/save";
@@ -111,10 +115,9 @@ const OTHER: Record<OwnerId, OwnerId> = { A: "B", B: "A" };
  * moving the buttons or the scene above them. Wide and shallow: a button that
  * is as tall as it is broad reads as a tile rather than as something to press.
  */
-/** How many rows the action block is, on every page: one of text, two of buttons. */
-const ACT_ROWS = 3;
-const BUTTON_ROWS = ACT_ROWS - 1;
-const BAR_SHARE = 0.26;
+/** How many rows of buttons the action block is, on every page, beside the message box. */
+const BUTTON_ROWS = 2;
+const BAR_SHARE = 0.4;
 const BAR_MAX_W = 1120;
 
 /** Bag entries that do something in a battle. Everything else stays put. */
@@ -182,6 +185,9 @@ function runBattle(
     `${save.worldSeed}:${Date.now().toString(36)}`,
     team, enemies, { slots: 2, wild: setup.wild, owners, ez: save.ez },
   );
+  // A fight handed over part way through can name moves a step rewrote on the
+  // host before this client arrived.
+  restoreDerived(st);
   const seed = st.seed;
   // Local player's Scoba reads first, whichever character they control.
   const displayOrder: (0 | 1)[] = localOwner === "A" ? [0, 1] : [1, 0];
@@ -222,7 +228,7 @@ function runBattle(
    */
   let aiming: { action: Choice; specs: TargetSpec[]; picks: (TargetRef | null)[]; at: number } | null = null;
   /** Which page of the action row the current character is looking at. */
-  let menu: "main" | "abilities" | "items" | "flee" = "main";
+  let menu: "main" | "abilities" | "handed" | "items" | "flee" = "main";
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] => {
     const e = document.createElement(tag);
@@ -340,11 +346,48 @@ function runBattle(
   const nudgeTip = (tip: HTMLElement): void => {
     tip.style.setProperty("--nudge", "0px");
     const box = tip.getBoundingClientRect();
+    const edge = frameRect();
     const pad = 4;
-    const over = box.right > window.innerWidth - pad
-      ? window.innerWidth - pad - box.right
-      : box.left < pad ? pad - box.left : 0;
+    const over = box.right > edge.right - pad
+      ? edge.right - pad - box.right
+      : box.left < edge.left + pad ? edge.left + pad - box.left : 0;
     if (over !== 0) tip.style.setProperty("--nudge", `${Math.round(over / uiZoom())}px`);
+  };
+
+  /** The move under the pointer and who would cast it, so a readout can say what it would land at before it is picked. */
+  let hoverMove: { move: Move; user: TargetRef } | null = null;
+
+  /**
+   * What the move being aimed, or the one under the pointer, would land at
+   * against this one: the chart's multiple as a short mark, or null where
+   * there is nothing to say. That is most of the time: nothing aimed, an
+   * ally, a move that heals or lands flat off the chart (the basic attack is
+   * one), or a chart that reads even. The number comes from the same preview
+   * the cast would run, so a move the chart never touches never shows one.
+   */
+  const aimEffect = (c: Combatant, ref: TargetRef): { mult: number; label: string } | null => {
+    let moveId: string;
+    let user: TargetRef;
+    if (aiming) {
+      if (aiming.action.kind !== "spell") return null;
+      const index = st.active[0][aiming.action.slot] ?? -1;
+      if (index < 0) return null;
+      moveId = aiming.action.moveId;
+      user = { side: 0, index };
+    } else if (hoverMove) {
+      moveId = hoverMove.move.id;
+      user = hoverMove.user;
+    } else {
+      return null;
+    }
+    if (ref.side === user.side || c.fainted) return null;
+    const p = previewMove(st, user, moveId, ref);
+    if (!p || p.damage === null || p.eff === 1) return null;
+    const mult = p.eff;
+    const label = mult === 0 ? "×0"
+      : mult >= 1 ? `×${mult}`
+        : `×1/${Math.round(1 / mult)}`;
+    return { mult, label };
   };
 
   /**
@@ -389,8 +432,12 @@ function runBattle(
       const spend = ref.side === 0 && costPreview?.index === ref.index ? costPreview.cost : 0;
       mpBar.set(now.mana / 100, now.manaTrail / 100, { spend: spend / 100 });
       mpNum.textContent = `${now.mana}%`;
-      // The bars say the numbers; this line is only for what they cannot.
-      state.textContent = now.fainted ? "Fainted" : c.blocking ? "Blocking" : "";
+      // The bars say the numbers; this line is only for what they cannot,
+      // and while a move is aimed, for what the chart says it would land at.
+      const eff = now.fainted || c.blocking ? null : aimEffect(c, ref);
+      state.textContent = now.fainted ? "Fainted" : c.blocking ? "Blocking" : eff ? eff.label : "";
+      state.classList.toggle("good", eff !== null && eff.mult > 1);
+      state.classList.toggle("poor", eff !== null && eff.mult < 1);
       fillMarks(marks, ref.side, now.marks);
     };
     refresh();
@@ -414,10 +461,9 @@ function runBattle(
   const pawnCard = (c: Combatant, ref: TargetRef): { node: HTMLElement; refresh: () => void } => {
     const wrap = el("div", "bcard bpawn");
     wrap.appendChild(el("div", "nm", displayName(c.scoba)));
-    // Its own line rather than beside the name: a badge is 41 px of drawn art
-    // that cannot be shrunk, and next to the name it would make a card wider
-    // than the gap between two Pawn marks on a phone.
-    wrap.appendChild(typeIcons(c.scoba));
+    // No type badges: the card lines the foot of the field in a row of three
+    // and has to stay short enough to fit between the front readouts and the
+    // block. The target picker and the Extra window still say the type.
     const max = combatantMaxHp(c);
     const hpBar = bar("");
     const mpBar = bar("mp");
@@ -446,6 +492,8 @@ function runBattle(
   let logEl: HTMLElement;
   /** What the banner is saying right now. Only ever one line, Pokemon-style. */
   let lastLine = { text: "", kind: "" };
+  /** Who the pointer is over while aiming, from the field or from a readout. */
+  let aimHover: TargetRef | null = null;
   /** One readout per slot, moved and refreshed each frame by the stage. */
   let plates: {
     side: 0 | 1;
@@ -520,11 +568,11 @@ function runBattle(
   const sizeActionBar = (): void => {
     const bar = document.querySelector(".bbottom");
     if (!(bar instanceof HTMLElement)) return;
-    // `vw`/`vh` are read before the root zoom and would come out at half the
-    // screen on a phone, so both go through the zoom by hand.
-    const zoom = uiZoom();
-    const h = `${Math.round((window.innerHeight / zoom) * BAR_SHARE)}px`;
-    const w = `${Math.round(Math.min((window.innerWidth / zoom) * 0.94, BAR_MAX_W))}px`;
+    // Sized from the frame rather than the window: the frame is the box the
+    // interface is laid out in, and it is the same box on every screen.
+    const box = viewport().ui;
+    const h = `${Math.round(box.h * BAR_SHARE)}px`;
+    const w = `${Math.round(Math.min(box.w - 16, BAR_MAX_W))}px`;
     if (bar.style.height !== h) bar.style.height = h;
     if (bar.style.getPropertyValue("--bw") !== w) bar.style.setProperty("--bw", w);
     // The readouts hang under their fighters and the block is opaque, so the
@@ -556,8 +604,15 @@ function runBattle(
     sizeActionBar();
     // Nothing is placed against a view the scene has not measured yet.
     if (!stage.ready()) return;
+    // While a move is being aimed, a readout that cannot be picked goes dark
+    // and the one under the pointer takes the highlight outline.
+    const options = aiming ? aimOptions() : null;
     for (const p of plates) {
       if (!p.node.isConnected) continue;
+      const ref = p.index === null ? null : { side: p.side, index: p.index };
+      const viable = options !== null && ref !== null && options.some((r) => sameRef(r, ref));
+      p.node.classList.toggle("dimmed", options !== null && !viable);
+      p.node.classList.toggle("hot", viable && aimHover !== null && ref !== null && sameRef(aimHover, ref));
       const alpha = p.index === null
         ? stage.slotAlpha(p.side, p.slot)
         : stage.fighterAlpha(p.side, p.index);
@@ -602,6 +657,14 @@ function runBattle(
       sfx.tap();
       choose(ref);
     });
+    // The readout sits above the aim layer, so it reports its own hover: the
+    // highlight comes up whether the pointer is on the card or on the Scoba.
+    node.addEventListener("pointerenter", () => {
+      if (aiming) aimHover = ref;
+    });
+    node.addEventListener("pointerleave", () => {
+      if (aiming && aimHover && sameRef(aimHover, ref)) aimHover = null;
+    });
     return node;
   };
 
@@ -618,6 +681,7 @@ function runBattle(
     }
     const options = aimOptions();
     layer.classList.add("on");
+    aimHover = null;
     stage.setAiming({ options, hover: null });
     const pick = (e: PointerEvent): TargetRef | null => {
       const hit = stage.hitTest(e.clientX, e.clientY);
@@ -625,10 +689,13 @@ function runBattle(
     };
     layer.addEventListener("pointermove", (e) => {
       if (!aiming) return;
-      stage.setAiming({ options, hover: pick(e) });
+      aimHover = pick(e);
+      stage.setAiming({ options, hover: aimHover });
     });
     layer.addEventListener("pointerleave", () => {
-      if (aiming) stage.setAiming({ options, hover: null });
+      if (!aiming) return;
+      aimHover = null;
+      stage.setAiming({ options, hover: null });
     });
     layer.addEventListener("pointerdown", (e) => {
       if (busy) return;
@@ -677,10 +744,6 @@ function runBattle(
       // the buttons share one fixed block, so neither resizes the other.
       const bottom = el("div", "bbottom");
       bottom.appendChild(buildActions());
-      // Over the block, and measured off it, so it lines up with the buttons
-      // underneath whatever the screen is.
-      const handed = buildHanded();
-      if (handed) bottom.appendChild(handed);
       s.appendChild(bottom);
     });
     ui.setLocked(true);
@@ -692,23 +755,28 @@ function runBattle(
     sub: string,
     onPick: () => void,
     opts: {
-      disabled?: boolean; alt?: boolean; small?: boolean;
+      disabled?: boolean; alt?: boolean; small?: boolean; hot?: boolean;
       type?: ElementType; type2?: ElementType; badge?: ElementType;
     } = {},
   ): HTMLButtonElement => {
     const dual = opts.type !== undefined && opts.type2 !== undefined;
+    // The badges a button wears, at its right end: a move's type or types,
+    // or the type the basic attack lands as.
+    const marks = [opts.type, opts.type2, opts.badge].filter((t): t is ElementType => t !== undefined);
     const b = el("button",
-      `act${opts.alt ? " alt" : ""}${opts.small ? " small" : ""}${opts.type ? " typed" : ""}${dual ? " dual" : ""}`,
+      `act${opts.alt ? " alt" : ""}${opts.small ? " small" : ""}${opts.hot ? " hot" : ""}` +
+      `${opts.type ? " typed" : ""}${dual ? " dual" : ""}${marks.length > 0 ? " marked" : ""}`,
     ) as HTMLButtonElement;
     if (opts.type) b.style.setProperty("--type-fill", TYPE_COLORS[opts.type]);
-    // A move of two elements wears both, so what it counts as is readable
-    // without opening anything.
     if (opts.type2) b.style.setProperty("--type-fill2", TYPE_COLORS[opts.type2]);
-    b.appendChild(el("span", undefined, label));
-    if (sub || opts.badge) {
-      const line = el("span", "sub", sub);
-      if (opts.badge) line.appendChild(typeIcon(opts.badge));
-      b.appendChild(line);
+    const col = el("span", "tcol");
+    col.appendChild(el("span", "tlabel", label));
+    if (sub) col.appendChild(el("span", "sub", sub));
+    b.appendChild(col);
+    if (marks.length > 0) {
+      const mark = el("span", "tmark");
+      for (const t of marks) mark.appendChild(typeIcon(t));
+      b.appendChild(mark);
     }
     b.disabled = !!opts.disabled || busy;
     b.addEventListener("click", () => {
@@ -732,32 +800,6 @@ function runBattle(
       return act(displayName(c.scoba), `Lv ${c.scoba.level}`, () => chooseSendIn(slot, i));
     });
     return rows(grid(picks), null, who ? `${who}, send one in` : "Send one in");
-  };
-
-  /**
-   * The moves an ability hands the Scoba, as a strip of small buttons over the
-   * block. They are not in slots and there is no room for them on a board that
-   * is four cells for good, so they sit above it where a fifth row would have
-   * pushed everything else about.
-   *
-   * Hung off the block rather than laid out with it, so however many there are
-   * the block is the height it always is and the scene behind it never moves.
-   */
-  const buildHanded = (): HTMLElement | null => {
-    if (aiming || sendInSlots[0] !== undefined) return null;
-    const slot = roundSlots[pickIndex];
-    const me = slot === undefined ? null : at(0, slot);
-    if (slot === undefined || !me || menu === "flee" || menu === "items") return null;
-    const handed = castableMoves(me).slice(MAX_MOVES);
-    if (handed.length === 0) return null;
-    const row = el("div", "bhanded");
-    for (const id of handed) {
-      const move = MOVES[id];
-      if (!move) continue;
-      row.appendChild(abilityButton(me, move, () =>
-        startAiming({ kind: "spell", side: 0, slot, moveId: move.id, picks: [] }), { small: true }));
-    }
-    return row;
   };
 
   const buildActions = (): HTMLElement => {
@@ -801,13 +843,42 @@ function runBattle(
       }, { alt: true, small: true });
     };
 
+    // The moves an ability hands over. They have no slot for a status to
+    // address, and the board is four cells for good, so they are a page of
+    // their own, reached from the strip under the board.
+    const handed = castableMoves(me).slice(MAX_MOVES)
+      .map((id) => MOVES[id])
+      .filter((m): m is Move => m !== undefined);
+    if (menu === "handed") {
+      // The same four-cell board as the moves, with the cells nothing was
+      // handed for dead, so the two pages are one shape.
+      const board = el("div", "bgrid");
+      for (let i = 0; i < MAX_MOVES; i++) {
+        const move = handed[i];
+        if (!move) {
+          const dead = el("button", "act slot-empty") as HTMLButtonElement;
+          dead.disabled = true;
+          dead.appendChild(el("span", undefined, "None."));
+          board.appendChild(dead);
+          continue;
+        }
+        board.appendChild(abilityButton(me, move, () =>
+          startAiming({ kind: "spell", side: 0, slot, moveId: move.id, picks: [] })));
+      }
+      const back = act("Back", "", () => {
+        menu = "abilities";
+        render();
+      }, { alt: true, small: true });
+      return rows([board], back, askLine(me));
+    }
+
     if (menu === "abilities") {
       // Always four cells. A Scoba with fewer slots shows the rest as dead
       // ones rather than shrinking the board, and the order never moves,
       // because statuses address these by position.
       const grid = el("div", "bgrid");
       for (let i = 0; i < MAX_MOVES; i++) {
-        const id = me.scoba.moves[i];
+        const id = heldMoves(me)[i];
         const move = id ? MOVES[id] : undefined;
         if (!move) {
           const dead = el("button", "act slot-empty") as HTMLButtonElement;
@@ -819,21 +890,35 @@ function runBattle(
         grid.appendChild(abilityButton(me, move, () =>
           startAiming({ kind: "spell", side: 0, slot, moveId: move.id, picks: [] })));
       }
-      // Hyper-Mode takes the bar along the bottom. It is not a move and is
-      // never cast at anything, so it sits under the board rather than in it.
-      // Moves an ability hands over are not in slots either, and they sit in
-      // their own strip over the block: see `buildHanded`.
+      // Hyper-Mode takes the bar along the bottom, for every Scoba, so the
+      // board is always three rows. It is not a move and is never cast at
+      // anything. A Scoba with no Hyper-Mode says so, with no cost. A story
+      // flag can lock the whole thing away as "???" for a later chapter;
+      // nothing sets it yet, so it is open from the start.
+      const hasHyper = SPECIES[me.scoba.speciesId]?.hyperAbility !== undefined;
+      const locked = save.story.flags["hyperLocked"] === true;
       const hyperWhy = hyperError(me);
-      if (SPECIES[me.scoba.speciesId]?.hyperAbility !== undefined && !me.hyper) {
-        const b = act("Hyper", hyperWhy ?? `${HYPER_COST} mana`,
-          () => pick({ kind: "hyper", side: 0, slot }),
-          { disabled: hyperWhy !== null, small: true, alt: true });
-        b.classList.add("bhyper");
-        grid.appendChild(b);
-        // The track list has to name every row, so the grid says it has three.
-        grid.classList.add("rows3");
-      }
-      return rows([grid], backToMain, askLine(me));
+      const dead = { disabled: true, small: true, alt: true };
+      const hyper = locked
+        ? act("???", "", () => {}, dead)
+        : !hasHyper
+          ? act("No hyper", "", () => {}, dead)
+          : act("Hyper", hyperWhy ?? `${HYPER_COST} mana`,
+            () => pick({ kind: "hyper", side: 0, slot }),
+            { disabled: hyperWhy !== null, small: true, alt: true });
+      hyper.classList.add("bhyper");
+      grid.appendChild(hyper);
+      // The track list has to name every row, so the grid says it has three.
+      grid.classList.add("rows3");
+      // The handed moves have no slot for a status to address and the board
+      // is four cells for good, so the way to them sits under the message
+      // box, beside the way back, rather than on the board. It is there for
+      // every Scoba, dead when nothing is handed, so the page keeps one shape.
+      const more = act("More moves", "", () => {
+        menu = "handed";
+        render();
+      }, { small: true, disabled: handed.length === 0 });
+      return rows([grid], backToMain, askLine(me), more);
     }
 
     if (menu === "flee") {
@@ -867,16 +952,15 @@ function runBattle(
     // sub-line says with the badge: wearing Plain's beige as a fill made the
     // first button on the row look like the disabled one.
     wrap.appendChild(act("Basic attack", "",
-      () => startAiming({ kind: "attack", side: 0, slot, picks: [] }), { badge: "plain" }));
-    const known = castableMoves(me).length;
-    wrap.appendChild(act("Abilities", `${known} known`, () => {
+      () => startAiming({ kind: "attack", side: 0, slot, picks: [] }), { hot: true }));
+    wrap.appendChild(act("Abilities", "", () => {
       menu = "abilities";
       render();
-    }));
+    }, { hot: true }));
     wrap.appendChild(act("Block", "-50% dmg", () => pick({ kind: "block", side: 0, slot }), { alt: true }));
 
     const minor = minorRow(
-      act("Items", itemsNote(), () => {
+      act("Items", "", () => {
         menu = "items";
         render();
       }, { alt: true, small: true }),
@@ -900,21 +984,29 @@ function runBattle(
     const out: HTMLElement[] = [];
     for (let i = 0; i < buttons.length; i += 3) {
       const row = el("div", "bactions");
-      for (const b of buttons.slice(i, i + 3)) row.appendChild(b);
+      const slice = buttons.slice(i, i + 3);
+      // A short list shares the row out rather than leaving a lone choice
+      // in a third of it, where a move's name has no room to be read.
+      row.style.setProperty("--cols", String(slice.length));
+      for (const b of slice) row.appendChild(b);
       out.push(row);
     }
     return out;
   };
 
   /**
-   * A page of the action block. Row one is always the message box: the
-   * question in `head` while a choice is being made, or the line the round is
-   * on while it plays. `corner` is the one way back off the page, at the end
-   * of that row. The parts fill the two rows under it, packed to the bottom,
-   * so every page is the same three rows tall and moving between them shifts
-   * neither the buttons nor the scene laid out above.
+   * A page of the action block. The left column is always the message box:
+   * the question in `head` while a choice is being made, or the line the
+   * round is on while it plays. `corner` is the one way back off the page,
+   * under that box. The parts fill the two rows of the right column, packed
+   * to the bottom, so every page is the same box and moving between them
+   * shifts neither the buttons nor the scene laid out above.
    */
-  const rows = (parts: HTMLElement[], corner?: HTMLElement | null, head?: string): HTMLElement => {
+  const rows = (
+    parts: HTMLElement[], corner?: HTMLElement | null, head?: string,
+    /** One more way off the page, between the message box and the corner. */
+    aside?: HTMLElement | null,
+  ): HTMLElement => {
     const box = el("div", "bacts");
     const top = el("div", "bhead");
     logEl = el("div", "bmsg");
@@ -926,7 +1018,14 @@ function runBattle(
       logEl.textContent = head ?? "";
     }
     top.appendChild(logEl);
-    if (corner) top.appendChild(corner);
+    // The ways off the page share one short row under the box, so the box
+    // keeps most of the column whether there are two of them or one.
+    if (aside || corner) {
+      const ways = el("div", "bways");
+      if (corner) ways.appendChild(corner);
+      if (aside) ways.appendChild(aside);
+      top.appendChild(ways);
+    }
     box.appendChild(top);
     // How many of the button rows a part is worth. The move grid is always
     // 2x2; an action row is three across, so six buttons are two rows of it.
@@ -938,10 +1037,11 @@ function runBattle(
           ? Math.min(BUTTON_ROWS, Math.ceil(p.childElementCount / 3))
           : 1;
     const total = Math.min(BUTTON_ROWS, parts.reduce((n, p) => n + span(p), 0));
-    let at = ACT_ROWS + 1 - total;
+    let at = BUTTON_ROWS + 1 - total;
     for (const part of parts) {
-      const n = Math.max(1, Math.min(span(part), ACT_ROWS + 1 - at));
+      const n = Math.max(1, Math.min(span(part), BUTTON_ROWS + 1 - at));
       part.style.gridRow = `${at} / span ${n}`;
+      part.style.gridColumn = "2";
       at += n;
       box.appendChild(part);
     }
@@ -962,7 +1062,7 @@ function runBattle(
     const ready = moveReady(me, move.id);
     const cd = me.cds[move.id] ?? 0;
     const aimNote = move.targets.map((t) => TARGET_LABELS[t.mode]).join(" + ");
-    const cost = moveCost(me.scoba, move.id);
+    const cost = castCost(me, move.id);
     // A move that is gone for the rest of the battle says so instead of its
     // price: what it would have cost is no longer the reason it cannot be cast.
     const gone = move.oncePerBattle && me.spent.includes(move.id);
@@ -984,13 +1084,16 @@ function runBattle(
     const index = st.teams[0].indexOf(me);
     const show = (on: boolean): void => {
       costPreview = on && index >= 0 ? { index, cost } : null;
+      hoverMove = on && index >= 0 ? { move, user: { side: 0, index } } : null;
       // The bars are only redrawn when something asks them to, so the mark has
       // to ask. Without this the cost was worked out and never drawn.
       for (const p of plates) {
         if (p.side === 0 && p.index === index) p.refresh();
       }
       if (busy || !logEl.isConnected) return;
-      logEl.textContent = on ? moveLine(move) : askLine(me);
+      logEl.classList.toggle("long", on);
+      if (on) logEl.replaceChildren(moveLine(move, me));
+      else logEl.textContent = askLine(me);
     };
     b.addEventListener("pointerenter", () => show(true));
     b.addEventListener("pointerleave", () => show(false));
@@ -999,8 +1102,19 @@ function runBattle(
     return b;
   };
 
-  /** One line on a move, for the message box while the move is under the pointer. */
-  const moveLine = (move: Move): string => `${move.name}: ${describeMoveEffects(move)}`;
+  /**
+   * One line on a move, for the message box while the move is under the
+   * pointer. Read against the Scoba about to cast it, so a damage word is the
+   * number it would deal, in the color its kind of damage is.
+   */
+  const moveLine = (move: Move, me: Combatant): HTMLElement => {
+    // One inline run, since the message box lays out its children as flex
+    // items and would otherwise drop the spaces either side of each number.
+    const out = document.createElement("span");
+    out.append(`${move.name}: `);
+    out.appendChild(proseNodes(moveText(move), { move, stats: combatantStats(me), level: me.scoba.level }));
+    return out;
+  };
 
   // --- aiming ---
 
@@ -1075,7 +1189,8 @@ function runBattle(
       const c = st.teams[ref.side][ref.index];
       if (!c) continue;
       const benched = !st.active[ref.side].includes(ref.index);
-      const sub = `${c.hp}/${combatantMaxHp(c)}${benched ? " · benched" : ""}`;
+      const eff = aimEffect(c, ref);
+      const sub = `${c.hp}/${combatantMaxHp(c)}${benched ? " · benched" : ""}${eff ? ` · ${eff.label}` : ""}`;
       picks.push(act(displayName(c.scoba), sub, () => choose(ref), { alt: ref.side === 0 }));
     }
     const cancel = act("Cancel", "", () => {
@@ -1138,7 +1253,7 @@ function runBattle(
       if (!ab) continue;
       const row = el("div", "xpass");
       row.appendChild(el("strong", undefined, ab.name));
-      row.appendChild(el("span", undefined, describeAbility(ab.id)));
+      row.appendChild(proseBox(abilityText(ab.id), {}, "pline"));
       // A passive with charges left to spend says how many are left.
       const spent = abilityStatuses(id)
         .map((sid) => c.statuses.find((held) => held.id === sid))
@@ -1150,10 +1265,10 @@ function runBattle(
 
     const detail = el("div", "xinfo");
     const row = el("div", "bactions");
-    for (const id of c.scoba.moves) {
+    for (const id of heldMoves(c)) {
       const move = MOVES[id];
       if (!move) continue;
-      row.appendChild(act(move.name, `${moveCost(c.scoba, move.id)}% mana`, () => {
+      row.appendChild(act(move.name, `${castCost(c, move.id)}% mana`, () => {
         detail.innerHTML = "";
         detail.appendChild(explainMove(move, ref, slot));
       }, { type: move.type }));
@@ -1174,7 +1289,7 @@ function runBattle(
     const box = el("div");
     const preview = previewMove(st, ref, move.id);
     const holder = st.teams[ref.side][ref.index] ?? null;
-    const cost = holder ? moveCost(holder.scoba, move.id) : move.manaCost;
+    const cost = holder ? castCost(holder, move.id) : move.manaCost;
     const head = el("div", "xhead");
     head.appendChild(el("strong", undefined, move.name));
     head.appendChild(typeIcon(move.type));
@@ -1187,7 +1302,7 @@ function runBattle(
 
     // The rule's own line first, then what it comes to against whoever is
     // standing there right now.
-    box.appendChild(el("div", undefined, describeMoveEffects(move)));
+    box.appendChild(proseBox(moveText(move), { move, ...(holder ? { stats: combatantStats(holder), level: holder.scoba.level } : {}) }));
     if (preview && preview.damage !== null) {
       const cat = preview.category === "physical" ? "physical" : "magic";
       const line = el("div");

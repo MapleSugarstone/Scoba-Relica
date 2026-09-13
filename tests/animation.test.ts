@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MOVES, animOf, vfxOf, type Move } from "../src/sim/species";
+import { MOVES, firstStep } from "../src/sim/species";
 import { MOTIONS } from "../src/game/actors";
 import { bounce } from "../src/engine/sprite";
 import { startBattle, resolveTurn, previewMove, START_MANA } from "../src/sim/battle";
@@ -10,36 +10,47 @@ const wild = (species: string, level: number, seed: string) => makeWild(species,
 const owned = (s: ScobaInstance, owner: "A" | "B"): ScobaInstance => ({ ...s, owner });
 
 describe("move animations", () => {
-  it("gives every move something to play, named or inherited from its kind", () => {
+  it("gives every move a caster animation before anything else happens", () => {
     for (const move of Object.values(MOVES)) {
-      expect(animOf(move)).toBeTruthy();
-      expect(vfxOf(move)).toBeTruthy();
+      expect(move.cast[0]?.kind, move.id).toBe("motion");
     }
   });
 
-  it("falls back by kind when a move names nothing", () => {
-    const bare = (kind: Move["kind"]): Move => ({
-      id: "x", name: "X", type: "plain", kind, scale: 1, manaCost: 0,
-      cooldown: 0, startCooldown: 0, targets: [{ mode: "any-enemy" }],
-    });
-    expect(animOf(bare("physical"))).toBe("lunge");
-    expect(vfxOf(bare("physical"))).toBe("burst");
-    expect(animOf(bare("magical"))).toBe("shake");
-    expect(vfxOf(bare("magical"))).toBe("bolt");
-    expect(animOf(bare("heal"))).toBe("focus");
-    expect(vfxOf(bare("heal"))).toBe("glow");
+  it("keeps what a move asks for", () => {
+    expect(firstStep(MOVES["null-key"]!, "motion")?.anim).toBe("blink");
+    expect(firstStep(MOVES["slam"]!, "motion")?.anim).toBe("rear");
+    expect(firstStep(MOVES["riptide"]!, "throw")?.path).toBe("lob");
+    expect(firstStep(MOVES["cherry-on-top"]!, "throw")?.from).toBe("cherry");
   });
 
-  it("plays a basic attack as a lunge into a burst", () => {
-    expect(animOf(null)).toBe("lunge");
-    expect(vfxOf(null)).toBe("burst");
+  it("throws nothing for a move that has nothing to draw", () => {
+    // Ember names no art, and flames with no art have nothing to show.
+    expect(firstStep(MOVES["ember"]!, "throw")).toBeNull();
   });
 
-  it("keeps what a move explicitly asks for", () => {
-    expect(animOf(MOVES["null-key"]!)).toBe("blink");
-    expect(vfxOf(MOVES["riptide"]!)).toBe("lob");
-    expect(vfxOf(MOVES["ember"]!)).toBe("flames");
-    expect(animOf(MOVES["slam"]!)).toBe("rear");
+  it("plays a cast in the order its steps are written", () => {
+    const me = owned(wild("octoshake", 20, "o1"), "A");
+    me.moves = ["cold-wave"];
+    const st = startBattle("order", [me], [wild("obera", 20, "o2")], { slots: 1, owners: ["A", null] });
+    st.teams[0][0]!.mana = 100;
+    const events = resolveTurn(st, [{ kind: "spell", side: 0, slot: 0, moveId: "cold-wave", picks: [null] }]);
+    const order = events
+      .filter((e) => e.moveId === "cold-wave" || e.kind === "status")
+      .map((e) => (e.kind === "show" ? e.visual!.kind : e.kind));
+    expect(order.slice(0, 5)).toEqual(["spell", "motion", "throw", "hit", "status"]);
+  });
+
+  it("aims a throw at everyone its step reaches", () => {
+    const me = owned(wild("octoshake", 20, "t1"), "A");
+    me.moves = ["cold-wave"];
+    const st = startBattle("aim", [me], [wild("obera", 20, "t2"), wild("plib", 20, "t3")], { slots: 2, owners: ["A", null] });
+    st.teams[0][0]!.mana = 100;
+    const events = resolveTurn(st, [
+      { kind: "spell", side: 0, slot: 0, moveId: "cold-wave", picks: [null] },
+    ]);
+    const thrown = events.find((e) => e.kind === "show" && e.visual?.kind === "throw");
+    expect(thrown?.to).toHaveLength(2);
+    expect(thrown?.visual?.kind === "throw" && thrown.visual.sound).toBe("coldwave");
   });
 });
 

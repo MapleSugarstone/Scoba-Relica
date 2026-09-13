@@ -3,9 +3,11 @@ import {
   BIG_SHADOW, DEFAULT_SHADOW, NO_SHADOW, asOneStep, canRedo, canUndo, clearLine, clearPlacement,
   clearSetup, cosmetics, cosmeticsJson, emptyCosmetics, installCosmetics, movementFor,
   parseCosmetics, placedCount, placementFor, readCosmetics, redoCosmetics, setMovement,
-  setPlacement, setSetup, setupFor, shadowFor, undoCosmetics,
+  rememberStep, setPlacement, setSetup, setText, setupFor, shadowFor, undoCosmetics, writtenText,
+  type Undoable,
 } from "../src/game/cosmetics";
-import { HYPER_FORM, SPECIES, costumesOf, kinCostumes } from "../src/sim/species";
+import { HYPER_FORM, MOVES, SPECIES, costumesOf, kinCostumes } from "../src/sim/species";
+import { abilityText, generatedText, moveText, speciesText } from "../src/game/texts";
 
 /** A document of its own for each case, since the module holds the working copy. */
 beforeEach(() => {
@@ -123,6 +125,65 @@ describe("a piece on a costume", () => {
   });
 });
 
+describe("words written over the ones the game works out", () => {
+  it("says nothing until something is written", () => {
+    expect(writtenText("ability", "invested")).toBeNull();
+    expect(abilityText("invested")).toBe(generatedText.ability("invested"));
+  });
+
+  it("replaces the whole of what would have been shown", () => {
+    setText("ability", "invested", "It plays the long game.");
+    expect(abilityText("invested")).toBe("It plays the long game.");
+    // The generated line is still there to go back to.
+    expect(generatedText.ability("invested")).toContain("30%");
+  });
+
+  it("covers a line, a passive and a move alike", () => {
+    setText("species", "allin", "Never bluffs.");
+    setText("move", "card-throw", "Deals one off the top.");
+    expect(speciesText(SPECIES["allin"]!)).toBe("Never bluffs.");
+    expect(moveText(MOVES["card-throw"]!)).toBe("Deals one off the top.");
+  });
+
+  it("hands one back to the game when it is emptied", () => {
+    setText("species", "allin", "Never bluffs.");
+    setText("species", "allin", "   ");
+    expect(writtenText("species", "allin")).toBeNull();
+    expect(speciesText(SPECIES["allin"]!)).toBe(SPECIES["allin"]!.blurb);
+  });
+
+  it("takes the surrounding whitespace off what is written", () => {
+    setText("move", "black", "  Doubles down.  ");
+    expect(writtenText("move", "black")).toBe("Doubles down.");
+  });
+
+  it("keeps one line clear of another", () => {
+    setText("ability", "invested", "One.");
+    setText("ability", "roll-the-wheel", "Two.");
+    expect(abilityText("invested")).toBe("One.");
+    expect(abilityText("roll-the-wheel")).toBe("Two.");
+  });
+
+  it("steps back off a written line like anything else", () => {
+    setText("species", "allin", "Never bluffs.");
+    expect(undoCosmetics()).toBe(true);
+    expect(writtenText("species", "allin")).toBeNull();
+    expect(redoCosmetics()).toBe(true);
+    expect(writtenText("species", "allin")).toBe("Never bluffs.");
+  });
+
+  it("goes into the document that gets committed", () => {
+    setText("species", "allin", "Never bluffs.");
+    const doc = JSON.parse(cosmeticsJson()) as { texts: Record<string, string> };
+    expect(doc.texts["species:allin"]).toBe("Never bluffs.");
+  });
+
+  it("reads a document written before there were any words in it", () => {
+    const old = readCosmetics({ pieces: {}, costumes: {}, lines: {} });
+    expect(old.texts).toEqual({});
+  });
+});
+
 describe("stepping back and forward", () => {
   it("has nothing to step back to on a fresh document", () => {
     expect(canUndo()).toBe(false);
@@ -207,6 +268,98 @@ describe("stepping back and forward", () => {
     installCosmetics(emptyCosmetics(), () => undefined);
     expect(canUndo()).toBe(false);
     expect(canRedo()).toBe(false);
+  });
+});
+
+describe("stepping back through game data as well", () => {
+  /** A record in a table, as the editor's data section hands it to the history. */
+  const recordOf = (table: Record<string, unknown>, id: string): Undoable => ({
+    read: () => JSON.stringify(table[id]),
+    write: (state) => {
+      table[id] = JSON.parse(state);
+    },
+  });
+
+  /** Changes a record the way the editor does: remember, then replace it whole. */
+  const edit = (table: Record<string, { cost: number }>, id: string, cost: number): void => {
+    rememberStep(`data:${id}`, recordOf(table, id));
+    table[id] = { cost };
+  };
+
+  it("takes a record back and puts it forward again", () => {
+    const table: Record<string, { cost: number }> = { wave: { cost: 70 } };
+    edit(table, "wave", 65);
+    expect(canUndo()).toBe(true);
+    expect(undoCosmetics()).toBe(true);
+    expect(table["wave"]).toEqual({ cost: 70 });
+    expect(redoCosmetics()).toBe(true);
+    expect(table["wave"]).toEqual({ cost: 65 });
+  });
+
+  it("takes back whichever came last, placement or record", () => {
+    const table: Record<string, { cost: number }> = { wave: { cost: 70 } };
+    setPlacement("cherry", "octoshake", { dx: 1, dy: 1 });
+    edit(table, "wave", 65);
+    setMovement("octoshake", "hover");
+
+    undoCosmetics();
+    expect(movementFor("octoshake")).toBeNull();
+    expect(table["wave"]).toEqual({ cost: 65 });
+
+    undoCosmetics();
+    expect(table["wave"]).toEqual({ cost: 70 });
+    expect(placementFor("cherry", "octoshake")).toEqual({ dx: 1, dy: 1 });
+
+    undoCosmetics();
+    expect(placementFor("cherry", "octoshake")).toBeNull();
+  });
+
+  it("walks forward again in the order it walked back", () => {
+    const table: Record<string, { cost: number }> = { wave: { cost: 70 } };
+    setPlacement("cherry", "octoshake", { dx: 1, dy: 1 });
+    edit(table, "wave", 65);
+    undoCosmetics();
+    undoCosmetics();
+    redoCosmetics();
+    expect(placementFor("cherry", "octoshake")).toEqual({ dx: 1, dy: 1 });
+    expect(table["wave"]).toEqual({ cost: 70 });
+    redoCosmetics();
+    expect(table["wave"]).toEqual({ cost: 65 });
+  });
+
+  it("keeps two records apart", () => {
+    const table: Record<string, { cost: number }> = { wave: { cost: 70 }, slap: { cost: 50 } };
+    edit(table, "wave", 65);
+    edit(table, "slap", 40);
+    undoCosmetics();
+    expect(table["slap"]).toEqual({ cost: 50 });
+    expect(table["wave"]).toEqual({ cost: 65 });
+  });
+
+  it("counts a run of edits to one record as one step, like a run of nudges", () => {
+    const table: Record<string, { cost: number }> = { wave: { cost: 70 } };
+    for (const cost of [69, 68, 67, 66, 65]) edit(table, "wave", cost);
+    undoCosmetics();
+    expect(table["wave"]).toEqual({ cost: 70 });
+    expect(canUndo()).toBe(false);
+  });
+
+  it("drops the way forward once a record is changed after stepping back", () => {
+    const table: Record<string, { cost: number }> = { wave: { cost: 70 } };
+    edit(table, "wave", 65);
+    undoCosmetics();
+    expect(canRedo()).toBe(true);
+    edit(table, "wave", 60);
+    expect(canRedo()).toBe(false);
+  });
+
+  it("puts a real move back", () => {
+    const before = JSON.stringify(MOVES["cold-wave"]);
+    rememberStep("data:moves:cold-wave", recordOf(MOVES as Record<string, unknown>, "cold-wave"));
+    MOVES["cold-wave"] = { ...MOVES["cold-wave"]!, manaCost: 5 };
+    expect(undoCosmetics()).toBe(true);
+    expect(JSON.stringify(MOVES["cold-wave"])).toBe(before);
+    expect(MOVES["cold-wave"]!.manaCost).toBe(70);
   });
 });
 

@@ -1,0 +1,603 @@
+[
+  {
+    "id": "cresce",
+    "name": "Cresce",
+    "type": "moon",
+    "genes": {
+      "hp": 145,
+      "str": 50,
+      "def": 60,
+      "res": 100,
+      "mag": 105,
+      "spd": 40
+    },
+    "primaryAbility": "moonlit",
+    "secondaryPool": [
+      "mystic",
+      "warded"
+    ],
+    "moves": [
+      "moonbeam",
+      "crush",
+      "cleanse",
+      "eclipse",
+      "nuzzle-nap"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "cresce"
+    },
+    "movement": "scamper",
+    "blurb": "A tide-pull caster that leans on Magic and Resistance.",
+    "starter": true
+  },
+  {
+    "id": "flarea",
+    "name": "Flarea",
+    "type": "sun",
+    "genes": {
+      "hp": 120,
+      "str": 85,
+      "def": 55,
+      "res": 55,
+      "mag": 95,
+      "spd": 90
+    },
+    "primaryAbility": "sun-heart",
+    "secondaryPool": [
+      "swift",
+      "brawn"
+    ],
+    "moves": [
+      "cinder-spit",
+      "crush",
+      "ember",
+      "flame-burst",
+      "slam"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "flarea"
+    },
+    "movement": "hover",
+    "blurb": "Quick and hot-headed, trading bulk for speed.",
+    "starter": true
+  },
+  {
+    "id": "grima",
+    "name": "Grima",
+    "type": "flux",
+    "genes": {
+      "hp": 110,
+      "str": 70,
+      "def": 65,
+      "res": 70,
+      "mag": 90,
+      "spd": 95
+    },
+    "primaryAbility": "shifting",
+    "secondaryPool": [
+      "flux-heart",
+      "swift"
+    ],
+    "moves": [
+      "tide-whip",
+      "crush",
+      "scatter-shot",
+      "riptide",
+      "hex"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "grima"
+    },
+    "movement": "scamper",
+    "blurb": "Slippery and hard to pin down; strikes before it is struck.",
+    "starter": true
+  },
+  {
+    "id": "obera",
+    "name": "Obera",
+    "type": "moss",
+    "genes": {
+      "hp": 180,
+      "str": 70,
+      "def": 105,
+      "res": 80,
+      "mag": 40,
+      "spd": 25
+    },
+    "primaryAbility": "rooted",
+    "secondaryPool": [
+      "moss-heart",
+      "thick-coat"
+    ],
+    "moves": [
+      "leaf-flick",
+      "crush",
+      "brace-up",
+      "vine-lash",
+      "tithe",
+      "nuzzle-nap"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "obera"
+    },
+    "movement": "hover",
+    "blurb": "Slow and stubborn. Outlasts more than it outhits.",
+    "starter": true
+  },
+  {
+    "id": "clikkit",
+    "name": "Clikkit",
+    "type": "cipher",
+    "genes": {
+      "hp": 140,
+      "str": 50,
+      "def": 85,
+      "res": 110,
+      "mag": 85,
+      "spd": 30
+    },
+    "primaryAbility": "encrypted",
+    "secondaryPool": [
+      "warded",
+      "mystic"
+    ],
+    "moves": [
+      "decode",
+      "crush",
+      "hairline",
+      "null-key",
+      "snipe",
+      "third-eye"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "clikkit"
+    },
+    "movement": "skitter",
+    "blurb": "Reads the fight before it happens. Very hard to burn down.",
+    "starter": true
+  },
+  {
+    "id": "wispen",
+    "name": "Wispen",
+    "type": "mystic",
+    "genes": {
+      "hp": 95,
+      "str": 30,
+      "def": 40,
+      "res": 85,
+      "mag": 145,
+      "spd": 105
+    },
+    "primaryAbility": "far-sight",
+    "secondaryPool": [
+      "mystic",
+      "swift"
+    ],
+    "moves": [
+      "hex",
+      "crush",
+      "mirror-mark",
+      "third-eye",
+      "blood-pact",
+      "moonbeam"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "wispen"
+    },
+    "movement": "hover",
+    "blurb": "Glass and starlight: the biggest Magic, the thinnest skin.",
+    "starter": true
+  },
+  {
+    "id": "pieble",
+    "name": "Pieble",
+    "type": "sugar",
+    "genes": {
+      "hp": 195,
+      "str": 85,
+      "def": 95,
+      "res": 70,
+      "mag": 35,
+      "spd": 20
+    },
+    "primaryAbility": "sweet-tooth",
+    "secondaryPool": [
+      "hearty",
+      "thick-coat"
+    ],
+    "moves": [
+      "sugar-rush",
+      "crush",
+      "forage",
+      "gumsnap",
+      "rally",
+      "slam"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "pieble"
+    },
+    "movement": "scamper",
+    "blurb": "A sticky wall of a Scoba. Takes hits all day.",
+    "starter": true
+  },
+  {
+    "id": "roulle",
+    "name": "Roulle",
+    "type": "fortuna",
+    "genes": {
+      "hp": 120,
+      "str": 120,
+      "def": 60,
+      "res": 0,
+      "mag": 0,
+      "spd": 0
+    },
+    "primaryAbility": "roll-the-wheel",
+    "secondaryPool": [
+      "invested"
+    ],
+    "moves": [
+      "card-throw",
+      "black",
+      "red",
+      "green"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "roulle"
+    },
+    "movement": "skitter",
+    "baby": true,
+    "evolvesTo": "allin",
+    "blurb": "It deals a hand it has not learned to read. Every card is a guess.",
+    "starter": true
+  },
+  {
+    "id": "plib",
+    "name": "Plib",
+    "type": "plain",
+    "genes": {
+      "hp": 150,
+      "str": 115,
+      "def": 95,
+      "res": 70,
+      "mag": 25,
+      "spd": 45
+    },
+    "primaryAbility": "plainspoken",
+    "secondaryPool": [
+      "brawn",
+      "thick-coat"
+    ],
+    "moves": [
+      "crush",
+      "sugar-rush",
+      "fury",
+      "slam",
+      "nuzzle-nap"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "plib"
+    },
+    "movement": "skitter",
+    "blurb": "Nothing resists it and nothing fears it. Just honest work.",
+    "starter": true
+  },
+  {
+    "id": "catsquito",
+    "name": "Catsquito",
+    "type": "plain",
+    "genes": {
+      "hp": 95,
+      "str": 100,
+      "def": 50,
+      "res": 50,
+      "mag": 90,
+      "spd": 115
+    },
+    "primaryAbility": "thirst",
+    "secondaryPool": [
+      "restless"
+    ],
+    "moves": [
+      "crush",
+      "fury",
+      "sugar-rush",
+      "slam"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "catsquito"
+    },
+    "movement": "hover"
+  },
+  {
+    "id": "meepa",
+    "name": "Meepa",
+    "type": "moon",
+    "type2": "plain",
+    "genes": {
+      "hp": 130,
+      "str": 45,
+      "def": 60,
+      "res": 85,
+      "mag": 130,
+      "spd": 50
+    },
+    "primaryAbility": "moonwane",
+    "secondaryPool": [
+      "moonwell"
+    ],
+    "moves": [
+      "moonbeam",
+      "crush",
+      "cleanse",
+      "eclipse"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "meepa"
+    },
+    "movement": "hop"
+  },
+  {
+    "id": "cactunny",
+    "name": "Cactunny",
+    "type": "moss",
+    "type2": "sun",
+    "genes": {
+      "hp": 165,
+      "str": 75,
+      "def": 100,
+      "res": 75,
+      "mag": 65,
+      "spd": 20
+    },
+    "primaryAbility": "sun-bloom",
+    "secondaryPool": [
+      "sun-ward"
+    ],
+    "moves": [
+      "leaf-flick",
+      "ember",
+      "brace-up",
+      "cinder-spit"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "cactunny"
+    },
+    "movement": "scamper"
+  },
+  {
+    "id": "allin",
+    "name": "Allin",
+    "type": "fortuna",
+    "genes": {
+      "hp": 200,
+      "str": 200,
+      "def": 100,
+      "res": 0,
+      "mag": 0,
+      "spd": 0
+    },
+    "primaryAbility": "roll-the-wheel",
+    "secondaryPool": [
+      "invested"
+    ],
+    "hyperAbility": "house-money",
+    "moves": [
+      "card-throw",
+      "black",
+      "red",
+      "green"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "allin",
+      "forms": {
+        "hyper": "hyper-allin"
+      }
+    },
+    "movement": "skitter",
+    "blurb": "It counts what it has dealt you and knows exactly when to stop."
+  },
+  {
+    "id": "aulium",
+    "name": "Aulium",
+    "type": "fortuna",
+    "genes": {
+      "hp": 135,
+      "str": 85,
+      "def": 75,
+      "res": 75,
+      "mag": 75,
+      "spd": 55
+    },
+    "primaryAbility": "lucky",
+    "secondaryPool": [
+      "swift",
+      "brawn"
+    ],
+    "moves": [
+      "lucky-strike",
+      "crush",
+      "wild-bolt",
+      "jackpot",
+      "slam"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "aulium"
+    },
+    "movement": "scamper",
+    "blurb": "No weak spot and no specialty. Hits Plain types hardest."
+  },
+  {
+    "id": "cottlequeen",
+    "name": "Cottlequeen",
+    "type": "fortuna",
+    "genes": {
+      "hp": 155,
+      "str": 45,
+      "def": 75,
+      "res": 80,
+      "mag": 120,
+      "spd": 25
+    },
+    "primaryAbility": "cottle-court",
+    "secondaryPool": [
+      "queens-guard"
+    ],
+    "moves": [
+      "lucky-strike",
+      "crush",
+      "court-call",
+      "jackpot"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "cottlequeen"
+    },
+    "movement": "hover"
+  },
+  {
+    "id": "cottlecorn",
+    "name": "Cottlecorn",
+    "type": "fortuna",
+    "genes": {
+      "hp": 60,
+      "str": 40,
+      "def": 35,
+      "res": 35,
+      "mag": 45,
+      "spd": 35
+    },
+    "primaryAbility": "piercing-horn",
+    "secondaryPool": [],
+    "moves": [
+      "pawn-dart",
+      "pawn-mend",
+      "sunfall"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "cottlecorn"
+    },
+    "movement": "skitter",
+    "pawn": true,
+    "autonomous": true
+  },
+  {
+    "id": "sqwoop",
+    "name": "Sqwoop",
+    "type": "sugar",
+    "type2": "moon",
+    "genes": {
+      "hp": 130,
+      "str": 0,
+      "def": 30,
+      "res": 40,
+      "mag": 70,
+      "spd": 30
+    },
+    "primaryAbility": "sticky-treat",
+    "secondaryPool": [
+      "cherry-on-top"
+    ],
+    "moves": [
+      "icecream-soup",
+      "tentacle-slap",
+      "cold-wave",
+      "tantalizing-sweets"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "sqwoop",
+      "forms": {
+        "cherryless": "sqwoop-cherryless"
+      }
+    },
+    "movement": "hop",
+    "cry": "sqwoop",
+    "baby": true,
+    "evolvesTo": "octoshake",
+    "blurb": "A sundae in a glass. It hops because it cannot walk."
+  },
+  {
+    "id": "octoshake",
+    "name": "Octoshake",
+    "type": "sugar",
+    "type2": "moon",
+    "genes": {
+      "hp": 190,
+      "str": 0,
+      "def": 60,
+      "res": 90,
+      "mag": 120,
+      "spd": 40
+    },
+    "primaryAbility": "sticky-treat",
+    "secondaryPool": [
+      "cherry-on-top"
+    ],
+    "hyperAbility": "sticky-mess",
+    "moves": [
+      "icecream-soup",
+      "tentacle-slap",
+      "cold-wave",
+      "tantalizing-sweets"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "octoshake",
+      "forms": {
+        "cherryless": "octoshake-cherryless",
+        "hyper": "hyper-octoshake",
+        "cherryless+hyper": "hyper-octoshake-cherryless"
+      }
+    },
+    "movement": "hop",
+    "cry": "octoshake",
+    "blurb": "Everything Sqwoop is, and colder. Nothing it hits gets away."
+  },
+  {
+    "id": "relica",
+    "name": "Relica",
+    "type": "plain",
+    "genes": {
+      "hp": 120,
+      "str": 76,
+      "def": 76,
+      "res": 76,
+      "mag": 76,
+      "spd": 76
+    },
+    "primaryAbility": "old-soul",
+    "secondaryPool": [
+      "moss-skin",
+      "mystic",
+      "hearty"
+    ],
+    "moves": [
+      "crush",
+      "nuzzle-nap",
+      "leaf-flick",
+      "slam"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "relica"
+    },
+    "movement": "scamper",
+    "special": true
+  }
+]

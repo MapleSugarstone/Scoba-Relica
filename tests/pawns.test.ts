@@ -125,6 +125,26 @@ describe("what a Pawn is on the field", () => {
     expect(emptySlots(st, 0)).toEqual([]);
   });
 
+  it("closes ranks at the end of the turn, so the court fills in from the Scobas out", () => {
+    const st = court();
+    const queen = st.teams[0][0]!;
+    for (let i = 0; i < PAWN_SLOTS - 1; i++) {
+      queen.mana = 100;
+      queen.cds = {};
+      resolveTurn(st, [{ kind: "spell", side: 0, slot: 0, moveId: "court-call", picks: [null] }]);
+    }
+    const [first, second, third] = [FIRST_PAWN, FIRST_PAWN + 1, FIRST_PAWN + 2];
+    const behind = [st.active[0][second], st.active[0][third]];
+    expect(behind.every((i) => (i ?? -1) >= 0)).toBe(true);
+    // The Pawn nearest the Scobas falls; the two behind it each step forward.
+    st.teams[0][st.active[0][first]!]!.fainted = true;
+    st.active[0][first] = -1;
+    resolveTurn(st, [{ kind: "block", side: 0, slot: 0 }]);
+    expect(st.active[0][first]).toBe(behind[0]);
+    expect(st.active[0][second]).toBe(behind[1]);
+    expect(st.active[0][third]).toBe(-1);
+  });
+
   it("takes a turn like anything else standing there", () => {
     const st = court();
     expect(slotsAwaitingChoice(st, 0)).toEqual([0, FIRST_PAWN]);
@@ -309,7 +329,7 @@ describe("what a Pawn inherits from whoever called it", () => {
   });
 
   it("carries her worked move, in the slot it sits in on her", () => {
-    // Hex is on no Cottlequeen's learnset, so it is the one she was bred for.
+    // Hex is not a move Cottlequeen knows, so it is the one she was bred for.
     const st = court({ dress: (q) => { q.moves = ["lucky-strike", "crush", "hex", "jackpot"]; } });
     expect(corn(st).moves).toEqual(["pawn-dart", "pawn-mend", "hex"]);
   });

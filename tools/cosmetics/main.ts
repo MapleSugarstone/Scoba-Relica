@@ -67,7 +67,9 @@ async function start(): Promise<void> {
   note("Ready.");
 
   window.addEventListener("beforeunload", (e) => {
-    if (!dirty) return;
+    // Game data edits are held apart from the placements, so either one left
+    // unsaved is worth being asked about.
+    if (!dirty && !panel.unsavedData()) return;
     e.preventDefault();
   });
 }

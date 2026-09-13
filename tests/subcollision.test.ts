@@ -3,10 +3,10 @@ import { maskHas, maskWith, SUB_FULL, TileMap, TILE } from "../src/engine/tilema
 import { maskOf } from "../src/game/islandart";
 import type { Art } from "../src/engine/assets";
 import {
-  blankMap, cellMask, drawnTileAt, emptyContent, normalizeContent, setCellDataAt,
+  blankMap, cellMask, cellRim, drawnTileAt, emptyContent, normalizeContent, setCellDataAt,
   setCollisionAt, setSubAt, setTileAt, stackAt, tileLayer, tileMask,
 } from "../src/game/content";
-import { COLS, ROWS } from "../src/game/islands";
+import { COLS, ROWS, shoreRim } from "../src/game/islands";
 
 /** The tile catalog only reads `tiles` off the art, so a bare stub is enough. */
 const art = { tiles: {} } as unknown as Art;
@@ -204,6 +204,40 @@ describe("cellMask sources", () => {
     c.tileRules["dirt0"] = { layer: "above", solid: 5 };
     expect(tileMask(art, c, "dirt0")).toBe(5);
     expect(tileLayer(art, c, "dirt0")).toBe("above");
+  });
+});
+
+describe("shore rims from terrain", () => {
+  it("rims every side of a land cell that faces water, never the south", () => {
+    const land = new Array<boolean>(9).fill(false);
+    const deck = new Array<boolean>(9).fill(false);
+    land[4] = true;
+    expect(shoreRim(land, deck, 3, 3, 1, 1)).toBe(1 | 2 | 8);
+    land[3] = true;
+    expect(shoreRim(land, deck, 3, 3, 1, 1)).toBe(1 | 2);
+    deck[5] = true;
+    expect(shoreRim(land, deck, 3, 3, 1, 1)).toBe(1);
+    land[1] = true;
+    expect(shoreRim(land, deck, 3, 3, 1, 1)).toBe(0);
+  });
+
+  it("counts the map's edge as water", () => {
+    const land = [true];
+    expect(shoreRim(land, [false], 1, 1, 0, 0)).toBe(1 | 2 | 8);
+  });
+
+  it("gives way to a hand override or a painted tile", () => {
+    const land = new Array<boolean>(COLS * ROWS).fill(false);
+    const deck = new Array<boolean>(COLS * ROWS).fill(false);
+    land[5 * COLS + 5] = true;
+    const m = blankMap("island", "Island", COLS, ROWS);
+    expect(cellRim(m, land, deck, 5, 5)).toBe(1 | 2 | 8);
+    expect(cellRim(m, land, deck, 6, 5)).toBe(0);
+    setCollisionAt(m, 5, 5, "o");
+    expect(cellRim(m, land, deck, 5, 5)).toBe(0);
+    setCollisionAt(m, 5, 5, ".");
+    setTileAt(m, "ground", 5, 5, "dirt0");
+    expect(cellRim(m, land, deck, 5, 5)).toBe(0);
   });
 });
 
