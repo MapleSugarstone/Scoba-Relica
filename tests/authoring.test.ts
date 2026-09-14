@@ -433,10 +433,12 @@ describe("a status with a power measured off the source", () => {
     const holderMag = combatantStats(foe).mag;
     expect(casterMag).not.toBe(holderMag);
     const bareSpeed = combatantStats(foe).spd;
+    // A mark that lowers a stat off Magic meets the holder's Resistance, the same as a magical hit.
+    const reduced = casterMag * 0.5 * mitigation(combatantStats(foe).res);
     resolveTurn(st, [spell("probe-finisher", [{ side: 1, index: 0 }])]);
     const inst = foe.statuses.find((s) => s.id === "probe-chill")!;
-    expect(inst.power).toBe(casterMag * 0.5);
-    expect(combatantStats(foe).spd).toBe(Math.floor(bareSpeed - casterMag * 0.5));
+    expect(inst.power).toBe(reduced);
+    expect(combatantStats(foe).spd).toBe(Math.floor(bareSpeed - reduced));
   });
 
   it("stacks to its cap, and stops there", () => {
@@ -511,7 +513,7 @@ describe("a status that both stands and answers a trigger", () => {
   });
 });
 
-describe("a status that bites every turn", () => {
+describe("a status that deals damage every turn", () => {
   it("fixes the step that asks for it, behind a step that does not", () => {
     install(EMBER, "status");
     install(EMBER_CALL, "move");
@@ -525,9 +527,11 @@ describe("a status that bites every turn", () => {
     expect(inst.power).toBe(mag * 0.2);
     const max = combatantMaxHp(foe);
     const before = foe.hp;
+    // Both damage steps are magic, so each meets the holder's Resistance.
+    const res = mitigation(combatantStats(foe).res);
     const events = resolveTurn(st, [{ kind: "block", side: 0, slot: 0 }]);
-    expect(before - foe.hp).toBe(Math.max(1, Math.floor(max * 0.05)) + Math.max(1, Math.floor(mag * 0.2)));
-    expect(events.filter((e) => e.text.includes("Probe Ember bites"))).toHaveLength(2);
+    expect(before - foe.hp).toBe(Math.max(1, Math.floor(max * 0.05 * res)) + Math.max(1, Math.floor(mag * 0.2 * res)));
+    expect(events.filter((e) => e.text.includes("Probe Ember hits"))).toHaveLength(2);
   });
 });
 
@@ -540,11 +544,12 @@ describe("a passive that answers a trigger", () => {
     const me = st.teams[0][0]!;
     const foe = st.teams[1][0]!;
     foe.hp = combatantMaxHp(foe) * 10;
+    const res = mitigation(combatantStats(foe).res);
     resolveTurn(st, [{ kind: "attack", side: 0, slot: 0, picks: [{ side: 1, index: 0 }] }]);
     const inst = foe.statuses.find((s) => s.id === "probe-chill")!;
     expect(inst).toBeTruthy();
     // Nobody left a passive, so what it hangs is measured off its holder.
-    expect(inst.power).toBe(combatantStats(me).mag * 0.5);
+    expect(inst.power).toBe(combatantStats(me).mag * 0.5 * res);
     expect(inst.from).toEqual({ side: 0, index: 0 });
   });
 });
@@ -725,6 +730,11 @@ describe("a move that picks another move and rewrites it", () => {
     const me = st.teams[0][0]!;
     const foe = st.teams[1][0]!;
     const before = foe.hp;
+    // Fortuna against Flux, reduced by Grima's Defense: a flat base and an ordinary hit from there.
+    const flat = 2 * me.scoba.level;
+    const expected = Math.max(1, Math.floor(
+      flat * typesEffectiveness(["fortuna"], scobaTypes(foe.scoba)) * mitigation(combatantStats(foe).def),
+    ));
     const events = resolveTurn(st, [spell("probe-wheel", [{ side: 1, index: 0 }])]);
     const given = me.swapped?.[3];
     expect(given).toBeTruthy();
@@ -734,9 +744,9 @@ describe("a move that picks another move and rewrites it", () => {
     expect(rewritten.tint).toBe("#e8c46a");
     expect(rewritten.manaCost).toBeGreaterThanOrEqual(40);
     expect(MOVES[rewritten.derived!.from]!.oncePerBattle).not.toBe(true);
-    // Flat damage is the number and the level, with nothing else read into it.
     const hit = events.find((e) => e.kind === "hit")!;
-    expect(before - hit.hp!).toBe(2 * me.scoba.level);
+    expect(before - hit.hp!).toBe(expected);
+    expect(expected).not.toBe(flat);
   });
 
   it("reads the clauses under a step the same as the ones after a comma", () => {

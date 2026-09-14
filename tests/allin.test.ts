@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   castCost, castableMoves, drawCard, heldMoves, movePool, startBattle, resolveTurn, stateHash,
-  combatantStats, type BattleState,
+  combatantStats, mitigation, type BattleState,
 } from "../src/sim/battle";
 import { MOVES, SPECIES, firstStep, grantedMoves } from "../src/sim/species";
 import { deriveMove, deriveStatus } from "../src/sim/rewrite";
 import type { Step } from "../src/sim/status";
 import { accessoryOf } from "../src/game/critters";
-import { STATUSES } from "../src/sim/status";
-import { BLACKJACK, CARD_HIGH, DECK, cardFrom, cardOfValue } from "../src/sim/cards";
+import { STATUSES, newStatus } from "../src/sim/status";
+import { BLACKJACK, CARD_HIGH, DECK, addToHand, cardFrom, cardOfValue } from "../src/sim/cards";
 import { evolve, makeWild, statsAt, type ScobaInstance } from "../src/sim/scoba";
 import { rngFrom } from "../src/sim/rng";
 import { STAT_BUDGET, BABY_BUDGET, STAT_CAPS, statTotal } from "../src/sim/types";
@@ -142,10 +142,12 @@ describe("the colours", () => {
     const st = plainTable();
     const str = combatantStats(st.teams[0][0]!).str;
     const before = combatantStats(st.teams[1][0]!).spd;
+    // Off Strength, so the target's Defense reduces it the way it reduces a physical hit.
+    const armor = mitigation(combatantStats(st.teams[1][0]!).def);
     cast(st, "black");
     const mark = held(st, "in-the-black");
     expect(mark).toBeTruthy();
-    expect(mark!.power).toBeCloseTo(str * 0.1, 5);
+    expect(mark!.power).toBeCloseTo(str * 0.1 * armor, 5);
     expect(combatantStats(st.teams[1][0]!).spd).toBeLessThan(before);
   });
 
@@ -264,7 +266,7 @@ describe("the hand", () => {
     // The same drawing and the same colors in the air, as it lands, and over the head.
     expect(thrown?.face).toEqual(coming.face);
     expect(dealt?.face).toEqual(coming.face);
-    expect(held(st, "dealt")!.face).toEqual(coming.face);
+    expect(held(st, "dealt")!.faces).toEqual([coming.face]);
     // And the drawing is the card whose value went on the hand.
     expect(DECK.find((c) => c.art === coming.face.art)!.value).toBe(held(st, "dealt")!.stacks);
     expect(dealt?.text).toContain(coming.card.label);
@@ -296,11 +298,68 @@ describe("the hand", () => {
     const b = table();
     cast(a, "card-throw");
     cast(b, "card-throw");
-    expect(held(a, "dealt")!.face).toEqual(held(b, "dealt")!.face);
+    expect(held(a, "dealt")!.faces).toEqual(held(b, "dealt")!.faces);
     expect(stateHash(a)).toBe(stateHash(b));
     // A hand holding a different color is caught by the hash even at the same count.
-    held(b, "dealt")!.face = { art: held(a, "dealt")!.face!.art, changes: held(a, "dealt")!.face!.changes.length ? [] : [{ from: "#bc0006", to: "#000000" }] };
+    const top = held(a, "dealt")!.faces![0]!;
+    held(b, "dealt")!.faces = [{ art: top.art, changes: top.changes.length ? [] : [{ from: "#bc0006", to: "#000000" }] }];
     expect(stateHash(a)).not.toBe(stateHash(b));
+  });
+});
+
+describe("an Ace", () => {
+  const card = (label: string) => DECK.find((c) => c.label === label)!;
+
+  it("counts 11 where that makes exactly twenty one, in either order", () => {
+    const jack = addToHand({ count: 0, ace: false }, card("Jack"));
+    expect(jack).toEqual({ settles: "holds", hand: { count: 10, ace: false }, best: 10 });
+    expect(addToHand({ count: 10, ace: false }, card("Ace"))).toEqual({ settles: "pays" });
+    const ace = addToHand({ count: 0, ace: false }, card("Ace"));
+    expect(ace).toEqual({ settles: "holds", hand: { count: 1, ace: true }, best: 11 });
+    expect(addToHand({ count: 1, ace: true }, card("Jack"))).toEqual({ settles: "pays" });
+  });
+
+  it("counts 1 where 11 would go over, so it never busts a hand", () => {
+    expect(addToHand({ count: 20, ace: false }, card("Ace"))).toEqual({ settles: "pays" });
+    expect(addToHand({ count: 15, ace: false }, card("Ace"))).toEqual({ settles: "holds", hand: { count: 16, ace: true }, best: 16 });
+    // Ace, Five and King: 16 either way, and the next ten busts it.
+    expect(addToHand({ count: 16, ace: true }, card("King"))).toEqual({ settles: "busts", count: 26 });
+  });
+
+  /** A table whose next Card Throw draws a card worth `value`. */
+  const tableDrawing = (value: number): BattleState => {
+    for (let n = 0; n < 500; n++) {
+      const st = table();
+      st.seed = `draw-${value}-${n}`;
+      if (comingCard(st).card.value === value) return st;
+    }
+    throw new Error(`no seed draws ${value}`);
+  };
+
+  it("pays out the moment a Jack's hand is dealt an Ace", () => {
+    const st = tableDrawing(1);
+    st.teams[1][0]!.statuses.push({ ...newStatus("dealt")!, stacks: 10, faces: [{ art: "cardjack", changes: [] }] });
+    const ev = cast(st, "card-throw");
+    expect(held(st, "dealt")).toBeUndefined();
+    expect(ev.some((e) => e.text.includes(`holding ${BLACKJACK}`))).toBe(true);
+  });
+
+  it("pays out the moment an Ace's hand is dealt a ten", () => {
+    const st = tableDrawing(10);
+    st.teams[1][0]!.statuses.push({ ...newStatus("dealt")!, stacks: 1, ace: true, faces: [{ art: "cardace", changes: [] }] });
+    const ev = cast(st, "card-throw");
+    expect(held(st, "dealt")).toBeUndefined();
+    expect(ev.some((e) => e.text.includes(`holding ${BLACKJACK}`))).toBe(true);
+  });
+
+  it("keeps every card in the hand, so all of them show over its head", () => {
+    const st = tableDrawing(5);
+    const jack = { art: "cardjack", changes: [] };
+    st.teams[1][0]!.statuses.push({ ...newStatus("dealt")!, stacks: 10, faces: [jack] });
+    const coming = comingCard(st);
+    const ev = cast(st, "card-throw");
+    expect(held(st, "dealt")!.faces).toEqual([jack, coming.face]);
+    expect(ev.find((e) => e.kind === "card")?.cards).toEqual([jack, coming.face]);
   });
 });
 
@@ -418,14 +477,15 @@ describe("the wheel", () => {
 });
 
 describe("Invested", () => {
-  it("makes a mark that stands for more than a turn bite harder", () => {
+  it("makes a mark that stands for more than a turn hit harder", () => {
     // Measured as a share of the dealer's own Strength, because a different
     // second passive is a different stat line and the raw numbers would not
     // be comparable.
     const share = (st: BattleState): number => {
+      const armor = mitigation(combatantStats(st.teams[1][0]!).def);
       cast(st, "black");
       const mark = st.teams[1][0]!.statuses.find((s) => s.id === "in-the-black")!;
-      return mark.power! / combatantStats(st.teams[0][0]!).str;
+      return mark.power! / combatantStats(st.teams[0][0]!).str / armor;
     };
     expect(share(plainTable())).toBeCloseTo(0.1, 6);
     // Allin's own pool holds only Invested, so the default one already has it.

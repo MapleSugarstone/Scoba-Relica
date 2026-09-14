@@ -53,6 +53,36 @@ export const CARD_HIGH = Math.max(...DECK.map((c) => c.value));
 /** The count a hand pays out on, and busts above. */
 export const BLACKJACK = 21;
 
+/** What an Ace adds on top of its 1 when it counts high instead. */
+export const ACE_EXTRA = 10;
+
+/** A hand as it is kept: its count with every Ace worth 1, and whether it holds an Ace. */
+export interface Hand {
+  count: number;
+  ace: boolean;
+}
+
+/** What one card does to a hand: pay out, bust, or leave it holding. */
+export type Settled =
+  | { settles: "pays" }
+  | { settles: "busts"; count: number }
+  | { settles: "holds"; hand: Hand; best: number };
+
+/**
+ * Adds a card to a hand and settles it on the spot. An Ace counts 1, or 11 where
+ * that lands the hand on exactly 21, so a Jack and an Ace pay out in either
+ * order. Only the count with every Ace worth 1 can go over, so an Ace never
+ * busts a hand.
+ */
+export function addToHand(hand: Hand, card: Card): Settled {
+  const count = hand.count + card.value;
+  const ace = hand.ace || card.value === 1;
+  if (count === BLACKJACK || (ace && count + ACE_EXTRA === BLACKJACK)) return { settles: "pays" };
+  if (count > BLACKJACK) return { settles: "busts", count };
+  const best = ace && count + ACE_EXTRA < BLACKJACK ? count + ACE_EXTRA : count;
+  return { settles: "holds", hand: { count, ace }, best };
+}
+
 /** The card a roll of 0 to 1 turns up. */
 export function cardFrom(roll: number): Card {
   return DECK[deckIndex(roll)]!;

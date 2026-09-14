@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  startBattle, resolveTurn, choiceError, castableMoves, combatantStats, combatantMaxHp,
+  startBattle, resolveTurn, choiceError, castableMoves, combatantStats, combatantMaxHp, mitigation,
   hyperError, formsOf, hyperBonus, HYPER_COST, type BattleState, type Choice,
 } from "../src/sim/battle";
 import { makeWild, statsAt, type ScobaInstance } from "../src/sim/scoba";
@@ -63,11 +63,15 @@ describe("Cherry on Top", () => {
     expect(castableMoves(c)).toContain("cherry-on-top");
   });
 
-  it("deals two per level flat, past Defense and the chart alike", () => {
+  it("deals two per level, reduced by Defense like any physical hit", () => {
     const st = field();
-    const before = st.teams[1][0]!.hp;
+    const target = st.teams[1][0]!;
+    const before = target.hp;
+    // Sugar off an Octoshake takes the same-type bonus, and Plain takes Sugar evenly.
+    const expected = Math.max(1, Math.floor(2 * 30 * 1.5 * mitigation(combatantStats(target).def)));
     resolveTurn(st, [cast("cherry-on-top")]);
-    expect(before - st.teams[1][0]!.hp).toBe(2 * 30);
+    expect(before - target.hp).toBe(expected);
+    expect(expected).toBeLessThan(2 * 30 * 1.5);
   });
 
   it("costs nothing and fires once a battle", () => {
@@ -191,11 +195,12 @@ describe("the Octoshake spell list", () => {
     const c = st.teams[0][0]!;
     const target = st.teams[1][0]!;
     const before = combatantStats(target).spd;
+    // Off Magic, so the target's Resistance reduces it the way it reduces a magical hit.
+    const share = combatantStats(c).mag * 0.3 * mitigation(combatantStats(target).res);
     full(st, 0, 0);
     resolveTurn(st, [cast("tentacle-slap")]);
     // The share is kept whole and the floor lands once, at the end of the
     // stat line, so the drop can read a point either side of the share itself.
-    const share = combatantStats(c).mag * 0.3;
     expect(Math.abs((before - combatantStats(target).spd) - share)).toBeLessThanOrEqual(1);
   });
 
@@ -214,7 +219,7 @@ describe("the Octoshake spell list", () => {
       // The wash landed this turn, so it has not bitten yet.
       expect(stacksOf(st.teams[1][i]!.statuses, "chill")).toBe(0);
     }
-    // One bite a turn for the three turns after the one it landed on.
+    // Damage once a turn for the three turns after the one it landed on.
     pass();
     expect(stacksOf(st.teams[1][0]!.statuses, "chill")).toBe(1);
     pass();

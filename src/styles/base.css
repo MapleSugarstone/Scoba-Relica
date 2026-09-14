@@ -45,6 +45,8 @@
 
   --p-mana: #7c9df0;
   --p-mana-trail: #d3e2ff;
+  /* True damage: pale blue, apart from the deeper blue magic takes. */
+  --p-true: #a9e4ff;
   --p-hp-trail: #f2e3b0;
   --p-warning: #e7a03c;
   --p-danger: #d9553f;
@@ -1248,7 +1250,7 @@ label.custom input[type="color"] {
 .dmg { font-weight: bold; }
 .dmg.physical { color: var(--p-warning); }
 .dmg.magic { color: var(--p-mana); }
-.dmg.true { color: var(--p-dim2); }
+.dmg.true { color: var(--p-true); }
 
 .mgbar { position: relative; width: min(calc(var(--ui-w, 800px) * 0.88), 420px); height: 26px; --ink: var(--p-action); --fill: var(--p-ink); }
 .mgzone { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--p-confirm) 33%, transparent); border-left: 2px solid var(--p-confirm); border-right: 2px solid var(--p-confirm); }

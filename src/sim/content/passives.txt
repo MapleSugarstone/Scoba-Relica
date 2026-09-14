@@ -2,151 +2,151 @@
 # The language this file is written in is described in docs/move-script.md.
 
 passive swift "Swift"
-  text "Light on its feet. Speed +20%."
+  text "Increases speed by 20%."
   while carried:
     speed x1.2
 
 passive brawn "Brawn"
-  text "Built for hitting things. Strength +15%."
+  text "Increases strength by 15%."
   while carried:
     strength x1.15
 
 passive thick-coat "Thick Coat"
-  text "Hard to get through. Defense +20%."
+  text "Increases defense by 20%."
   while carried:
     defense x1.2
 
 passive warded "Warded"
-  text "Turns magic aside. Resistance +20%."
+  text "Increases resistance by 20%."
   while carried:
     resistance x1.2
 
 passive mystic "Mystic"
-  text "Reaches further than it looks. Magic +15%."
+  text "Increases magic by 15%."
   while carried:
     magic x1.15
 
 passive hearty "Hearty"
-  text "More of it to wear down. HP +15%."
+  text "Increases HP by 15%."
   while carried:
     hp x1.15
 
 passive moss-skin "Moss Skin"
-  text "Mends itself where it stands. Heals [heal:moss-skin] at the end of each turn."
+  text "At the end of each turn, heal for [heal:moss-skin]."
   when a turn ends:
     heal holder 6.25% of their max hp
 
 passive old-soul "Old Soul"
-  text "Has seen all this before. Magic +15%."
+  text "Increases magic by 15%."
   while carried:
     magic x1.15
 
 passive sun-heart "Sun Heart"
-  text "Burns hotter than most. Sun moves +25%."
+  text "Sun type abilities are 25% more effective."
   while carried:
     sun moves x1.25
 
 passive flux-heart "Flux Heart"
-  text "Runs deeper than most. Flux moves +25%."
+  text "Flux type abilities are 25% more effective."
   while carried:
     flux moves x1.25
 
 passive moss-heart "Moss Heart"
-  text "Grows thicker than most. Moss moves +25%."
+  text "Moss type abilities are 25% more effective."
   while carried:
     moss moves x1.25
 
 passive moonlit "Moonlit"
-  text "Pulls like a tide. Moon moves +25%."
+  text "Moon type abilities are 25% more effective."
   while carried:
     moon moves x1.25
 
 passive shifting "Shifting"
-  text "Never quite where it was. Speed +15% and Resistance +10%."
+  text "Increases speed by 15% and resistance by 10%."
   while carried:
     speed x1.15
     resistance x1.1
 
 passive rooted "Rooted"
-  text "Sets down roots. Defense +10%, and heals [heal:rooted] at the end of each turn."
+  text "Increases defense by 10%. At the end of each turn, heal for [heal:rooted]."
   while carried:
     defense x1.1
   when a turn ends:
     heal holder 6.25% of their max hp
 
 passive encrypted "Encrypted"
-  text "Nothing reads it clearly. Resistance +25%."
+  text "Increases resistance by 25%."
   while carried:
     resistance x1.25
 
 passive far-sight "Far Sight"
-  text "Sees the shape of a fight early. Magic +20%."
+  text "Increases magic by 20%."
   while carried:
     magic x1.2
 
 passive sweet-tooth "Sweet Tooth"
-  text "Runs on sugar. HP +20%."
+  text "Increases HP by 20%."
   while carried:
     hp x1.2
 
 passive lucky "Lucky"
-  text "Things go its way. Fortuna moves +25%."
+  text "Fortuna type abilities are 25% more effective."
   while carried:
     fortuna moves x1.25
 
 passive plainspoken "Plainspoken"
-  text "Honest work, done twice. Strength +15% and Defense +10%."
+  text "Increases strength by 15% and defense by 10%."
   while carried:
     strength x1.15
     defense x1.1
 
 passive thirst "Thirst"
-  text "Drinks what it hits. A basic attack heals it for [heal:thirst]."
+  text "Basic attacks heal for [heal:thirst]."
   when it makes a basic attack:
     heal holder 100% of their magic
 
 passive restless "Restless"
-  text "Cannot sit still. Speed and Strength both +10%."
+  text "Increases speed and strength by 10%."
   while carried:
     speed x1.1
     strength x1.1
 
 passive moonwane "Moonwane"
-  text "Wears magic defense down. Every magic hit it lands leaves the target [status:wane|waning]."
+  text "Magic damage leaves the target [status:wane|waning], reducing their resistance by 5%. Stacks up to 10."
   when it lands magic:
     inflict wane on other
 
 passive moonwell "Moonwell"
-  text "Comes to a battle already drawing. Opens on 10% more mana."
+  text "At the start of battle, gain 10% mana."
   once per battle
   when the battle starts:
     give holder 10 mana
 
 passive sun-bloom "Sun Bloom"
-  text "Opens as it arrives. Taking the field puts both sides under [status:sunblessed|a blessed sun], once a battle."
+  text "On entry, place both sides under [status:sunblessed|a blessed sun], making Sun type abilities 25% more effective for 5 turns. Once per battle."
   once per battle
   when it takes the field:
     lay sunblessed over both sides
 
 passive sun-ward "Sun Ward"
-  text "Eats one Sun hit a battle outright."
+  text "Blocks the first Sun type hit each battle."
   once per battle
   while carried:
     blocks sun hits
 
 passive cottle-court "Cottle Court"
-  text "Never travels alone. Brings a Cottlecorn out with her as she takes the field, once a battle."
+  text "On entry, summon a Cottlecorn at the same level. Once per battle."
   once per battle
   when it takes the field:
     summon cottlecorn at level 1
 
 passive queens-guard "Queen's Guard"
-  text "Bracing sharpens her. Blocking leaves her [status:quickstep]."
+  text "When blocking, gain [status:quickstep|quickstep], raising speed by 10% of magic. Stacks up to 6."
   when it blocks:
     inflict quickstep on holder
 
 passive piercing-horn "Piercing Horn"
-  text "Wears its horn down on whatever it hits. A basic attack leaves the target [status:gored]."
+  text "Basic attacks leave the target [status:gored|gored], reducing their resistance by 5%. Stacks up to 6."
   when it makes a basic attack:
     inflict gored on other
 
@@ -167,7 +167,7 @@ passive sticky-mess "Sticky Mess"
     inflict sticky on others, for 2 turns
 
 passive roll-the-wheel "Roll the Wheel"
-  text "On entry, learn a random ability modified to scale with Strength and Fortuna type."
+  text "On entry, learn a random ability modified to scale with strength and Fortuna type."
   when it takes the field:
     sound confirm
     show spin as wheel over holder, pointer spintop
@@ -182,12 +182,12 @@ passive roll-the-wheel "Roll the Wheel"
     say "The wheel comes up {picked}."
 
 passive invested "Invested"
-  text "Statuses that last more than one turn are 30% more effective."
+  text "Statuses that last more than 1 turn are 30% more effective."
   while carried:
     marks it leaves hit x1.3 if they last 2 turns or more
 
 passive house-money "Lets go gambling"
-  text "At the end of each turn, learn a random 80%+ cost ability modified to scale with Strength and Fortuna type. Its cost is halved."
+  text "At the end of each turn, learn a random 80%+ cost ability modified to scale with strength and Fortuna type. Its cost is halved."
   when a turn ends:
     sound confirm
     show spin as wheel over holder, pointer spintop

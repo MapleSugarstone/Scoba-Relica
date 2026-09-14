@@ -17,6 +17,7 @@ import {
 import { STAT_LABELS, STAT_NAMES, TYPE_LABELS, type ElementType, type StatName } from "./types";
 import { BLACKJACK, CARD_HIGH } from "./cards";
 import { MAX_LEVEL } from "./scoba";
+import { hitCategory } from "./script/read";
 import type { TargetMode } from "./targeting";
 
 const pct = (f: number): string => `${Math.round(f * 100)}%`;
@@ -404,8 +405,8 @@ export function describeStatus(id: string, opts: StatusOpts = {}): string {
   const def = (opts.statuses ?? STATUSES)[id];
   if (!def) return "";
   if (def.hand) {
-    return `The cards it is holding. Landing on exactly ${BLACKJACK} pays out against it,`
-      + " and going over clears the hand for nothing.";
+    return `The cards it is holding. Landing on exactly ${BLACKJACK}, with an Ace counting 1 or 11,`
+      + " pays out against it at once, and going over clears the hand for nothing.";
   }
   return join(statusPieces(def, HOLDER, opts));
 }
@@ -464,13 +465,11 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
   switch (e.kind) {
     case "hit": {
       const t = who(e.to);
-      if (e.perLevel !== undefined) {
-        return [{ text: `Deals ${e.perLevel} damage per level to ${t.noun || "itself"}, which nothing reduces.`, triggered: false }];
-      }
-      const category = e.category ?? (e.scaling[0]?.stat === "mag" ? "magic" : "physical");
+      const category = hitCategory(e);
       const elements = e.element ? type(e.element) : moveElements(move);
+      const amount = e.perLevel !== undefined ? `${e.perLevel} per level` : pct(e.scaling[0]?.scale ?? 0);
       return [{
-        text: `Deals ${pct(e.scaling[0]?.scale ?? 0)} ${elements} ${category} damage to ${t.noun || "itself"}.`,
+        text: `Deals ${amount} ${elements} ${category} damage to ${t.noun || "itself"}.`,
         triggered: false,
       }];
     }
@@ -548,11 +547,11 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       const t = who(e.to);
       return [
         {
-          text: `Deals a card onto ${t.noun || "itself"}, worth 1 to ${CARD_HIGH}.`,
+          text: `Deals a card onto ${t.noun || "itself"}, worth 1 to ${CARD_HIGH}, and an Ace 1 or 11.`,
           triggered: false,
         },
         {
-          text: `A hand of exactly ${BLACKJACK} pays out for ${pct(e.payoff)} Strength`
+          text: `A hand that reaches exactly ${BLACKJACK} pays out at once for ${pct(e.payoff)} Strength`
             + " and clears. Over that busts.",
           triggered: false,
         },

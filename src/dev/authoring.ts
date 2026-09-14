@@ -223,7 +223,7 @@ export const TEMPLATES: Record<ScriptFile, Template[]> = {
     },
     {
       label: "Damage each turn",
-      says: "Bites at the end of every turn, measured off whoever left it.",
+      says: "Deals damage at the end of every turn, measured off whoever left it.",
       text: (id, name) => [
         `status ${id} ${q(name)}`,
         "  bad",

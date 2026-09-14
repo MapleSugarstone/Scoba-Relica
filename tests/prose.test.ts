@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { flattenProse, parseProse, readToken } from "../src/sim/prose";
+import { TOKENS, flattenProse, parseProse, readToken } from "../src/sim/prose";
+import { describeAbility, describeField, describeMoveEffects, describeStatus } from "../src/sim/describe";
 import { ABILITIES, MOVES, allSteps } from "../src/sim/species";
-import { STATUSES } from "../src/sim/status";
+import { FIELDS, STATUSES, powerCategory } from "../src/sim/status";
 import type { Stats } from "../src/sim/types";
 
 const coldWave = MOVES["cold-wave"]!;
@@ -143,6 +144,122 @@ describe("the lines the passives ship with", () => {
   });
 });
 
+describe("the note on a number", () => {
+  // The share it scales off, then at most what reduces it. Nothing about the
+  // move or the mark the number belongs to.
+  const SCALING_ONLY = /^\d[^.]*(\.\d[^.]*)*\.( (Physical|Magical) (damage|statuses) (is|are) reduced by the target's (Defense|Resistance)\.| True damage ignores target's defenses\.)?$/;
+
+  it("explains the scaling and nothing else", () => {
+    const notes: [string, string][] = [];
+    for (const move of Object.values(MOVES)) {
+      for (const part of parseProse("[damage] [heal] [scaling:1] [scaling:2] [scaling:3] [damage:2]", { move })) {
+        if (part.kind === "token" && part.label !== "?") notes.push([move.id, part.detail]);
+      }
+    }
+    for (const id of Object.keys(STATUSES)) {
+      for (const part of parseProse(`[damage:${id}] [heal:${id}] [power:${id}]`, {})) {
+        if (part.kind === "token" && !part.detail.startsWith("No ")) notes.push([id, part.detail]);
+      }
+    }
+    expect(notes.length).toBeGreaterThan(20);
+    expect(notes.filter(([, note]) => !SCALING_ONLY.test(note))).toEqual([]);
+  });
+});
+
+describe("words the game does not use", () => {
+  const BANNED = /\bbites?\b|as it arrives/i;
+
+  it("keeps them out of every line and note a player can read", () => {
+    const lines: [string, string][] = [];
+    for (const move of Object.values(MOVES)) {
+      if (move.text) lines.push([`${move.id} text`, move.text]);
+      lines.push([`${move.id} described`, describeMoveEffects(move)]);
+      for (const part of parseProse("[damage] [heal] [scaling:1] [scaling:2] [scaling:3]", { move })) {
+        if (part.kind === "token") lines.push([`${move.id} note`, part.detail]);
+      }
+    }
+    for (const ability of Object.values(ABILITIES)) {
+      if (ability.text) lines.push([`${ability.id} text`, ability.text]);
+      lines.push([`${ability.id} described`, describeAbility(ability.id)]);
+    }
+    for (const id of Object.keys(STATUSES)) {
+      lines.push([`${id} described`, describeStatus(id)]);
+      for (const part of parseProse(`[damage:${id}] [heal:${id}] [power:${id}]`, {})) {
+        if (part.kind === "token") lines.push([`${id} note`, part.detail]);
+      }
+    }
+    for (const id of Object.keys(FIELDS)) lines.push([`${id} described`, describeField(id)]);
+    for (const token of TOKENS) lines.push([token.form, token.says]);
+    expect(lines.filter(([, text]) => BANNED.test(text))).toEqual([]);
+  });
+});
+
+describe("a mark's power, and every scaled number in order", () => {
+  const black = MOVES["black"]!;
+
+  it("reads the new brackets", () => {
+    expect(readToken("power:in-the-black")?.token).toEqual({ of: "power", id: "in-the-black" });
+    expect(readToken("scaling:2")?.token).toEqual({ of: "scaling", nth: 2 });
+    expect(readToken("scaling")?.token).toEqual({ of: "scaling", nth: 1 });
+    expect(readToken("power")).toBeNull();
+    expect(readToken("scaling:two")).toBeNull();
+  });
+
+  it("reads what a mark's power takes off a stat", () => {
+    const part = parseProse("[power:in-the-black]", {})[0];
+    expect(part).toMatchObject({ label: "10% Strength" });
+    expect(part?.kind === "token" && part.detail).toContain("10% of the caster's Strength");
+    expect(parseProse("[power:in-the-black]", { stats: statsFor({ str: 200 }) })[0]).toMatchObject({ label: "20" });
+    expect(parseProse("[power:in-the-green]", {})[0]).toMatchObject({ label: "30% Strength" });
+  });
+
+  it("says what reduces a mark the way a hit's note does, by the stat it scales off", () => {
+    expect(parseProse("[power:in-the-black]", {})[0]).toMatchObject({
+      tone: "physical",
+      detail: "10% of the caster's Strength. Physical statuses are reduced by the target's Defense.",
+    });
+    expect(parseProse("[power:slowed]", {})[0]).toMatchObject({
+      tone: "magic",
+      detail: "30% of the caster's Magic. Magical statuses are reduced by the target's Resistance.",
+    });
+    expect(details("[damage:in-the-red]")[0]).toBe(
+      "20% of the caster's Strength plus 1.67 damage per level. Magical statuses are reduced by the target's Resistance.",
+    );
+  });
+
+  it("colours and notes true damage as ignoring defenses", () => {
+    expect(parseProse("[damage:fragile]", {})[0]).toMatchObject({
+      tone: "true",
+      detail: "10% of its own maximum HP. True damage ignores target's defenses.",
+    });
+    // Flat damage is only a flat base, and the hit is reduced like any other.
+    expect(parseProse("[damage]", { move: MOVES["cherry-on-top"]! })[0]).toMatchObject({
+      tone: "physical",
+      detail: "2 damage per level of the caster. Physical damage is reduced by the target's Defense.",
+    });
+    // A mark that only raises a stat meets no armor, so it reads as true.
+    const lift = { ...STATUSES["in-the-black"]!, effects: [{ kind: "stat-power" as const, stat: "spd" as const, mult: 1 }] };
+    expect(powerCategory(lift)).toBe("true");
+    expect(powerCategory(STATUSES["in-the-black"]!)).toBe("physical");
+  });
+
+  it("says so where a mark has no power", () => {
+    expect(parseProse("[power:in-the-red]", {})[0]).toMatchObject({ label: "in-the-red" });
+  });
+
+  it("counts the hit and then the mark it leaves", () => {
+    expect(labels("[scaling:1] and [scaling:2]", black)).toEqual(["100% Strength", "10% Strength"]);
+    // Red's mark has no power, so its second number is its burn.
+    expect(labels("[scaling:2]", MOVES["red"]!)).toEqual(["20% Strength + 1.67 damage per level"]);
+    expect(labels("[scaling:2]", cardThrow)).toEqual(["230% Strength"]);
+  });
+
+  it("says so where a move has no number in that place", () => {
+    expect(labels("[scaling:3]", black)).toEqual(["?"]);
+    expect(details("[scaling:3]", black)[0]).toBe("Black has no scaling number 3.");
+  });
+});
+
 describe("a mark's own numbers", () => {
   it("reads a burn off the mark rather than off the move", () => {
     const at = { stats: statsFor({ str: 200 }), level: 30 };
@@ -242,16 +359,16 @@ describe("a written line", () => {
   it("takes the colour its kind of damage has everywhere else", () => {
     expect(parseProse("[damage]", { move: coldWave })[0]).toMatchObject({ tone: "magic" });
     expect(parseProse("[damage]", { move: cardThrow })[0]).toMatchObject({ tone: "physical" });
-    // Flat damage is neither, and is coloured as what it is.
+    // A flat hit is coloured by its category like any other hit.
     expect(parseProse("[damage]", { move: MOVES["cherry-on-top"]! })[0])
-      .toMatchObject({ tone: "true" });
+      .toMatchObject({ tone: "physical" });
   });
 
   it("reads the second damage off the payout that follows the hit", () => {
     expect(labels("[damage:1] then [damage:2]", cardThrow)).toEqual(["30% Strength", "230% Strength"]);
     const at = { move: cardThrow, stats: statsFor({ str: 120 }), level: 30 };
     expect(parseProse("[damage:2]", at)[0]).toMatchObject({ label: "276", tone: "physical" });
-    expect(details("[damage:2]", cardThrow)[0]).toContain("exactly 21 pays out");
+    expect(details("[damage:2]", cardThrow)[0]).toBe("230% of the caster's Strength. Physical damage is reduced by the target's Defense.");
   });
 
   it("says so where a move has no damage in that place", () => {

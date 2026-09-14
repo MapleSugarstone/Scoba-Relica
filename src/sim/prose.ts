@@ -11,9 +11,8 @@
 // A token nobody recognises is left exactly as it was typed, brackets and all,
 // so a stray bracket shows up as a stray bracket rather than swallowing the
 // rest of the sentence.
-import { BLACKJACK } from "./cards";
 import { MOVES, allSteps, type Move } from "./species";
-import { FIELDS, STATUSES, type Basis, type Step } from "./status";
+import { FIELDS, STATUSES, powerCategory, type Basis, type DamageCategory, type Step, type StatusEffect } from "./status";
 import { describeField, describeStatus, perLevel } from "./describe";
 import { MAX_LEVEL } from "./scoba";
 import { STAT_LABELS, type Stats } from "./types";
@@ -29,6 +28,10 @@ export type Token =
   | { of: "damage"; id?: string; nth?: number }
   /** The move's own healing, or a mark's. `nth` counts from 1 in cast order. */
   | { of: "heal"; id?: string; nth?: number }
+  /** What a mark's power moves a stat by, by status id. */
+  | { of: "power"; id: string }
+  /** The move's nth scaled number of any kind, counting from 1 in cast order. */
+  | { of: "scaling"; nth: number }
   /** A mark it leaves, by status id. */
   | { of: "status"; id: string };
 
@@ -55,10 +58,12 @@ export interface ProseFor {
 export const TOKENS = [
   { form: "[damage]", says: "what the move hits for, with the scaling on hover" },
   { form: "[damage:2]", says: "the move's second hit or payout, in the order the cast runs them" },
-  { form: "[damage:id]", says: "what a mark hits for each time it bites" },
+  { form: "[damage:id]", says: "what a mark's damage deals" },
   { form: "[heal]", says: "what the move heals for" },
   { form: "[heal:2]", says: "what the move's second heal restores" },
-  { form: "[heal:id]", says: "what a mark heals for each turn" },
+  { form: "[heal:id]", says: "what a mark's heal restores" },
+  { form: "[power:id]", says: "what a mark's power takes from or adds to a stat" },
+  { form: "[scaling:2]", says: "the move's second scaled number: hits, heals, payouts and the marks it leaves, in the order the cast runs them" },
   { form: "[status:id]", says: "a mark, named after the mark" },
   { form: "[status:id|word]", says: "the same mark, written as your own word" },
 ];
@@ -75,6 +80,12 @@ export function readToken(inside: string): { token: Token; label?: string } | nu
   if (of === "damage" || of === "heal") {
     const which = /^[1-9]\d*$/.test(id) ? { nth: Number(id) } : id ? { id } : {};
     return { token: { of, ...which }, ...(label ? { label } : {}) };
+  }
+  if (of === "power" && id !== "") {
+    return { token: { of: "power", id }, ...(label ? { label } : {}) };
+  }
+  if (of === "scaling" && (id === "" || /^[1-9]\d*$/.test(id))) {
+    return { token: { of: "scaling", nth: id === "" ? 1 : Number(id) }, ...(label ? { label } : {}) };
   }
   if (of === "status" && id !== "") {
     return { token: { of: "status", id }, ...(label ? { label } : {}) };
@@ -97,11 +108,17 @@ export function resolveToken(token: Token, at: ProseFor): Part & { kind: "token"
     }
     return { kind: "token", label: token.id, detail: `No mark called ${token.id}.` };
   }
+  if (token.of === "power") return powerToken(token.id, at);
   // A token naming a mark is read off that mark rather than off the move, so
   // one line can say what the hit does and what the mark it leaves does.
-  if (token.id !== undefined) return markToken(token.of, token.id, at);
+  if (token.of !== "scaling" && token.id !== undefined) return markToken(token.of, token.id, at);
   const move = at.move ?? null;
   if (!move) return { kind: "token", label: "?", detail: "Nothing to read this off." };
+  if (token.of === "scaling") {
+    const found = scalingsOf(move)[token.nth - 1];
+    if (!found) return { kind: "token", label: "?", detail: `${move.name} has no scaling number ${token.nth}.` };
+    return found(at);
+  }
   const nth = token.nth ?? 1;
   const steps = allSteps(move.cast);
   if (token.of === "heal") {
@@ -118,15 +135,77 @@ export function resolveToken(token: Token, at: ProseFor): Part & { kind: "token"
     return { kind: "token", label: "?", detail };
   }
   if (hit.kind === "deal-card") return payoutToken(hit, at);
+  return hitToken(hit, at);
+}
+
+type TokenOf = (at: ProseFor) => Part & { kind: "token" };
+
+/**
+ * Every scaled number a move's cast produces, in the order the cast runs them:
+ * each hit, heal and card payout, and for each mark it leaves, that mark's
+ * power, then what it hits for, then what it heals for.
+ */
+function scalingsOf(move: Move): TokenOf[] {
+  const out: TokenOf[] = [];
+  for (const s of allSteps(move.cast)) {
+    if (s.kind === "hit") out.push((at) => hitToken(s, at));
+    else if (s.kind === "heal") out.push((at) => healToken(s, at));
+    else if (s.kind === "deal-card") out.push((at) => payoutToken(s, at));
+    else if (s.kind === "inflict") {
+      const def = STATUSES[s.status];
+      if (!def) continue;
+      if (def.power) out.push((at) => powerToken(s.status, at));
+      if (def.effects.some((e) => e.kind === "damage")) out.push((at) => markToken("damage", s.status, at));
+      if (def.effects.some((e) => e.kind === "heal")) out.push((at) => markToken("heal", s.status, at));
+    }
+  }
+  return out;
+}
+
+function hitToken(hit: HitStep, at: ProseFor): Part & { kind: "token" } {
   return {
     kind: "token",
     label: damageLabel(hit, at),
     detail: damageDetail(hit),
-    tone: hit.perLevel !== undefined ? "true" : hitCategory(hit),
+    tone: hitCategory(hit),
   };
 }
 
-/** What one mark does each time it bites, read off the mark itself. */
+/**
+ * What a mark's power moves a stat by, read off the mark. The power is measured
+ * when the mark lands, and each stat it moves takes it times that stat's own
+ * multiple, so the label is the share the first stat it moves takes.
+ */
+function powerToken(id: string, at: ProseFor): Part & { kind: "token" } {
+  const def = STATUSES[id];
+  const power = def?.power;
+  if (!def || !power) return { kind: "token", label: id, detail: `No power on a mark called ${id}.` };
+  const moves = def.effects.filter((e): e is StatPower => e.kind === "stat-power");
+  const share = Math.abs(power.frac * (moves[0]?.mult ?? 1));
+  const off = power.basis === "source-str" ? "str" : power.basis === "source-mag" ? "mag" : null;
+  const number = off && at.stats ? Math.floor(at.stats[off] * share) : null;
+  const category = powerCategory(def);
+  return {
+    kind: "token",
+    label: number === null ? `${pct(share)} ${basisShort(power.basis)}` : String(number),
+    detail: `${pct(share)} of ${basisName(power.basis)}. ${reducedBy(category, "statuses")}`,
+    tone: category,
+  };
+}
+
+/**
+ * The sentence that says what a number meets on its way in, the same for a
+ * move's damage and for a mark: Defense for physical, Resistance for magical,
+ * and nothing for true.
+ */
+function reducedBy(category: DamageCategory, what: "damage" | "statuses"): string {
+  if (category === "true") return "True damage ignores target's defenses.";
+  const kind = category === "physical" ? "Physical" : "Magical";
+  const armor = STAT_LABELS[category === "physical" ? "def" : "res"];
+  return `${kind} ${what} ${what === "damage" ? "is" : "are"} reduced by the target's ${armor}.`;
+}
+
+/** What one mark's damage or heal comes to, read off the mark itself. */
 function markToken(of: "damage" | "heal", id: string, at: ProseFor): Part & { kind: "token" } {
   const def = STATUSES[id];
   const effect = def?.effects.find((e) => e.kind === of);
@@ -152,9 +231,9 @@ function markToken(of: "damage" | "heal", id: string, at: ProseFor): Part & { ki
   return {
     kind: "token",
     label: number === null ? shareLabel : String(number),
-    detail: of === "damage"
-      ? `${cap(share)}, every time ${def.name} bites.`
-      : `${cap(share)}, every turn ${def.name} stands.`,
+    detail: effect.kind === "damage"
+      ? `${cap(share)}. ${reducedBy(effect.damage.category, "statuses")}`
+      : `${cap(share)}.`,
     ...(tone ? { tone } : {}),
   };
 }
@@ -192,7 +271,7 @@ function healToken(mend: HealStep, at: ProseFor): Part & { kind: "token" } {
   return {
     kind: "token",
     label: number === null ? pct(mend.frac) : String(number),
-    detail: `Heals ${pct(mend.frac)} of ${basis}.`,
+    detail: `${pct(mend.frac)} of ${basis}.`,
   };
 }
 
@@ -219,16 +298,12 @@ function damageLabel(hit: HitStep, at: ProseFor): string {
 /** The long form, for the window that opens on hovering it. */
 function damageDetail(hit: HitStep): string {
   if (hit.perLevel !== undefined) {
-    return `${hit.perLevel} damage per level of the caster. Flat damage ignores Defense,`
-      + " Resistance and the type chart alike.";
+    return `${hit.perLevel} damage per level of the caster. ${reducedBy(hitCategory(hit), "damage")}`;
   }
   const [first, ...rest] = hit.scaling;
-  const category = hitCategory(hit);
-  const armor = category === "physical" ? "def" : "res";
   const also = rest.map((s) => ` and ${pct(s.scale)} of its ${STAT_LABELS[s.stat]}`).join("");
   const main = first ? `${pct(first.scale)} of the caster's ${STAT_LABELS[first.stat]}` : "Nothing";
-  return `${main}${also}.`
-    + ` ${cap(category === "physical" ? "physical" : "magical")} damage is reduced by the target's ${STAT_LABELS[armor]}.`;
+  return `${main}${also}. ${reducedBy(hitCategory(hit), "damage")}`;
 }
 
 /** What a hand of exactly 21 pays out, which the battle reads off the dealer's Strength as physical damage. */
@@ -238,14 +313,14 @@ function payoutToken(deal: DealStep, at: ProseFor): Part & { kind: "token" } {
     label: at.stats
       ? String(Math.max(1, Math.floor(at.stats.str * deal.payoff)))
       : `${pct(deal.payoff)} ${STAT_LABELS.str}`,
-    detail: `${pct(deal.payoff)} of the caster's ${STAT_LABELS.str}, when a hand of exactly ${BLACKJACK} pays out.`
-      + ` Physical damage is reduced by the target's ${STAT_LABELS.def}.`,
+    detail: `${pct(deal.payoff)} of the caster's ${STAT_LABELS.str}. ${reducedBy("physical", "damage")}`,
     tone: "physical",
   };
 }
 
 type HitStep = Extract<Step, { kind: "hit" }>;
 type HealStep = Extract<Step, { kind: "heal" }>;
+type StatPower = Extract<StatusEffect, { kind: "stat-power" }>;
 type DealStep = Extract<Step, { kind: "deal-card" }>;
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);

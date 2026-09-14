@@ -918,9 +918,13 @@ export function summarize(cast: Step[]): { kind: Move["kind"]; scale: number } {
   return { kind: "utility", scale: 0 };
 }
 
-/** How a hit is mitigated: what it says, or what its first stat makes it. */
+/**
+ * How a hit is mitigated: what it says, or what its first stat makes it. Magic
+ * and Resistance are magical, and everything else is physical.
+ */
 export function hitCategory(s: Extract<Step, { kind: "hit" }>): "physical" | "magic" {
-  return s.category ?? (s.scaling[0]?.stat === "mag" ? "magic" : "physical");
+  const first = s.scaling[0]?.stat;
+  return s.category ?? (first === "mag" || first === "res" ? "magic" : "physical");
 }
 
 function readMove(head: Line, refs: Ref[]): Move {

@@ -21,7 +21,7 @@ import {
   formsOf, statusSummary,
   type BattleEvent, type BattleState, type Combatant, type StatusMark, type VisualStep,
 } from "../sim/battle";
-import { BLACKJACK, CARD_BACK, CARD_HIGH, cardOfValue, type CardFace } from "../sim/cards";
+import { ACE_EXTRA, BLACKJACK, CARD_BACK, CARD_HIGH, cardOfValue, type CardFace } from "../sim/cards";
 import { hexToRgb, paletteSwap } from "../engine/recolor";
 import {
   MOVES, SPECIES,
@@ -87,11 +87,11 @@ interface Fighter {
    */
   leaving: Retreat | null;
   /**
-   * The hand it is holding: the last card dealt onto it, as it was thrown, and
-   * what the cards add up to. Drawn over its head and kept between turns,
-   * because the hand is against the Scoba until it pays out.
+   * The hand it is holding: every card dealt onto it, oldest first, as each was
+   * thrown, and what the cards add up to. Drawn over its head and kept between
+   * turns, because the hand is against the Scoba until it pays out.
    */
-  hand: { face: CardFace; count: number } | null;
+  hand: { faces: CardFace[]; count: number } | null;
 }
 
 /** A walk off the field: out and down a little, then out and away. */
@@ -1412,11 +1412,11 @@ export class BattleStage {
         // is settled and taken away.
         const target = this.find(ev.at);
         if (!target) return say(0.2);
-        const face = ev.face;
+        const faces = ev.cards ?? (ev.face ? [ev.face] : null);
         const count = ev.count;
         say(HAND_SHOWN, {
           start: () => {
-            if (face && count !== undefined) target.hand = { face, count };
+            if (faces && count !== undefined) target.hand = { faces, count };
           },
           end: () => {
             if (count !== undefined && count >= BLACKJACK) target.hand = null;
@@ -1999,22 +1999,27 @@ export class BattleStage {
    * field is doing.
    */
   /**
-   * The cards a Scoba is holding, over its head. The count is drawn on them,
-   * because past one card the number is the whole of what the hand says.
+   * The cards a Scoba is holding, over its head: every one of them fanned out
+   * side by side, oldest at the back and the one just dealt in front.
    */
   private drawHand(ctx: CanvasRenderingContext2D, f: Fighter): void {
     if (!f.hand || f.alpha <= 0.02) return;
-    const art = faceArt(this.art, f.hand.face, undefined);
-    if (!art) return;
+    const arts = f.hand.faces.map((face) => faceArt(this.art, face, undefined)).filter((a) => a !== undefined);
+    const first = arts[0];
+    if (!first) return;
     const at = this.posOf(f);
     const bob = Math.sin(performance.now() / 1000 * HAND_RATE + f.index) * HAND_BOB;
     const u = 1 / ART;
-    const w = art.width * u;
-    const h = art.height * u;
+    const w = first.width * u;
+    const h = first.height * u;
+    // A whole number of art pixels, so every card edge lands on the pixel grid.
+    const step = Math.round(first.width * HAND_SPREAD) * u;
+    const left = at.x - (w + step * (arts.length - 1)) / 2;
+    const top = at.y - f.head - HAND_LIFT - h + bob;
     ctx.save();
     ctx.globalAlpha = f.alpha;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(art, at.x - w / 2, at.y - f.head - HAND_LIFT - h + bob, w, h);
+    arts.forEach((art, i) => ctx.drawImage(art, left + step * i, top, w, h));
     ctx.restore();
   }
 
@@ -2341,18 +2346,19 @@ function faceArt(art: Art, face: CardFace, tint: string | undefined): HTMLCanvas
 }
 
 /**
- * The hand a combatant is holding, read off its marks: the card on top of it
- * as it was dealt, and what the cards add up to. A hand from before cards kept
- * their faces shows the card worth the whole hand, or the back of one.
+ * The hand a combatant is holding, read off its marks: every card in it as each
+ * was dealt, and the best count they make. A hand with no cards kept shows the
+ * card worth the whole hand, or the back of one.
  */
-function handOf(c: Combatant | null | undefined): { face: CardFace; count: number } | null {
+function handOf(c: Combatant | null | undefined): { faces: CardFace[]; count: number } | null {
   const dealt = c?.statuses.find((s) => STATUSES[s.id]?.hand === true);
   if (!dealt) return null;
-  const face = dealt.face ?? {
+  const faces = dealt.faces ?? [{
     art: dealt.stacks <= CARD_HIGH ? cardOfValue(dealt.stacks).art : CARD_BACK,
     changes: [],
-  };
-  return { face, count: dealt.stacks };
+  }];
+  const high = dealt.ace === true && dealt.stacks + ACE_EXTRA < BLACKJACK;
+  return { faces, count: high ? dealt.stacks + ACE_EXTRA : dealt.stacks };
 }
 
 const MIX = {
@@ -2422,6 +2428,9 @@ const WHEEL_BITE = 6;
 
 /** Where a hand sits over the head it was dealt to, in world units. */
 const HAND_LIFT = 7;
+
+/** How far along each card in a hand sits from the one behind it, as a share of a card's width. */
+const HAND_SPREAD = 0.5;
 
 /** How long the scene holds on a card that has just landed in a hand. */
 const HAND_SHOWN = 0.3;

@@ -183,8 +183,9 @@ export type MoveChange =
 export type Step =
   /**
    * An attack: shares of the attacker's stats through the same-type bonus, the
-   * type chart and the target's Defense or Resistance. `perLevel` is a flat
-   * number per level instead, which ignores all of that.
+   * type chart and the target's Defense or Resistance. `perLevel` takes a flat
+   * number per level of the attacker in place of the shares, and the rest applies
+   * the same.
    */
   | {
     kind: "hit"; to: Who; scaling: Scaling[]; perLevel?: number;
@@ -326,7 +327,7 @@ export interface StatusDef {
   /**
    * A number read off the field when the status is applied and kept on the
    * instance. `stat-power` moves a stat by it, so a mark left by a big caster
-   * bites harder than the same mark left by a small one.
+   * hits harder than the same mark left by a small one.
    */
   power?: { basis: Basis; frac: number };
   /**
@@ -360,14 +361,30 @@ export interface StatusInstance {
   /**
    * The turn it landed on. A mark does not tick on the turn it is applied:
    * neither its own clock nor whatever it does each turn, so a mark that lasts
-   * three turns bites on the three turns after the one that put it there
+   * three turns acts on the three turns after the one that put it there
    * rather than on the one it arrived on.
    */
   since?: number;
   /** Who put it there, so a tick's kill is credited to them. */
   from?: { side: 0 | 1; index: number };
-  /** For a hand of cards: the last card dealt onto it, as it looked when it was thrown. */
-  face?: CardFace;
+  /** For a hand of cards: every card dealt onto it, oldest first, as each looked when it was thrown. */
+  faces?: CardFace[];
+  /** For a hand of cards: it holds an Ace, which can count 11. `stacks` counts every Ace as 1. */
+  ace?: true;
+}
+
+/**
+ * How a mark's power is mitigated. One that lowers a stat is physical off
+ * Strength and magical off Magic. One that only raises stats, or measures off
+ * health, is true and meets no armor.
+ */
+export function powerCategory(def: StatusDef): DamageCategory {
+  const lowers = def.effects.some((e) => e.kind === "stat-power" && e.mult < 0);
+  if (!def.power || !lowers) return "true";
+  const basis = def.power.basis;
+  if (basis === "source-str" || basis === "holder-str") return "physical";
+  if (basis === "source-mag" || basis === "holder-mag") return "magic";
+  return "true";
 }
 
 /** What Hyper-Mode adds: a quarter of the Scoba's own line, and a flat 15. */

@@ -134,7 +134,7 @@ describe("statuses in a battle", () => {
     // Read off the burn's own line rather than off the pool: a passive that
     // mends at the end of a turn would otherwise cover what the burn took.
     const events = resolveTurn(st, [{ kind: "block", side: 0, slot: 0 }]);
-    expect(events.some((e) => e.text.includes("Fire bites"))).toBe(true);
+    expect(events.some((e) => e.text.includes("Fire hits"))).toBe(true);
     expect(inst.turnsLeft).toBeLessThan(STATUSES["fire"]!.duration!);
   });
 
@@ -149,7 +149,7 @@ describe("statuses in a battle", () => {
     expect(foe.statuses.some((s) => s.id === "fire")).toBe(false);
   });
 
-  it("Fragile bites on every hit and spends its three charges", () => {
+  it("Fragile deals damage on every hit and spends its three charges", () => {
     const st = duel(["crush"]);
     const foe = st.teams[1][0]!;
     foe.scoba.moves = [];

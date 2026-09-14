@@ -5,7 +5,7 @@ move crush "Crush"
   type plain
   costs 30 mana
   aim any enemy
-  text "A straight swing at one enemy. Deals [damage] damage."
+  text "Deals [damage] damage to an enemy."
   cast:
     caster lunge
     hit target 110% strength
@@ -15,7 +15,7 @@ move slam "Slam"
   costs 45 mana
   cooldown 1
   aim any enemy
-  text "Comes down on one enemy with its whole weight. Deals [damage] damage."
+  text "Slams into an enemy for [damage] damage."
   cast:
     caster rear
     hit target 150% strength
@@ -26,7 +26,7 @@ move nuzzle-nap "Nuzzle Nap"
   cooldown 3
   starts on cooldown 2
   aim any ally
-  text "Settles down against an ally until it feels better. Heals [heal]."
+  text "Nuzzles an ally. Heals [heal] of their max HP."
   cast:
     caster focus
     heal target 50% of their max hp
@@ -35,7 +35,7 @@ move moonbeam "Moonbeam"
   type moon
   costs 35 mana
   aim any enemy
-  text "Draws a thin line of moonlight through one enemy. Deals [damage] damage."
+  text "Fires a moonbeam at an enemy for [damage] damage."
   cast:
     caster shake
     throw as bolt to target
@@ -47,7 +47,7 @@ move eclipse "Eclipse"
   cooldown 2
   starts on cooldown 1
   aim any enemy
-  text "Puts out the light over one enemy. Deals [damage] damage."
+  text "Deals [damage] damage to an enemy."
   cast:
     caster focus
     throw as beam to target
@@ -57,7 +57,7 @@ move cinder-spit "Cinder Spit"
   type sun
   costs 35 mana
   aim any enemy
-  text "Spits a hot coal at one enemy. Deals [damage] damage."
+  text "Spits a cinder at an enemy for [damage] damage."
   cast:
     caster shake
     throw as bolt to target
@@ -69,7 +69,7 @@ move flame-burst "Flame Burst"
   cooldown 2
   starts on cooldown 1
   aim any enemy
-  text "Opens into flame around one enemy. Deals [damage] damage."
+  text "Deals [damage] damage to an enemy."
   cast:
     caster focus
     hit target 170% magic
@@ -78,7 +78,7 @@ move tide-whip "Tide Whip"
   type flux
   costs 35 mana
   aim any enemy
-  text "Lashes one enemy with a rope of water. Deals [damage] damage."
+  text "Whips an enemy with water for [damage] damage."
   cast:
     caster shake
     throw as bolt to target
@@ -89,7 +89,7 @@ move riptide "Riptide"
   costs 50 mana
   cooldown 2
   aim any enemy
-  text "Pulls the ground out from under one enemy. Deals [damage] damage."
+  text "Deals [damage] damage to an enemy."
   cast:
     caster shake
     throw as lob to target
@@ -99,7 +99,7 @@ move leaf-flick "Leaf Flick"
   type moss
   costs 30 mana
   aim any enemy
-  text "Flicks a leaf edge-on at one enemy. Deals [damage] damage."
+  text "Flicks a leaf at an enemy for [damage] damage."
   cast:
     caster shake
     throw as bolt to target
@@ -110,7 +110,7 @@ move vine-lash "Vine Lash"
   costs 40 mana
   cooldown 1
   aim any enemy
-  text "Whips a vine across one enemy. Deals [damage] damage."
+  text "Lashes an enemy with a vine for [damage] damage."
   cast:
     caster lunge
     throw as beam to target
@@ -120,7 +120,7 @@ move decode "Decode"
   type cipher
   costs 35 mana
   aim any enemy
-  text "Reads one enemy and strikes where it is thinnest. Deals [damage] damage."
+  text "Deals [damage] damage to an enemy."
   cast:
     caster shake
     throw as bolt to target
@@ -131,7 +131,7 @@ move null-key "Null Key"
   costs 45 mana
   cooldown 1
   aim any enemy
-  text "Turns a key in one enemy and stops it. Deals [damage] damage."
+  text "Stabs an enemy with a key for [damage] damage."
   cast:
     caster blink
     hit target 150% strength
@@ -140,7 +140,7 @@ move hex "Hex"
   type mystic
   costs 35 mana
   aim any enemy
-  text "Puts a word on one enemy. Deals [damage] damage."
+  text "Casts a hex on an enemy for [damage] damage."
   cast:
     caster shake
     throw as bolt to target
@@ -151,7 +151,7 @@ move third-eye "Third Eye"
   costs 50 mana
   cooldown 2
   aim any enemy
-  text "Opens on one enemy and looks straight through it. Deals [damage] damage."
+  text "Fires a beam from a third eye at an enemy for [damage] damage."
   cast:
     caster focus
     throw as beam to target
@@ -161,7 +161,7 @@ move sugar-rush "Sugar Rush"
   type sugar
   costs 35 mana
   aim any enemy
-  text "Barrels into one enemy and cannot stop. Deals [damage] damage."
+  text "Rushes into an enemy for [damage] damage."
   cast:
     caster lunge
     hit target 120% strength
@@ -171,7 +171,7 @@ move gumsnap "Gumsnap"
   costs 45 mana
   cooldown 1
   aim any enemy
-  text "Stretches back and snaps into one enemy. Deals [damage] damage."
+  text "Snaps a strand of gum at an enemy for [damage] damage."
   cast:
     caster lunge
     throw as lob to target
@@ -181,7 +181,7 @@ move lucky-strike "Lucky Strike"
   type fortuna
   costs 35 mana
   aim any enemy
-  text "Swings at one enemy and trusts the odds. Deals [damage] damage."
+  text "Deals [damage] damage to an enemy."
   cast:
     caster lunge
     hit target 120% strength
@@ -192,7 +192,7 @@ move jackpot "Jackpot"
   cooldown 3
   starts on cooldown 1
   aim any enemy
-  text "Everything it has, on one enemy, all at once. Deals [damage] damage."
+  text "Deals [damage] damage to an enemy."
   cast:
     caster blink
     hit target 190% strength
@@ -202,7 +202,7 @@ move ember "Ember"
   costs 30 mana
   cooldown 1
   aim any enemy
-  text "Spits a coal that catches. Deals [damage] damage and leaves one enemy [status:fire|burning] for [damage:fire] a turn."
+  text "Deals [damage] damage to an enemy and leaves them [status:fire|burning] for [damage:fire] damage a turn for 3 turns."
   cast:
     caster shake
     hit target 70% magic
@@ -213,7 +213,7 @@ move hairline "Hairline"
   costs 35 mana
   cooldown 2
   aim any enemy
-  text "Finds the crack in one enemy. Deals [damage] damage and leaves it [status:fragile]."
+  text "Deals [damage] damage to an enemy and leaves them [status:fragile|fragile] for 5 turns. The next 3 hits on them deal extra damage equal to [damage:fragile]."
   cast:
     caster focus
     throw as beam to target
@@ -225,7 +225,7 @@ move fury "Fury"
   costs 25 mana
   cooldown 1
   aim self "Work up"
-  text "Works itself up. Leaves it [status:rage|raging]."
+  text "Gains [status:rage|rage], raising strength by 25%. Stacks up to 6."
   cast:
     caster rear
     inflict rage on target
@@ -235,7 +235,7 @@ move brace-up "Brace Up"
   costs 30 mana
   cooldown 2
   aim any ally "Shield"
-  text "Sets an ally for what is coming. Leaves it [status:guard|guarded]."
+  text "Gives an ally [status:guard|guard], raising their defense by 25% for 3 turns."
   cast:
     caster focus
     inflict guard on target
@@ -246,7 +246,7 @@ move scatter-shot "Scatter Shot"
   cooldown 2
   starts on cooldown 1
   aim all enemies "The whole line"
-  text "Sprays the whole enemy line at once. Deals [damage] damage to each of them."
+  text "Deals [damage] damage to all enemies."
   cast:
     caster shake
     throw as lob to target
@@ -258,7 +258,7 @@ move rally "Rally"
   cooldown 3
   starts on cooldown 1
   aim all allies "Everyone"
-  text "Picks the whole team up together. Heals [heal] on each of them."
+  text "Heals all allies for [heal] of their max HP."
   cast:
     caster focus
     heal target 25% of their max hp
@@ -268,7 +268,7 @@ move wild-bolt "Wild Bolt"
   costs 40 mana
   cooldown 1
   aim random enemy "Wherever it lands"
-  text "Throws a bolt without aiming it. Deals [damage] damage to an enemy nobody picked."
+  text "Throws a bolt at a random enemy for [damage] damage."
   cast:
     caster shake
     throw as bolt to target
@@ -280,7 +280,7 @@ move snipe "Snipe"
   cooldown 2
   starts on cooldown 1
   aim benched enemy "Reach past the front"
-  text "Reaches past the front line. Deals [damage] damage to one enemy on the bench."
+  text "Deals [damage] damage to an enemy on the bench."
   cast:
     caster blink
     hit target 130% strength
@@ -292,7 +292,7 @@ move mirror-mark "Mirror Mark"
   starts on cooldown 1
   aim any scoba "Copy from"
   aim any ally "Copy onto"
-  text "Copies every mark one Scoba is carrying, good or bad, onto an ally."
+  text "Copies every status on one Scoba, good or bad, onto an ally."
   cast:
     caster focus
     copy marks from target to target2
@@ -302,7 +302,7 @@ move cleanse "Cleanse"
   costs 35 mana
   cooldown 2
   aim any ally "Clear"
-  text "Washes an ally clean of everything bad on it."
+  text "Removes every bad status from an ally."
   cast:
     caster focus
     cleanse bad marks from target
@@ -314,7 +314,7 @@ move blood-pact "Blood Pact"
   starts on cooldown 1
   aim other ally "Draw from"
   aim all enemies "Spend it on"
-  text "Takes a quarter of an ally's health and spends the whole of it on the enemy line."
+  text "Takes 25% of another ally's current HP and splits it evenly among all enemies as true damage."
   cast:
     caster rear
     take 25% hp from target, deal it to target2
@@ -325,7 +325,7 @@ move tithe "Tithe"
   cooldown 2
   aim self "Give up"
   aim other ally "Pass it to"
-  text "Gives a fifth of its own health to an ally."
+  text "Takes 20% of current HP and heals another ally for that amount."
   cast:
     caster focus
     take 20% hp from target, heal target2 with it
@@ -336,7 +336,7 @@ move call-swarm "Call Swarm"
   cooldown 4
   starts on cooldown 2
   aim self "Call"
-  text "Calls a Catsquito out of the undergrowth to fight beside it."
+  text "Summons a level 5 Catsquito to the bench."
   cast:
     caster rear
     summon catsquito at level 5
@@ -346,7 +346,7 @@ move forage "Forage"
   costs 20 mana
   cooldown 3
   aim self "Rummage"
-  text "Roots around and turns something up: one Snare."
+  text "Finds 1 Snare."
   cast:
     caster shake
     find 1 snare
@@ -387,7 +387,7 @@ move card-throw "Card Throw"
   type fortuna
   costs 15 mana
   aim any enemy
-  text "Deals a card face up onto one enemy for [damage] damage. The enemy hold that card for a [status:dealt|hand]. If a hand adds up to 21 it pays out for [damage:2]. Over 21 busts."
+  text "Deals a card face up onto an enemy for [damage] damage. The enemy holds that card for a [status:dealt|hand]. If a hand adds up to 21 it pays out for [damage:2]. Over 21 busts."
   cast:
     caster rear
     draw a card, swap #bc0006 for #000000 50% of the time
@@ -399,7 +399,7 @@ move black "Black"
   type fortuna, flux
   costs 30 mana
   aim any enemy
-  text "Deals [damage] damage to one enemy and puts them [status:in-the-black|off pace]."
+  text "Deals [damage] damage to an enemy and puts them [status:in-the-black|off pace], slowing them by [scaling:2] for 3 turns."
   cast:
     caster rear
     throw black as toss to target
@@ -410,7 +410,7 @@ move red "Red"
   type fortuna, sun
   costs 30 mana
   aim any enemy
-  text "Deals [damage] damage to one enemy and leaves it [status:in-the-red|burning] for [damage:in-the-red] a turn for three turns."
+  text "Deals [damage] damage to one enemy and leaves them [status:in-the-red|burning] for [damage:in-the-red] damage a turn for 3 turns."
   cast:
     caster rear
     throw red as toss to target
@@ -421,7 +421,7 @@ move green "Green"
   type fortuna, moss
   costs 80 mana
   aim all enemies "The whole line"
-  text "Deals [damage] damage to all enemies and leaves them [status:in-the-green|in debt]."
+  text "Deals [damage] damage to all enemies and leaves them [status:in-the-green|in debt], reducing their defense by [scaling:2] for 3 turns."
   cast:
     caster rear
     throw green as toss to target
@@ -459,7 +459,7 @@ move court-call "Court Call"
   costs 50 mana
   cooldown 2
   aim self "Call the court"
-  text "Calls up a Cottlecorn, at her own level, to stand on the field beside her."
+  text "Summons a Cottlecorn at the same level."
   cast:
     caster rear
     summon cottlecorn at level 1
@@ -468,7 +468,7 @@ move pawn-dart "Pawn Dart"
   type fortuna
   costs 20 mana
   aim any enemy
-  text "A small dart at one enemy. Deals [damage] damage."
+  text "Throws a dart at an enemy for [damage] damage."
   cast:
     caster shake
     throw as bolt to target
@@ -479,7 +479,7 @@ move pawn-mend "Pawn Mend"
   costs 25 mana
   cooldown 1
   aim any ally "Patch up"
-  text "Patches an ally up as best it can. Heals [heal]."
+  text "Heals an ally for [heal] of their max HP."
   cast:
     caster focus
     heal target 12% of their max hp
@@ -490,7 +490,7 @@ move sunfall "Sunfall"
   cooldown 2
   starts on cooldown 1
   aim any enemy
-  text "Brings the sun down on one enemy. Deals [damage] damage."
+  text "Drops a beam of sunlight on an enemy for [damage] damage."
   cast:
     caster rear
     throw as beam to target

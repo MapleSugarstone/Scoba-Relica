@@ -23,7 +23,7 @@ import {
   HYPER_FORM, MOVES, SPECIES, abilityStatuses, firstStep, grantedMoves,
   moveTypes, typesEffectiveness, type Move,
 } from "./species";
-import { BLACKJACK, DECK, deckIndex, type Card, type CardFace } from "./cards";
+import { BLACKJACK, DECK, addToHand, deckIndex, type Card, type CardFace } from "./cards";
 import { STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
 import type { Rng } from "./rng";
 import { mulberry32, hashSeed, rngFrom } from "./rng";
@@ -48,6 +48,7 @@ import {
   tickField,
   triggerMatches,
   wardAgainst,
+  powerCategory,
   type Basis,
   type ChanceColorChange,
   type DamageCategory,
@@ -135,6 +136,13 @@ export function basicPower(level: number, str: number): number {
  */
 export function mitigation(armor: number): number {
   return armor >= 0 ? 100 / (100 + armor) : 2 - 100 / (100 - armor);
+}
+
+/** The armor a kind of damage meets on a Scoba: Defense, Resistance, or none for true damage. */
+function armorAgainst(category: DamageCategory, target: Combatant): number {
+  if (category === "true") return 0;
+  const stats = combatantStats(target);
+  return category === "physical" ? stats.def : stats.res;
 }
 /** Summons past this many on one team are refused, cap-breaking or not. */
 export const MAX_SUMMONS = 6;
@@ -290,6 +298,8 @@ export interface BattleEvent {
    */
   face?: CardFace;
   count?: number;
+  /** Every card in the hand once the dealt one lands on it, oldest first. */
+  cards?: CardFace[];
   /** The status a status line is about, for the sound it lands with. */
   status?: string;
   /** The sample a hit or a heal lands with, where its step names one. */
@@ -802,13 +812,12 @@ function damageOf(
   if (attack === null) {
     dmg = basicPower(user.scoba.level, uStats.str);
     dmg *= mitigation(tStats.def);
-  } else if (attack.step.perLevel !== undefined) {
-    // Flat damage is the number and nothing else: no stat, no same-type bonus,
-    // no chart and no mitigation. What it buys is a hit you can count on.
-    dmg = attack.step.perLevel * user.scoba.level;
   } else {
+    // A flat hit takes its number off the caster's level instead of a stat,
+    // and is an ordinary hit from there on.
     dmg = 0;
-    for (const s of attack.step.scaling) dmg += uStats[s.stat] * s.scale;
+    if (attack.step.perLevel !== undefined) dmg = attack.step.perLevel * user.scoba.level;
+    else for (const s of attack.step.scaling) dmg += uStats[s.stat] * s.scale;
     const types = attackTypes(attack);
     // The Scoba's own elements rather than its species', since a bred one may
     // carry a second it took from its father.
@@ -868,18 +877,10 @@ export function previewMove(
   if (!hit) {
     return { element: move.type, category, stat: null, scale: 0, damage: null, eff: 1, heal: null };
   }
-  const stat: StatName | null = hit.scaling[0]?.stat ?? null;
+  const stat: StatName | null = hit.perLevel !== undefined ? null : hit.scaling[0]?.stat ?? null;
   const ref = targetRef ?? firstStanding(st, userRef.side === 0 ? 1 : 0);
   const target = ref ? combatantAt(st, ref) : null;
-  // Flat damage reads off the caster's level, so it has a number to show even
-  // with nothing on the far side to measure against.
-  if (hit.perLevel !== undefined) {
-    return {
-      element: move.type, category, stat: null, scale: 0,
-      damage: hit.perLevel * user.scoba.level, eff: 1, heal: null,
-    };
-  }
-  const scale = hit.scaling[0]?.scale ?? 0;
+  const scale = hit.perLevel !== undefined ? 0 : hit.scaling[0]?.scale ?? 0;
   if (!target) {
     return { element: move.type, category, stat, scale, damage: null, eff: 1, heal: null };
   }
@@ -1366,9 +1367,10 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
           ? inst.power
           : basisValue(ctx, d.basis, ref, run.source) * d.frac;
         if (run.status) {
-          ctx.events.push({ text: `${run.status.def.name} bites ${displayName(target.scoba)}.`, kind: "status", at: ref });
+          ctx.events.push({ text: `${run.status.def.name} hits ${displayName(target.scoba)}.`, kind: "status", at: ref });
         }
-        dealDamage(ctx, ref, Math.max(1, Math.floor(power)), {
+        const reduced = power * mitigation(armorAgainst(d.category, target));
+        dealDamage(ctx, ref, Math.max(1, Math.floor(reduced)), {
           element: d.element,
           category: d.category,
           damageClass: d.damageClass,
@@ -1620,6 +1622,9 @@ export function inflict(
     const mult = markPower(ctx.st, from, def);
     if (mult !== 1) power *= mult;
   }
+  // A mark's power is reduced the way a hit is. A mark that deals damage is
+  // reduced when it deals its damage instead.
+  if (power !== undefined && def.power) power *= mitigation(armorAgainst(powerCategory(def), target));
   const inst = newStatus(statusId, from ?? undefined, power, ctx.st.turn);
   if (!inst) return;
   // What put it there can say how long it stands, over the mark's own clock.
@@ -2007,9 +2012,10 @@ export function drawCard(
 }
 
 /**
- * Deals one card onto a hand and settles it. A hand that lands exactly on
- * twenty one pays out and clears. One that goes over busts and clears with
- * nothing, which is what makes a big card a risk rather than a bonus.
+ * Deals one card onto a hand and settles it the moment it lands. A hand that
+ * reaches twenty one, an Ace counting 1 or 11, pays out and clears. One that
+ * goes over busts and clears with nothing, which is what makes a big card a risk
+ * rather than a bonus.
  */
 function dealCard(
   ctx: Ctx, userRef: TargetRef, at: TargetRef, payoff: number, hand: string, drawn: DrawnCard,
@@ -2019,16 +2025,18 @@ function dealCard(
   if (!target || !user || target.fainted) return;
   const { card, face } = drawn;
   const held = target.statuses.find((s) => s.id === hand);
-  const count = (held?.stacks ?? 0) + card.value;
+  const settled = addToHand({ count: held?.stacks ?? 0, ace: held?.ace === true }, card);
+  const cards = [...(held?.faces ?? []), { art: face.art, changes: face.changes.map((c) => ({ ...c })) }];
   ctx.events.push({
     text: `${displayName(target.scoba)} is dealt the ${card.label}.`,
     kind: "card",
     at,
     by: userRef,
     face,
-    count: Math.min(count, BLACKJACK),
+    count: settled.settles === "holds" ? settled.best : BLACKJACK,
+    cards,
   });
-  if (count === BLACKJACK) {
+  if (settled.settles === "pays") {
     // The hand pays out. Fortuna off Strength, the same as everything else it
     // throws, and the count goes with it.
     forgetHand(target, hand);
@@ -2043,10 +2051,10 @@ function dealCard(
     });
     return;
   }
-  if (count > BLACKJACK) {
+  if (settled.settles === "busts") {
     forgetHand(target, hand);
     ctx.events.push({
-      text: `${displayName(target.scoba)} busts at ${count}.`,
+      text: `${displayName(target.scoba)} busts at ${settled.count}.`,
       kind: "status",
       at,
     });
@@ -2055,8 +2063,9 @@ function dealCard(
   inflict(ctx, at, hand, userRef);
   const now = target.statuses.find((s) => s.id === hand);
   if (now) {
-    now.stacks = count;
-    now.face = { art: face.art, changes: face.changes.map((c) => ({ ...c })) };
+    now.stacks = settled.hand.count;
+    if (settled.hand.ace) now.ace = true;
+    now.faces = cards;
   }
 }
 
@@ -2227,10 +2236,10 @@ export function stateHash(st: BattleState): string {
     parts.push(`a${st.active[side].join(",")}`);
     st.teams[side].forEach((c, i) => {
       const cds = Object.entries(c.cds).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).sort().join(",");
-      // A hand names the card on top of it, so two clients that drew different
+      // A hand names every card in it, so two clients that drew different
       // cards or colors are caught even where the counts agree.
-      const faceOf = (s: StatusInstance): string => (s.face
-        ? `:${s.face.art}${s.face.changes.map((ch) => `/${ch.from}>${ch.to}`).join("")}`
+      const faceOf = (s: StatusInstance): string => (s.faces
+        ? `:${s.faces.map((f) => `${f.art}${f.changes.map((ch) => `/${ch.from}>${ch.to}`).join("")}`).join(";")}${s.ace ? "+ace" : ""}`
         : "");
       const sts = c.statuses.map((s) => `${s.id}:${s.stacks}:${s.turnsLeft}:${s.chargesLeft}${faceOf(s)}`).sort().join(",");
       const spent = [...c.spent].sort().join(",");

@@ -485,8 +485,10 @@ physical.
 | `, sound <name>` | The sound it lands with, instead of the plain blow. |
 
 **`hit <who> <n> per level`** is flat damage: that number times the attacker's
-level. It ignores Defense, Resistance, the type chart and the same-type bonus, and
-still counts as an attack everywhere else.
+level, in place of a share of a stat. The rest is an ordinary hit. The same-type
+bonus, the type chart and Defense or Resistance all apply, and it takes the same
+`, as` clauses. With no stat to read a category off, it is physical unless it
+says otherwise.
 
 ```
 hit target 2 per level
@@ -515,7 +517,7 @@ damage holder 10% of their max hp, as true, counts as attack
 | `, sets off hits` | The Scoba it lands on answers `when hit` triggers, and its source answers `when it lands a hit` triggers. Without it, neither happens. |
 | `, sound <name>` | The sound it lands with. |
 
-In a status, a `damage` step also writes "<status> bites <name>." in the log.
+In a status, a `damage` step also writes "<status> hits <name>." in the log.
 
 **`heal <who> <share>`** restores HP, up to the size of the bar. It can never
 bring back a Scoba that has fainted.
@@ -788,6 +790,8 @@ words with the numbers behind them in a hover window.
 | `[heal]` | What the move's first `heal` step restores. |
 | `[heal:<n>]` | What the move's nth `heal` step restores. |
 | `[heal:<status>]` | What a status's heal step restores each time it runs. |
+| `[power:<status>]` | What a status's `power` takes from or adds to a stat, like the Speed `in-the-black` takes. |
+| `[scaling:<n>]` | The move's nth scaled number of any kind, in the order the cast runs them. Each `hit`, `heal` and card payout counts, and each status an `inflict` step leaves counts its `power`, then its damage step, then its heal step. On Black, `[scaling:2]` is what `in-the-black` takes off Speed. |
 | `[status:<id>]` | A status or a field, named, with what it does on hover. |
 | `[status:<id>\|<word>]` | The same, shown as a word of your own, like `[status:cold\|chills]`. |
 
