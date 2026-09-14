@@ -791,7 +791,7 @@ words with the numbers behind them in a hover window.
 | `[heal:<n>]` | What the move's nth `heal` step restores. |
 | `[heal:<status>]` | What a status's heal step restores each time it runs. |
 | `[power:<status>]` | What a status's `power` takes from or adds to a stat, like the Speed `in-the-black` takes. |
-| `[scaling:<n>]` | The move's nth scaled number of any kind, in the order the cast runs them. Each `hit`, `heal` and card payout counts, and each status an `inflict` step leaves counts its `power`, then its damage step, then its heal step. On Black, `[scaling:2]` is what `in-the-black` takes off Speed. |
+| `[scaling:<n>]` | The move's nth scaled number of any kind, in the order the cast runs them. Each `hit`, `heal` and card payout counts, and each status an `inflict` step leaves counts its `power`, then its damage step, then its heal step, then the numbers of any status its own `inflict` steps leave. Each status counts once. On Black, `[scaling:2]` is what `in-the-black` takes off Speed, and on Cold Wave it is what the `chill` that `cold` leaves takes off Speed. |
 | `[status:<id>]` | A status or a field, named, with what it does on hover. |
 | `[status:<id>\|<word>]` | The same, shown as a word of your own, like `[status:cold\|chills]`. |
 

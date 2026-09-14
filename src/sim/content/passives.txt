@@ -161,7 +161,7 @@ passive cherry-on-top "Cherry on Top"
   grants move cherry-on-top
 
 passive sticky-mess "Sticky Mess"
-  text "Taking the field leaves everyone else [status:sticky|stuck] for two turns, once a battle."
+  text "Everyone becomes [status:sticky|stuck] for two turns, once a battle."
   once per battle
   when it takes the field:
     inflict sticky on others, for 2 turns

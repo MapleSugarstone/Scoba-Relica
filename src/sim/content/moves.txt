@@ -365,7 +365,7 @@ move tentacle-slap "Tentacle Slap"
   type moon
   costs 50 mana
   aim any enemy
-  text "Deal [damage] damage to an enemy. They're [status:slowed|slowed]."
+  text "Deal [damage] damage to an enemy. They're [status:slowed|slowed] for [scaling:2]."
   cast:
     caster lunge
     hit target 50% magic, sound tentacleslap
@@ -376,7 +376,7 @@ move cold-wave "Cold Wave"
   costs 70 mana
   cooldown 3
   aim all enemies "The whole line"
-  text "Washes over the whole enemy line at once. Deals [damage] damage to each of them, and [status:cold|chills] them."
+  text "Deals [damage] damage to every enemy and [status:cold|chills] them. At the end of each turn for 3 turns they lose [scaling:2] speed."
   cast:
     caster focus
     throw coldwave as bolt to target, sound coldwave
@@ -433,7 +433,7 @@ move tantalizing-sweets "Tantalizing Sweets"
   costs 100 mana
   cooldown 5
   aim any enemy
-  text "Drops the ultimate sweet on one enemy. Deals [damage] damage, and a kill with it hands the mana and the cooldown straight back."
+  text "Drops the ultimate sweet on one enemy. Deals [damage] damage. If the target faints, refund mana and cooldown."
   cast:
     caster rear
     throw "tantalizing sweet" as drop to target

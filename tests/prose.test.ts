@@ -258,6 +258,29 @@ describe("a mark's power, and every scaled number in order", () => {
     expect(labels("[scaling:3]", black)).toEqual(["?"]);
     expect(details("[scaling:3]", black)[0]).toBe("Black has no scaling number 3.");
   });
+
+  it("follows a mark into the marks it leaves in turn", () => {
+    // Cold has no number of its own. It leaves Chill each turn, and Chill's power is the slow.
+    expect(labels("[scaling:1] and [scaling:2]", coldWave)).toEqual(["100% Magic", "10% Magic"]);
+    expect(labels("[scaling:3]", coldWave)).toEqual(["?"]);
+  });
+
+  it("counts a mark that leaves itself once, rather than without end", () => {
+    STATUSES["probe-loop"] = {
+      ...STATUSES["chill"]!,
+      id: "probe-loop",
+      effects: [
+        ...STATUSES["chill"]!.effects,
+        { kind: "inflict", status: "probe-loop", on: "self" } as never,
+      ],
+    };
+    const move = { ...black, name: "Probe", cast: [{ kind: "inflict", status: "probe-loop", on: { aim: 0 } }] } as never;
+    try {
+      expect(labels("[scaling:1] [scaling:2]", move)).toEqual(["10% Magic", "?"]);
+    } finally {
+      delete STATUSES["probe-loop"];
+    }
+  });
 });
 
 describe("a mark's own numbers", () => {

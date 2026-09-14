@@ -12,7 +12,7 @@
 // so a stray bracket shows up as a stray bracket rather than swallowing the
 // rest of the sentence.
 import { MOVES, allSteps, type Move } from "./species";
-import { FIELDS, STATUSES, powerCategory, type Basis, type DamageCategory, type Step, type StatusEffect } from "./status";
+import { FIELDS, STATUSES, isContinuous, powerCategory, type Basis, type DamageCategory, type Step, type StatusEffect } from "./status";
 import { describeField, describeStatus, perLevel } from "./describe";
 import { MAX_LEVEL } from "./scoba";
 import { STAT_LABELS, type Stats } from "./types";
@@ -63,7 +63,7 @@ export const TOKENS = [
   { form: "[heal:2]", says: "what the move's second heal restores" },
   { form: "[heal:id]", says: "what a mark's heal restores" },
   { form: "[power:id]", says: "what a mark's power takes from or adds to a stat" },
-  { form: "[scaling:2]", says: "the move's second scaled number: hits, heals, payouts and the marks it leaves, in the order the cast runs them" },
+  { form: "[scaling:2]", says: "the move's second scaled number: hits, heals, payouts, the marks it leaves and the marks those leave, in the order the cast runs them" },
   { form: "[status:id]", says: "a mark, named after the mark" },
   { form: "[status:id|word]", says: "the same mark, written as your own word" },
 ];
@@ -143,21 +143,28 @@ type TokenOf = (at: ProseFor) => Part & { kind: "token" };
 /**
  * Every scaled number a move's cast produces, in the order the cast runs them:
  * each hit, heal and card payout, and for each mark it leaves, that mark's
- * power, then what it hits for, then what it heals for.
+ * power, then what it hits for, then what it heals for, then the numbers of any
+ * mark it leaves in turn.
  */
 function scalingsOf(move: Move): TokenOf[] {
   const out: TokenOf[] = [];
+  // Each mark counts once, so one that leaves itself again cannot run forever.
+  const counted = new Set<string>();
+  const mark = (id: string): void => {
+    const def = STATUSES[id];
+    if (!def || counted.has(id)) return;
+    counted.add(id);
+    if (def.power) out.push((at) => powerToken(id, at));
+    if (def.effects.some((e) => e.kind === "damage")) out.push((at) => markToken("damage", id, at));
+    if (def.effects.some((e) => e.kind === "heal")) out.push((at) => markToken("heal", id, at));
+    const steps = def.effects.filter((e): e is Step => !isContinuous(e.kind));
+    for (const s of allSteps(steps)) if (s.kind === "inflict") mark(s.status);
+  };
   for (const s of allSteps(move.cast)) {
     if (s.kind === "hit") out.push((at) => hitToken(s, at));
     else if (s.kind === "heal") out.push((at) => healToken(s, at));
     else if (s.kind === "deal-card") out.push((at) => payoutToken(s, at));
-    else if (s.kind === "inflict") {
-      const def = STATUSES[s.status];
-      if (!def) continue;
-      if (def.power) out.push((at) => powerToken(s.status, at));
-      if (def.effects.some((e) => e.kind === "damage")) out.push((at) => markToken("damage", s.status, at));
-      if (def.effects.some((e) => e.kind === "heal")) out.push((at) => markToken("heal", s.status, at));
-    }
+    else if (s.kind === "inflict") mark(s.status);
   }
   return out;
 }
