@@ -17,9 +17,8 @@ export default defineConfig({
   server: {
     fs: { allow: [root] }, port: 5273, open: true,
     // The files the editor writes stay watched, so a reload always reads what is
-    // on disk. A save does reload the page, and that loses nothing: one press
-    // writes every file together, and the server finishes each write whether or
-    // not the page that asked for it is still there.
+    // on disk. The editor's own saves skip the reload (see the plugin), and an
+    // edit made to those files anywhere else still reloads the page.
     watch: { ignored: SCRATCH_ART },
   },
   // `__BUILD_VERSION__` is baked into the game's bundle and reached through a

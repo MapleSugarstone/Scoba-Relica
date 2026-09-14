@@ -11,9 +11,8 @@ import { sfx } from "../engine/sfx";
 import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
 import { START_MANA } from "../sim/battle";
-import { MAX_BREED_COUNT } from "../sim/breeding";
 import { STATUSES } from "../sim/status";
-import { moveCost, passiveStatuses, statsAt, maxHp, type ScobaInstance } from "../sim/scoba";
+import { moveCost, passiveStatuses, scobaTypes, speciesName, statsAt, maxHp, type ScobaInstance } from "../sim/scoba";
 import { ABILITIES, MOVES, SPECIES, moveTypes, typesOf, type Move } from "../sim/species";
 import { abilityText, moveText } from "../game/texts";
 import { proseBox } from "./prose";
@@ -126,11 +125,10 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
   };
 
   const shown = (): ScobaInstance[] => cfg.source().filter((s) => {
-    const sp = SPECIES[s.speciesId];
     const q = applied.name.trim().toLowerCase();
     if (q !== "" && !displayName(s).toLowerCase().includes(q)
-      && !(sp?.name ?? s.speciesId).toLowerCase().includes(q)) return false;
-    if (applied.types.size > 0 && !(sp && typesOf(sp).some((t) => applied.types.has(t)))) return false;
+      && !speciesName(s).toLowerCase().includes(q)) return false;
+    if (applied.types.size > 0 && !scobaTypes(s).some((t) => applied.types.has(t))) return false;
     const stats = statsAt(s);
     return FILTER_STATS.every((name) => stats[name] >= applied.stats[name]);
   });
@@ -442,7 +440,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       const tail = el("div", "bxCardTail");
       const where = el("div", "bxCardWhere");
       if (sp) where.appendChild(typeIcons(s));
-      where.appendChild(el("div", "dim", `Bred ${s.breedCount}/${MAX_BREED_COUNT}`));
+      if (s.hybrid) where.appendChild(el("div", "dim", "Hybrid"));
       tail.appendChild(where);
       tail.appendChild(button("bxCardBack", "Back", build));
       facts.appendChild(tail);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateScoba, validateTeam, budgetFor, geneErrors, BUDGET_SLACK } from "../src/sim/legality";
 import { breed } from "../src/sim/breeding";
-import { makeWild } from "../src/sim/scoba";
+import { evolve, makeWild } from "../src/sim/scoba";
 import { rngFrom } from "../src/sim/rng";
 import { SPECIES } from "../src/sim/species";
 
@@ -10,15 +10,19 @@ describe("validateScoba", () => {
     expect(validateScoba(makeWild("plib", 12, rngFrom("a")))).toEqual([]);
   });
 
-  it("accepts bred children, including two generations", () => {
+  it("accepts a hybrid and a same-line baby", () => {
     const mom = makeWild("obera", 20, rngFrom("m"));
     const dad = makeWild("plib", 20, rngFrom("d"));
-    const child = breed(mom, dad, rngFrom("c1")).child;
-    expect(validateScoba(child)).toEqual([]);
-    child.level = 15;
-    const grandDad = makeWild("grima", 18, rngFrom("g"));
-    const child2 = breed(child, grandDad, rngFrom("c2")).child;
-    expect(validateScoba(child2)).toEqual([]);
+    const hybrid = breed(mom, dad, rngFrom("c1"));
+    expect(hybrid.hybrid).toBe(true);
+    expect(validateScoba(hybrid)).toEqual([]);
+    const baby = breed(mom, makeWild("obera", 18, rngFrom("g")), rngFrom("c2"));
+    expect(validateScoba(baby)).toEqual([]);
+  });
+
+  it("rejects a hybrid mark that is not simply true", () => {
+    const s = { ...makeWild("plib", 10, rngFrom("hm")), hybrid: 2 } as unknown as ReturnType<typeof makeWild>;
+    expect(validateScoba(s).join()).toMatch(/hybrid mark/);
   });
 
   it("rejects impossible levels and unknown species", () => {
@@ -29,15 +33,15 @@ describe("validateScoba", () => {
     expect(validateScoba(fake).join()).toMatch(/unknown species/);
   });
 
-  it("rejects inherited moves the Scoba has no breeding generations to justify", () => {
+  it("rejects inherited moves on a Scoba that is not a hybrid", () => {
     const s = makeWild("plib", 10, rngFrom("d"));
-    s.moves = ["crush", "tide-whip"]; // grima's spell, but breedCount 0
+    s.moves = ["crush", "tide-whip"]; // grima's spell, on a Scoba that is not a hybrid
     expect(validateScoba(s).join()).toMatch(/inherited move/);
   });
 
-  it("takes a move off any other line, since any two Scobas breed", () => {
+  it("takes a move off any other line on a hybrid, since any two lines make one", () => {
     const s = makeWild("obera", 20, rngFrom("e"));
-    s.breedCount = 1;
+    s.hybrid = true;
     s.moves = ["leaf-flick", "flame-burst"]; // a Sun spell on a Moss line
     expect(validateScoba(s)).toEqual([]);
     // Nothing anybody can learn is still nothing.
@@ -45,10 +49,10 @@ describe("validateScoba", () => {
     expect(validateScoba(s).join()).toMatch(/unknown move/);
   });
 
-  it("rejects more inherited moves than breeding generations allow", () => {
+  it("rejects more inherited moves than a hybrid may hold", () => {
     const s = makeWild("obera", 30, rngFrom("f"));
-    s.breedCount = 1;
-    s.moves = ["leaf-flick", "tide-whip", "riptide"]; // two inherited spells, one generation
+    s.hybrid = true;
+    s.moves = ["leaf-flick", "tide-whip", "riptide"]; // two inherited spells, one allowed
     expect(validateScoba(s).join()).toMatch(/inherited move/);
   });
 
@@ -59,7 +63,7 @@ describe("validateScoba", () => {
     expect(validateScoba(s).join()).toMatch(/spd gene 260 is over the cap/);
     // Inside every cap, but spending more than the line is built on.
     const t = makeWild("obera", 10, rngFrom("h"));
-    t.breedCount = 1;
+    t.hybrid = true;
     t.genes = { ...t.genes, hp: 300, mag: 250 };
     expect(validateScoba(t).join()).toMatch(/base stats total/);
   });
@@ -68,12 +72,12 @@ describe("validateScoba", () => {
     const s = makeWild("plib", 10, rngFrom("i"));
     s.secondaryAbility = "sun-heart"; // a primary, on no secondary pool at all
     expect(validateScoba(s).join()).toMatch(/ability/);
-    s.breedCount = 1;
+    s.hybrid = true;
     expect(validateScoba(s).join()).toMatch(/ability/);
     const t = makeWild("plib", 10, rngFrom("j"));
-    t.secondaryAbility = "moss-heart"; // Obera's pool, so one breeding step reaches it
+    t.secondaryAbility = "moss-heart"; // Obera's pool, so a hybrid can have it
     expect(validateScoba(t).join()).toMatch(/ability/);
-    t.breedCount = 1;
+    t.hybrid = true;
     expect(validateScoba(t)).toEqual([]);
   });
 
@@ -113,23 +117,21 @@ describe("gene budgets", () => {
   });
 
   it("keeps every line a real pairing can produce inside its budget", () => {
-    // Two generations over every pairing on the roster. Each child hatches as
-    // its mother's first form, so the budget it is checked against is that
-    // form's and not the mother's.
+    // Every pairing on the roster, grown up where the child has a form to grow
+    // into. Each child hatches as its mother's first form, so the budget it is
+    // checked against is that form's and not the mother's.
     const roster = Object.values(SPECIES).filter((sp) => !sp.special && !sp.pawn);
-    let first = roster.map((sp) => makeWild(sp.id, 1, rngFrom(`g:${sp.id}`)));
-    for (let gen = 0; gen < 2; gen++) {
-      const next: ReturnType<typeof makeWild>[] = [];
-      for (const m of first) {
-        for (const d of first) {
-          if (m.speciesId === d.speciesId) continue;
-          const child = breed({ ...m, breedCount: 0 }, { ...d, breedCount: 0 }, rngFrom("b"), undefined).child;
+    const parents = roster.map((sp) => makeWild(sp.id, 1, rngFrom(`g:${sp.id}`)));
+    for (const m of parents) {
+      for (const d of parents) {
+        if (m.speciesId === d.speciesId) continue;
+        const child = breed(m, d, rngFrom("b"));
+        for (let grown = 0; grown < 2; grown++) {
           const sp = SPECIES[child.speciesId]!;
           expect([sp.id, geneErrors(sp, child.genes, sp.name)]).toEqual([sp.id, []]);
-          next.push(child);
+          evolve(child);
         }
       }
-      first = next.slice(0, 40);
     }
   });
 });

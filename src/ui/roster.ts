@@ -20,7 +20,7 @@ import {
   levelUp,
   levelUpError,
 } from "../sim/growth";
-import { maxHp, type ScobaInstance } from "../sim/scoba";
+import { maxHp, speciesName, type ScobaInstance } from "../sim/scoba";
 import { SPECIES, evolutionOf } from "../sim/species";
 import type { SaveData, SlotId } from "../save/save";
 import {
@@ -413,9 +413,9 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
       input.type = "text";
       input.maxLength = MAX_NICKNAME;
       input.value = m.nickname ?? "";
-      input.placeholder = sp?.name ?? m.speciesId;
+      input.placeholder = speciesName(m);
       card.appendChild(input);
-      card.appendChild(el("div", "dim", `Up to ${MAX_NICKNAME} letters. Leave it empty to go back to ${sp?.name ?? m.speciesId}.`));
+      card.appendChild(el("div", "dim", `Up to ${MAX_NICKNAME} letters. Leave it empty to go back to ${speciesName(m)}.`));
       s.appendChild(card);
 
       const row = el("div", "row");

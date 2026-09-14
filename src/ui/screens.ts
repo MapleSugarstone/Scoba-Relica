@@ -1137,7 +1137,7 @@ function buildSave(localSlot: SlotId, localDef: CharacterDef, otherDef: Characte
   const theirs = makeWild(otherDef.starter, 5, rngFrom(`${worldSeed}:starter:${other}`));
   theirs.owner = other;
   return {
-    version: 14,
+    version: 15,
     createdAt: now,
     updatedAt: now,
     worldSeed,
@@ -1320,7 +1320,9 @@ export function relicaScreen(
  * and its name; the rest are blanks, so the list reads as something to fill.
  */
 export function indexScreen(ui: UI, art: Art, save: SaveData, onBack: () => void): void {
-  const owned = new Set([...save.party, ...save.box].map((s2) => s2.speciesId));
+  // A hybrid shows as a species of its own and is not in the index, so keeping
+  // one does not count as keeping its mother's species.
+  const owned = new Set([...save.party, ...save.box].filter((s2) => !s2.hybrid).map((s2) => s2.speciesId));
   const seen = new Set([...(save.seen ?? []), ...owned]);
   const all = rosterSpecies();
   ui.screen((s) => {

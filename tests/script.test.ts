@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import REFERENCE from "../docs/move-script.md?raw";
 import { readScript } from "../src/sim/script/read";
-import { writeField, writeMove, writePassive, writeStatus } from "../src/sim/script/write";
+import { withTextLine, writeField, writeMove, writePassive, writeStatus } from "../src/sim/script/write";
 import { joinBlocks, readLines, splitBlocks } from "../src/sim/script/lines";
 import { brokenRefs, readContent, SCRIPT_FILES } from "../src/sim/script/content";
 import { missingWords } from "../src/sim/script/words";
@@ -74,6 +74,39 @@ describe("the files the game ships", () => {
       const text = SCRIPT_TEXT[file].replace(/\r\n/g, "\n");
       expect(joinBlocks(splitBlocks(text)), file).toBe(text.endsWith("\n") ? text : `${text}\n`);
     }
+  });
+});
+
+describe("rewriting a record's text line", () => {
+  const move = [
+    "# A note above it.",
+    "move sample \"Sample\"",
+    "  type plain",
+    "  costs 10 mana",
+    "  aim any enemy",
+    "  cast:",
+    "    say \"text in a step\"",
+    "    hit target 50% strength",
+  ].join("\n");
+
+  it("puts a new one before the cast, where the writer puts it", () => {
+    const next = withTextLine(move, "Says \"hi\" [damage].");
+    expect(next.split("\n")[5]).toBe("  text \"Says \\\"hi\\\" [damage].\"");
+    const read = readScript(next, "move");
+    expect(read.problems).toEqual([]);
+    expect(read.moves[0]!.text).toBe("Says \"hi\" [damage].");
+  });
+
+  it("replaces the one there, and takes it out again, leaving every other line alone", () => {
+    const once = withTextLine(move, "First.");
+    expect(withTextLine(once, "Second.")).toBe(withTextLine(move, "Second."));
+    expect(withTextLine(once, null)).toBe(move);
+    expect(withTextLine(move, null)).toBe(move);
+  });
+
+  it("puts a passive's under its header", () => {
+    const passive = "passive sample \"Sample\"\n  wears cherry";
+    expect(withTextLine(passive, "Wears it.")).toBe("passive sample \"Sample\"\n  text \"Wears it.\"\n  wears cherry");
   });
 });
 

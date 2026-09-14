@@ -19,15 +19,16 @@ import {
 } from "../game/critters";
 import {
   BIG_SHADOW, DEFAULT_SHADOW, NO_SHADOW, PLAYER_COSTUME, asOneStep, canRedo, canUndo,
-  clearLine, clearPlacement, clearText, cosmeticsJson, movementFor, placedCount, placementFor,
-  redoCosmetics, setMovement, setPlacement, setSetup, setText, setupFor, shadowFor,
-  undoCosmetics, writtenText,
-  type CostumeSetup, type Placement, type ShadowSetup, type Spot, type TextKind,
+  clearLine, clearPlacement, cosmeticsJson, movementFor, placedCount, placementFor,
+  redoCosmetics, setMovement, setPlacement, setSetup, setupFor, shadowFor,
+  undoCosmetics,
+  type CostumeSetup, type Placement, type ShadowSetup, type Spot,
 } from "../game/cosmetics";
-import { generatedText } from "../game/texts";
+import type { TextKind } from "../game/texts";
 import { buildDataPanel } from "./datapanel";
 import { el } from "./dom";
 import { buildNewScoba } from "./newscoba";
+import { describeAbility, describeMoveEffects } from "../sim/describe";
 import { TOKENS } from "../sim/prose";
 import { proseNodes } from "../ui/prose";
 import {
@@ -90,37 +91,28 @@ export function isTyping(target: EventTarget | null): boolean {
   return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
-/** One line of writing an author can take over, and what the game says instead. */
+/** One line of writing a player reads, on the record it belongs to. */
 interface Words {
   kind: TextKind;
   id: string;
   /** Which sort of thing it is about, for the heading over the box. */
   what: string;
   name: string;
-  generated: string;
 }
 
 /** Everything about one line that is written in words: itself, its passives, its moves. */
 function wordsFor(sp: Species): Words[] {
-  const out: Words[] = [
-    { kind: "species", id: sp.id, what: "Scoba", name: sp.name, generated: generatedText.species(sp) },
-  ];
+  const out: Words[] = [{ kind: "species", id: sp.id, what: "Scoba", name: sp.name }];
   const passives = [sp.primaryAbility, ...sp.secondaryPool, sp.hyperAbility ?? ""];
   for (const id of passives) {
     const ability = ABILITIES[id];
     if (!ability || out.some((w) => w.kind === "ability" && w.id === id)) continue;
-    out.push({
-      kind: "ability", id, what: "Passive", name: ability.name,
-      generated: generatedText.ability(id),
-    });
+    out.push({ kind: "ability", id, what: "Passive", name: ability.name });
   }
   for (const id of sp.moves) {
     const move = MOVES[id];
     if (!move || out.some((w) => w.kind === "move" && w.id === move.id)) continue;
-    out.push({
-      kind: "move", id: move.id, what: "Move", name: move.name,
-      generated: generatedText.move(move),
-    });
+    out.push({ kind: "move", id: move.id, what: "Move", name: move.name });
   }
   return out;
 }
@@ -903,10 +895,11 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     if (!sp || subject === null) return;
     words.appendChild(el("div", "cosLabel", "Words"));
     words.appendChild(el("div", "cosNote",
-      "What you write replaces the whole line. Leave a box empty to hand it back"
-      + " to the game. Anything in [brackets] becomes a highlighted word with the"
-      + " numbers behind a hover, and anything the game does not recognise is left"
-      + " exactly as you typed it."));
+      "Each box edits a move's or a passive's text line, or the Scoba's blurb. The record"
+      + " in the Data section below holds the same line, and Save writes it to that record's"
+      + " file. Leave a move or a passive empty and the game describes it itself. Anything in"
+      + " [brackets] becomes a highlighted word with the numbers behind a hover, and anything"
+      + " the game does not recognize is left exactly as you typed it."));
     const keys = el("div", "cosKeys");
     for (const t of TOKENS) keys.appendChild(el("div", "cosKey", `${t.form} — ${t.says}`));
     words.appendChild(keys);
@@ -920,24 +913,20 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
       head.appendChild(back);
       box.appendChild(head);
 
-      /** What the game would say on its own, read fresh, since a data edit can change it. */
-      const generated = (): string => {
+      /** The sentence the game builds for a move or a passive with no text line, read fresh after a data edit. */
+      const built = (): string => {
         if (entry.kind === "move") {
           const move = MOVES[entry.id];
-          return move ? generatedText.move(move) : entry.generated;
+          return move ? describeMoveEffects(move) : "";
         }
-        if (entry.kind === "ability") return generatedText.ability(entry.id);
-        const line = SPECIES[entry.id];
-        return line ? generatedText.species(line) : entry.generated;
+        return entry.kind === "ability" ? describeAbility(entry.id) : "";
       };
-      /** The line as it stands, whether it was written or worked out. */
-      const current = (): string => writtenText(entry.kind, entry.id) ?? generated();
+      /** The line as the record holds it, which is empty where it has none. */
+      const current = (): string => data.words(entry.kind, entry.id) ?? "";
 
       const field = document.createElement("textarea");
       field.className = "cosField cosWordBox";
       field.rows = 3;
-      // The line as it stands, whether it was written or worked out, so it can
-      // be edited in place rather than copied out of a label above it.
       field.value = current();
       /**
        * The line as this box last put it on screen. A draft typed over it and
@@ -948,30 +937,28 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
       const shown = el("div", "cosWordNow");
       const preview = (): void => {
         shown.innerHTML = "";
-        shown.appendChild(proseNodes(field.value, { move: entry.kind === "move" ? MOVES[entry.id] ?? null : null }));
+        field.placeholder = built();
+        const text = field.value.trim() === "" ? built() : field.value;
+        shown.appendChild(proseNodes(text, { move: entry.kind === "move" ? MOVES[entry.id] ?? null : null }));
       };
       const mark = (): void => {
-        const own = writtenText(entry.kind, entry.id);
-        state.textContent = own === null ? "as it comes" : "written over";
-        back.disabled = own === null;
+        const now = data.words(entry.kind, entry.id);
+        const was = data.savedWords(entry.kind, entry.id);
+        state.textContent = now !== was ? "changed" : now === null ? "not written" : "saved";
+        back.disabled = now === was;
       };
       preview();
       mark();
       field.addEventListener("input", preview);
+      // Both write through the record, and the redraw that follows brings this
+      // box round to the line as it was stored.
       field.addEventListener("change", () => {
-        // Written back exactly as it stands, unless it is word for word what
-        // the game says anyway, which is nothing to store.
-        if (field.value.trim() === generated().trim()) clearText(entry.kind, entry.id);
-        else setText(entry.kind, entry.id, field.value);
-        known = field.value;
-        refresh();
+        const wrong = data.setWords(entry.kind, entry.id, field.value);
+        if (wrong.length > 0) host.note(wrong.join(" "));
       });
       back.addEventListener("click", () => {
-        clearText(entry.kind, entry.id);
-        field.value = current();
-        known = field.value;
-        preview();
-        refresh();
+        const wrong = data.setWords(entry.kind, entry.id, data.savedWords(entry.kind, entry.id) ?? "");
+        if (wrong.length > 0) host.note(wrong.join(" "));
       });
       wordSyncs.push(() => {
         mark();

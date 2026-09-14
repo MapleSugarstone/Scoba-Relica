@@ -1,12 +1,13 @@
 // Team validation for online battles. Play with a friend is trust-based, but
 // ranked 2v2 re-derives what a Scoba could legally be: species, level, moves
-// reachable through its line's list plus breeding inheritance, ability from its
-// own pool (or anyone's, via breeding), and genes reachable through the 80/20
-// breeding mix. Any two Scobas can breed, so every pool below is global.
-import type { ScobaInstance } from "./scoba";
+// reachable through its line's list plus what a hybrid inherits, ability from
+// its own pool (or anyone's, for a hybrid), and genes inside the budget the
+// 65/35 hybrid mix preserves. Any two lines can make a hybrid, so every pool
+// below is global.
+import { speciesName, type ScobaInstance } from "./scoba";
 import { MOVES, SPECIES, rosterSpecies, speciesMoves, ABILITIES, type Species } from "./species";
 import { BABY_BUDGET, STAT_BUDGET, STAT_CAPS, STAT_NAMES, statTotal, type Stats } from "./types";
-import { MAX_BREED_COUNT, MAX_UNNATURAL } from "./breeding";
+import { MAX_UNNATURAL } from "./breeding";
 
 export interface LegalityOptions {
   maxLevel?: number;
@@ -82,14 +83,14 @@ export function validateScoba(s: ScobaInstance, opts: LegalityOptions = {}): str
   const errors: string[] = [];
   const sp = SPECIES[s.speciesId];
   if (!sp) return [`unknown species "${s.speciesId}"`];
-  const name = s.nickname ?? sp.name;
+  const name = s.nickname ?? speciesName(s);
   const maxLevel = opts.maxLevel ?? 100;
 
   if (!Number.isInteger(s.level) || s.level < 1 || s.level > maxLevel) {
     errors.push(`${name}: level ${s.level} outside 1-${maxLevel}`);
   }
-  if (!Number.isInteger(s.breedCount) || s.breedCount < 0 || s.breedCount > MAX_BREED_COUNT) {
-    errors.push(`${name}: impossible breed count ${s.breedCount}`);
+  if (s.hybrid !== undefined && s.hybrid !== true) {
+    errors.push(`${name}: impossible hybrid mark ${String(s.hybrid)}`);
   }
   if (sp.special) {
     errors.push(`${name}: special Scobas are not allowed in online battles`);
@@ -101,13 +102,9 @@ export function validateScoba(s: ScobaInstance, opts: LegalityOptions = {}): str
   if (new Set(s.moves).size !== s.moves.length) {
     errors.push(`${name}: duplicate moves`);
   }
-  // A bred child inherits mom's moves, which can be any its line lists, so
-  // breeding unlocks the whole own-species list for legality purposes.
-  const own = new Set(
-    s.breedCount > 0
-      ? sp.moves
-      : speciesMoves(sp),
-  );
+  // A hybrid inherits mom's moves, which can be any its line lists, so it may
+  // hold anything on its own species' whole list.
+  const own = new Set(s.hybrid ? sp.moves : speciesMoves(sp));
   const inherited = inheritableMoves();
   let foreign = 0;
   for (const m of s.moves) {
@@ -120,9 +117,9 @@ export function validateScoba(s: ScobaInstance, opts: LegalityOptions = {}): str
       }
     }
   }
-  // One worked move at most, however many generations went into it: a second
-  // one can only have come from somewhere breeding cannot reach.
-  const allowedForeign = s.breedCount > 0 ? MAX_UNNATURAL : 0;
+  // One worked move at most, and only on a hybrid: anything else can only have
+  // come from somewhere breeding cannot reach.
+  const allowedForeign = s.hybrid ? MAX_UNNATURAL : 0;
   if (foreign > allowedForeign) {
     errors.push(`${name}: ${foreign} inherited move(s) but ${allowedForeign} allowed`);
   }
@@ -130,7 +127,7 @@ export function validateScoba(s: ScobaInstance, opts: LegalityOptions = {}): str
   if (!ABILITIES[s.secondaryAbility]) {
     errors.push(`${name}: unknown ability "${s.secondaryAbility}"`);
   } else if (!sp.secondaryPool.includes(s.secondaryAbility)) {
-    if (s.breedCount === 0) {
+    if (!s.hybrid) {
       errors.push(`${name}: ability ${s.secondaryAbility} not in its pool`);
     } else if (!inheritableAbilities().has(s.secondaryAbility)) {
       errors.push(`${name}: ability ${s.secondaryAbility} is on no Scoba's pool`);

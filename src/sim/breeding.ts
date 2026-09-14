@@ -1,26 +1,32 @@
 import type { ScobaInstance, Tint } from "./scoba";
-import { costOf, freshUid, maxHp, sireOf, unnaturalMoves, MAX_MANA, SHINY_CHANCE } from "./scoba";
-import { SPECIES, babyOf, type Species } from "./species";
-import { hexToRgb, hueOf, hueShift } from "../engine/recolor";
+import { costOf, freshUid, makeWild, maxHp, sireOf, unnaturalMoves, MAX_MANA, SHINY_CHANCE } from "./scoba";
+import { SPECIES, babyOf, firstFormOf, sameLine, type Species } from "./species";
+import { greyOf, hexToRgb, hueOf, hueShift } from "../engine/recolor";
 import { rescaleLine } from "./scoba";
 import { BABY_SCALE, STAT_NAMES, capStats, type Stats } from "./types";
 import type { Rng } from "./rng";
-import { chance, pick } from "./rng";
+import { pick } from "./rng";
 
-export const MAX_BREED_COUNT = 2;
 /** Moves a Scoba can hold that its own line does not learn. */
 export const MAX_UNNATURAL = 1;
-export const DAD_ABILITY_CHANCE = 0.1;
+
+/** How much of a hybrid's base stat line comes from its mother. The father gives the rest. */
+export const MOTHER_SHARE = 0.65;
 
 export function canBreed(mom: ScobaInstance, dad: ScobaInstance): string | null {
   const momSp = SPECIES[mom.speciesId];
   const dadSp = SPECIES[dad.speciesId];
   if (!momSp || !dadSp) return "Unknown species.";
   if (momSp.special || dadSp.special || momSp.pawn || dadSp.pawn) return "This Scoba cannot breed.";
-  if (mom.breedCount >= MAX_BREED_COUNT || dad.breedCount >= MAX_BREED_COUNT) {
-    return "Bred out. A line can only be bred twice.";
-  }
+  if (mom.hybrid || dad.hybrid) return "A hybrid cannot breed.";
   return null;
+}
+
+/** Whether a pairing hatches a hybrid, which is what parents from two different evolutionary lines make. */
+export function makesHybrid(mom: ScobaInstance, dad: ScobaInstance): boolean {
+  const momSp = SPECIES[mom.speciesId];
+  const dadSp = SPECIES[dad.speciesId];
+  return !!momSp && !!dadSp && !sameLine(momSp, dadSp);
 }
 
 /**
@@ -45,23 +51,23 @@ export function babyLineOf(s: ScobaInstance): Stats {
   return out;
 }
 
-/** The form a line's children hatch as: its baby where it has one. */
+/** The form a line's children hatch as, which is the first form of its line. */
 export function hatchesAs(sp: Species): Species {
-  return babyOf(sp) ?? sp;
+  return firstFormOf(sp);
 }
 
-/** Mixes two base lines: 80 percent of the mother, 20 of the father. */
+/** Mixes two base lines: `MOTHER_SHARE` of the mother and the rest of the father. */
 export function inheritGenes(mom: Stats, dad: Stats): Stats {
   const out = {} as Stats;
   for (const name of STAT_NAMES) {
-    out[name] = Math.round(0.8 * mom[name] + 0.2 * dad[name]);
+    out[name] = Math.round(MOTHER_SHARE * mom[name] + (1 - MOTHER_SHARE) * dad[name]);
   }
   return capStats(out);
 }
 
 /**
- * What a pairing's child is built on. Both parents are measured as their baby
- * forms, because what the two of them make is a baby and not a grown Scoba.
+ * What a hybrid is built on. Both parents are measured as their baby forms,
+ * because what the two of them make is a baby and not a grown Scoba.
  */
 export function childGenes(mom: ScobaInstance, dad: ScobaInstance): Stats {
   return inheritGenes(babyLineOf(mom), babyLineOf(dad));
@@ -101,34 +107,8 @@ export interface MoveSwap {
   take: string;
 }
 
-/** A hatching: the child, and how the one roll in it landed. */
-export interface Hatchling {
-  child: ScobaInstance;
-  /**
-   * Whether the ability roll took the father's rather than the mother's. It is
-   * the roll and not the two abilities that decides this: parents that happen
-   * to share an ability still hand down one or the other, and what the child
-   * takes after is what it was given, not what can be told apart afterwards.
-   */
-  fromDad: boolean;
-}
-
-/**
- * Child hatches as the first form of the mother's line at level 1, which is
- * her baby form where her line has one. Its base line mixes the two parents'
- * baby forms 80/20. One of mom's moves is replaced by a move the dad knows
- * (when he knows something new); `swap` names which for which, and without one
- * the pair is rolled. 10% chance to inherit dad's secondary ability instead of
- * mom's.
- */
 /** Knobs the nest screen turns that the roll would otherwise decide. */
 export interface BreedOpts {
-  /**
-   * Take the father's secondary ability rather than rolling for it. The debug
-   * switch behind it is there because the roll is one in ten, and testing what
-   * an inherited passive does should not mean hatching ten children.
-   */
-  forceDadAbility?: boolean;
   /**
    * Hatch it shiny rather than rolling for it. One in three hundred is a long
    * wait to look at a palette.
@@ -136,16 +116,33 @@ export interface BreedOpts {
   forceShiny?: boolean;
 }
 
+/**
+ * Hatches a child at level 1 as the first form of the mother's line.
+ *
+ * Parents from the same evolutionary line hatch a plain baby of that line, the
+ * same as a wild one. Parents from two different lines hatch a hybrid. Its base
+ * line mixes the parents' baby lines 65/35, and one of the mother's moves is
+ * replaced by one the father knows. It takes his secondary passive, his colours
+ * and his leading element, and it cannot breed. `swap` names which move goes
+ * for which, and without one the pair is rolled.
+ */
 export function breed(
   mom: ScobaInstance,
   dad: ScobaInstance,
   rng: Rng,
   swap?: MoveSwap,
   opts: BreedOpts = {},
-): Hatchling {
+): ScobaInstance {
   const err = canBreed(mom, dad);
   if (err) throw new Error(err);
-  const sp = SPECIES[mom.speciesId]!;
+  const childSp = hatchesAs(SPECIES[mom.speciesId]!);
+
+  if (!makesHybrid(mom, dad)) {
+    const baby = makeWild(childSp.id, 1, rng);
+    // The wild roll for shine is already spent, so forcing it moves no other roll.
+    if (opts.forceShiny === true) baby.shiny = true;
+    return baby;
+  }
 
   const moves = [...mom.moves];
   const newFromDad = inheritableFrom(mom, dad);
@@ -159,40 +156,31 @@ export function breed(
     moves[slot] = swap && newFromDad.includes(swap.take) ? swap.take : pick(rng, newFromDad);
   }
 
-  // The roll is spent either way, so forcing the result does not move any
-  // other roll this seed makes.
-  const rolled = chance(rng, DAD_ABILITY_CHANCE);
-  const fromDad = opts.forceDadAbility === true || rolled;
-  const secondaryAbility = fromDad ? dad.secondaryAbility : mom.secondaryAbility;
-  // A passive from the father brings his element with it. It stands in for
-  // whatever second the child's own line had, so nothing ends up with three.
-  const dadSp = SPECIES[dad.speciesId];
-  const childSp = SPECIES[hatchesAs(sp).id];
-  const carried = fromDad && dadSp && childSp && dadSp.type !== childSp.type
-    ? dadSp.type
-    : undefined;
-
+  const dadSp = SPECIES[dad.speciesId]!;
   const child: ScobaInstance = {
     uid: freshUid(rng),
-    speciesId: hatchesAs(sp).id,
+    speciesId: childSp.id,
     level: 1,
     xp: 0,
     genes: childGenes(mom, dad),
     moves,
-    secondaryAbility,
-    breedCount: Math.max(mom.breedCount, dad.breedCount) + 1,
+    // A father with no second passive has none to give, so the mother's stays.
+    secondaryAbility: dad.secondaryAbility || mom.secondaryAbility,
+    hybrid: true,
+    // What is kept is him rather than the swap. The swap is read off his
+    // palette wherever the child is drawn.
+    sire: sireOf(dad),
     hp: 0,
   };
-  if (carried !== undefined) child.type2 = carried;
-  // His colours come with his passive. What is kept is him, not the swap: the
-  // swap is read off his palette wherever the child is drawn.
-  if (fromDad) child.sire = sireOf(dad);
+  // His leading element stands in for whatever second the child's own line
+  // had, so nothing ends up with three.
+  if (dadSp.type !== childSp.type) child.type2 = dadSp.type;
   // The roll is spent either way, so forcing the result moves no other roll
   // this seed makes.
   const rolledShiny = rng() < SHINY_CHANCE;
   if (opts.forceShiny === true || rolledShiny) child.shiny = true;
   child.hp = maxHp(child);
-  return { child, fromDad };
+  return child;
 }
 
 /** One colour in a sprite, and how many pixels it covers. */
@@ -234,10 +222,11 @@ export function sharedSwaps(worn: readonly string[], offered: readonly (Tint | n
  * A donor list shorter than the target list runs out. What is left over is
  * turned `turn` of the way round the wheel rather than being left behind: the
  * point is a set of colours that reads as one family, and half a repaint reads
- * as neither.
+ * as neither. A null turn means the father's colour is a grey, which has no hue
+ * to turn toward, so what is left over goes grey at its own lightness.
  */
 export function pairColors(
-  targets: readonly ColorCount[], donors: readonly ColorCount[], turn: number,
+  targets: readonly ColorCount[], donors: readonly ColorCount[], turn: number | null,
 ): Tint[] {
   const out: Tint[] = [];
   targets.forEach((target, i) => {
@@ -247,18 +236,24 @@ export function pairColors(
       return;
     }
     if (turn === 0) return;
-    const turned = hueShift(hexToRgb(target.hex), turn);
+    const rgb = hexToRgb(target.hex);
+    const turned = turn === null ? greyOf(rgb) : hueShift(rgb, turn);
     const hex = `#${turned.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
     if (hex !== target.hex) out.push({ from: target.hex, to: hex });
   });
   return out;
 }
 
-/** How far round the wheel one colour sits from another, or 0 for a grey pair. */
-export function hueTurn(from: string, to: string): number {
-  const a = hueOf(hexToRgb(from));
+/**
+ * How far round the wheel one colour sits from another. A grey `to` answers
+ * null, since there is no hue to turn toward, and a grey `from` answers 0,
+ * since there is no hue to turn.
+ */
+export function hueTurn(from: string, to: string): number | null {
   const b = hueOf(hexToRgb(to));
-  return a !== null && b !== null ? b - a : 0;
+  if (b === null) return null;
+  const a = hueOf(hexToRgb(from));
+  return a !== null ? b - a : 0;
 }
 
 /** Commonest first, ties broken on the hex so two clients agree. */
@@ -272,8 +267,8 @@ export function bodyColors(palette: readonly ColorCount[]): ColorCount[] {
 }
 
 /**
- * The marks a father leaves on a child that took his passive: his colours over
- * the child's, paired off by how much of each there is.
+ * The marks a father leaves on a hybrid: his colours over the child's, paired
+ * off by how much of each there is.
  *
  * The child keeps the colour it is mostly made of. That one colour is what
  * makes it recognisable as itself, and painting over it turned the child into

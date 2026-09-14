@@ -5,14 +5,14 @@ import {
   canBreed,
   droppableFrom,
   inheritableFrom,
+  makesHybrid,
   pickTints,
-  MAX_BREED_COUNT,
   type MoveSwap,
 } from "../sim/breeding";
 import { displayName } from "../sim/battle";
 import { critterPortrait, lookOf, spriteColors } from "../game/critters";
 import { openBrowser } from "./browser";
-import { costOf, maxHp, moveName, statsAt, unnaturalMoves, type ScobaInstance } from "../sim/scoba";
+import { costOf, maxHp, moveName, speciesName, statsAt, unnaturalMoves, type ScobaInstance } from "../sim/scoba";
 import { proseBox } from "./prose";
 import { ABILITIES, SPECIAL, SPECIES } from "../sim/species";
 import { abilityText } from "../game/texts";
@@ -25,17 +25,9 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
   const pool = (): ScobaInstance[] => [...save.party, ...save.box];
 
   /**
-   * Debug: hand the child its father's secondary ability instead of rolling
-   * for it. On by default: the roll is one in ten, and checking what a passive
-   * does on a line that was not built for it should not mean hatching ten
-   * children to see it once. Turn it off to breed against the real odds.
-   */
-  let forceAbility = true;
-
-  /**
-   * Debug: hatch it shiny rather than rolling for it. Off by default, unlike
-   * the one above: a shiny is meant to be a surprise, and a nest that handed
-   * one out every time would stop being able to show you an ordinary child.
+   * Debug: hatch it shiny rather than rolling for it. Off by default: a shiny
+   * is meant to be a surprise, and a nest that handed one out every time would
+   * stop being able to show you an ordinary child.
    */
   let forceShiny = false;
 
@@ -51,10 +43,10 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
     onClose();
   };
 
-  /** Everything that could be a parent at all: no special Scobas, not bred out. */
+  /** Everything that could be a parent at all: no special Scobas, no Pawns, no hybrids. */
   const eligible = (): ScobaInstance[] => pool().filter((m) => {
     const sp = SPECIES[m.speciesId];
-    return !!sp && !sp.special && m.breedCount < MAX_BREED_COUNT;
+    return !!sp && !sp.special && !sp.pawn && !m.hybrid;
   });
 
   /**
@@ -86,13 +78,6 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
   const debugSwitches = (): HTMLElement => {
     const wrap = el("div", "bxDebugRow");
     wrap.appendChild(debugToggle(
-      () => forceAbility,
-      () => { forceAbility = !forceAbility; },
-      (on) => on
-        ? "Debug: always crossing the father's ability. Tap for the real 10% roll."
-        : "Debug: rolling the father's ability at the real 10%. Tap to always cross.",
-    ));
-    wrap.appendChild(debugToggle(
       () => forceShiny,
       () => { forceShiny = !forceShiny; },
       (on) => on
@@ -118,7 +103,7 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       onPick(chosen);
     });
     wrap.appendChild(b);
-    // Offered on the father's screen, since his is the ability being crossed.
+    // Offered on the father's screen, since picking him is the last step before a same-line baby hatches.
     if (debug) wrap.appendChild(debugSwitches());
     return wrap;
   };
@@ -127,7 +112,7 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
     openBrowser(ui, art, {
       title: `${SPECIAL.name}'s Nest`,
       memory: "nest-mom",
-      hint: "Pick a mother. The child takes her species.",
+      hint: "Pick a mother. The child hatches as the first form of her line.",
       empty: "Nothing here can breed yet. Catch a few more.",
       // A parent with nobody to pair with is no parent.
       source: () => eligible().filter((m) => pool().some((d) => d.uid !== m.uid && canBreed(m, d) === null)),
@@ -140,11 +125,15 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
     openBrowser(ui, art, {
       title: `Mother: ${displayName(mom)}`,
       memory: "nest-dad",
-      hint: "Pick a father. His ability, and his colours, may carry over.",
+      hint: "Pick a father. From her own line, the child is a plain baby of that line. From another line, it is a hybrid that takes one of his moves, his passive, his element and his colors, and it cannot breed.",
       empty: "Nobody will pair with her.",
       source: () => pool().filter((d) => d.uid !== mom.uid && canBreed(mom, d) === null),
       onBack: pickMom,
-      foot: selectFoot((d) => `Father: ${displayName(d)}`, (d) => pickDrop(mom, d), true),
+      foot: selectFoot(
+        (d) => `Father: ${displayName(d)}${makesHybrid(mom, d) ? " · hybrid" : ""}`,
+        (d) => (makesHybrid(mom, d) ? pickDrop(mom, d) : hatch(mom, d)),
+        true,
+      ),
     });
   };
 
@@ -213,9 +202,8 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
   };
 
   const hatch = (mom: ScobaInstance, dad: ScobaInstance, swap?: MoveSwap): void => {
-    const { child, fromDad } = breed(
-      mom, dad, rngFrom(`${save.worldSeed}:breed:${Date.now().toString(36)}`), swap,
-      { forceDadAbility: forceAbility, forceShiny },
+    const child = breed(
+      mom, dad, rngFrom(`${save.worldSeed}:breed:${Date.now().toString(36)}`), swap, { forceShiny },
     );
     child.hp = maxHp(child);
     const toParty = addToParty(save, child, save.localSlot) === "party";
@@ -229,21 +217,14 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       face.style.height = "72px";
       face.style.width = "auto";
       card.appendChild(face);
-      card.appendChild(el("div", undefined, `${SPECIES[child.speciesId]!.name} · Lv 1 · bred ${child.breedCount}/${MAX_BREED_COUNT}`));
+      card.appendChild(el("div", undefined, `${speciesName(child)} · Lv 1${child.hybrid ? " · Hybrid" : ""}`));
       card.appendChild(el("div", undefined, `Spells: ${child.moves.map(moveName).join(", ")}`));
-      // Named and placed: a pool can hold the same ability as the other
-      // parent's, so which one it came from is worth saying outright.
       const ability = ABILITIES[child.secondaryAbility];
       card.appendChild(el("div", undefined,
-        `Ability: ${ability?.name ?? child.secondaryAbility} · ${fromDad ? "its father's" : "its mother's"}`));
-      const forced: string[] = [];
-      if (forceAbility) forced.push("the father's ability was crossed");
-      if (forceShiny) forced.push("it was hatched shiny");
-      if (forced.length > 0) {
-        card.appendChild(el("div", "dim", `Debug: ${forced.join(", and ")} rather than rolled for.`));
-      }
+        `Ability: ${ability?.name ?? child.secondaryAbility}${child.hybrid ? " · its father's" : ""}`));
+      if (forceShiny) card.appendChild(el("div", "dim", "Debug: it was hatched shiny rather than rolled for."));
       if (ability) card.appendChild(proseBox(abilityText(ability.id), { stats: statsAt(child), level: child.level }, "dim"));
-      if (child.sire) card.appendChild(el("div", "dim", "It takes his colours, too."));
+      if (child.hybrid) card.appendChild(el("div", "dim", "It takes his colors and his element too. A hybrid cannot breed."));
       card.appendChild(el("div", "sub", toParty ? "Joined the party." : "Sent to the box."));
       s.appendChild(card);
       const done = el("button", "big primary", "Done");

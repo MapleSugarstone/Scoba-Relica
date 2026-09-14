@@ -344,26 +344,5 @@
     "roulle": {
       "movement": "hop"
     }
-  },
-  "texts": {
-    "species:cresce": "Cresce follow the cycles of the Moon. They can be seen flocking across the world at night.",
-    "species:flarea": "Flarea's embers are hot enough to keep a Scoba Trainer warm through a harsh winter.",
-    "species:grima": "Grima is one of the few safer Flux type Scobas. It can subsist off of decaying matter.",
-    "species:obera": "Obera is able to grow verdant moss wherever it flies. Bugs often start moving in circles when its near.",
-    "species:roulle": "A chaotic Scoba of good fortune. Roulle gains a new tool in its box each battle.",
-    "species:plib": "It's Plib!",
-    "species:catsquito": "This bloodsucking cuddly creature is a top choice for Scoba companions.",
-    "species:meepa": "Meepas soak in moonrays for food. They can be seen in small gatherings in fields, facing the night sky.",
-    "species:cactunny": "Cactunny can summon small suns to adapt to any environment. Though it often causes issues for local Scobas.",
-    "species:allin": "Allin seems to absorb good luck from people to feed itself. It can be quite dangerous. After its discovery, some Casinos have been reported to hide them around folks with winning-streaks to cut them off.",
-    "species:aulium": "This Scoba is considered an artistic masterpiece by some. It is a collector's Scoba.",
-    "species:cottlequeen": "This queen protects their troops. They all praise a type of popcorn said to be the best in the world.",
-    "species:cottlecorn": "A pawn for their queen.",
-    "species:sqwoop": "A scrumptious Scoba. It will share its powerful cherry to those it loves.",
-    "species:octoshake": "With more Power, this Scoba seems to act in odd ways. It will replace food around a home with icecream, and plant cherry trees wherever it goes.",
-    "ability:sticky-treat": "Damaging abilities prevent Scobas from switching out for 1 turn. Doesn't stack.",
-    "ability:cherry-on-top": "Can cast Cherry on Top once per battle.",
-    "move:tentacle-slap": "Deal [damage] damage to an enemy. They're slowed by [status]",
-    "move:icecream-soup": "Throws a bowl of ice cream to an ally. Heals [heal]."
   }
 }

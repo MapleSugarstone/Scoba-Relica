@@ -23,7 +23,7 @@ export interface CharacterDef {
 }
 
 export interface SaveData {
-  version: 14;
+  version: 15;
   createdAt: number;
   updatedAt: number;
   worldSeed: string;
@@ -219,7 +219,7 @@ export function loadSave(): SaveData | null {
   }
 }
 
-function migrate(data: unknown): SaveData | null {
+export function migrate(data: unknown): SaveData | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Omit<SaveData, "version"> & { version: number };
   if (d.version === 1) {
@@ -405,7 +405,7 @@ function migrate(data: unknown): SaveData | null {
       if (!sp) continue;
       s.level = Math.max(1, Math.min(MAX_LEVEL, Math.round((s.level / OLD_MAX_LEVEL) * MAX_LEVEL)));
       s.xp = 0;
-      if (s.breedCount === 0) {
+      if ((s as { breedCount?: number }).breedCount === 0) {
         s.genes = { ...sp.genes };
       } else {
         const budget = sp.baby ? BABY_BUDGET : STAT_BUDGET;
@@ -436,7 +436,19 @@ function migrate(data: unknown): SaveData | null {
     }
     d.version = 14;
   }
-  if (d.version !== 14) return null;
+  if (d.version === 14) {
+    // v14 -> v15: a breed count capped at two gives way to hybrids, which
+    // cannot breed at all. Anything bred under the old rules was mixed with
+    // whatever its father was, so every one of them becomes a hybrid and keeps
+    // what it inherited.
+    for (const s of [...d.party, ...d.box]) {
+      const old = s as ScobaInstance & { breedCount?: number };
+      if ((old.breedCount ?? 0) > 0) s.hybrid = true;
+      delete old.breedCount;
+    }
+    d.version = 15;
+  }
+  if (d.version !== 15) return null;
   const out = d as unknown as SaveData;
   if (!out.sentinels || typeof out.sentinels !== "object") out.sentinels = {};
   clearStampedGrowth(out);

@@ -151,12 +151,12 @@ passive piercing-horn "Piercing Horn"
     inflict gored on other
 
 passive sticky-treat "Sticky Treat"
-  text "Everything it casts sticks. A spell that lands leaves the target [status:sticky|stuck where it stands]."
+  text "Damaging abilities prevent Scobas from switching out for 1 turn. Doesn't stack."
   when it lands a spell:
     inflict sticky on other
 
 passive cherry-on-top "Cherry on Top"
-  text "Wears a cherry, and throws it once a battle."
+  text "Can cast Cherry on Top once per battle."
   wears cherry
   grants move cherry-on-top
 
@@ -167,7 +167,7 @@ passive sticky-mess "Sticky Mess"
     inflict sticky on others, for 2 turns
 
 passive roll-the-wheel "Roll the Wheel"
-  text "Every time it takes the field, the wheel hands it one more spell out of the whole game, rewritten as Fortuna off Strength."
+  text "On entry, learn a random ability modified to scale with Strength and Fortuna type."
   when it takes the field:
     sound confirm
     show spin as wheel over holder, pointer spintop
@@ -182,12 +182,12 @@ passive roll-the-wheel "Roll the Wheel"
     say "The wheel comes up {picked}."
 
 passive invested "Invested"
-  text "Marks it leaves that stand for more than a turn bite 30% harder."
+  text "Statuses that last more than one turn are 30% more effective."
   while carried:
     marks it leaves hit x1.3 if they last 2 turns or more
 
 passive house-money "Lets go gambling"
-  text "At the end of each turn, the wheel puts a spell costing 80 or more in its fourth slot, at half cost."
+  text "At the end of each turn, learn a random 80%+ cost ability modified to scale with Strength and Fortuna type. Its cost is halved."
   when a turn ends:
     sound confirm
     show spin as wheel over holder, pointer spintop

@@ -11,7 +11,8 @@
 // A token nobody recognises is left exactly as it was typed, brackets and all,
 // so a stray bracket shows up as a stray bracket rather than swallowing the
 // rest of the sentence.
-import { MOVES, firstStep, type Move } from "./species";
+import { BLACKJACK } from "./cards";
+import { MOVES, allSteps, type Move } from "./species";
 import { FIELDS, STATUSES, type Basis, type Step } from "./status";
 import { describeField, describeStatus, perLevel } from "./describe";
 import { MAX_LEVEL } from "./scoba";
@@ -24,10 +25,10 @@ import { hitCategory } from "./script/read";
  * and a sentence that says them again is a sentence saying it twice.
  */
 export type Token =
-  /** The move's own hit, or a mark's, where one is named. */
-  | { of: "damage"; id?: string }
-  /** The move's own healing, or a mark's. */
-  | { of: "heal"; id?: string }
+  /** The move's own hit, or a mark's, where one is named. `nth` counts from 1 in cast order. */
+  | { of: "damage"; id?: string; nth?: number }
+  /** The move's own healing, or a mark's. `nth` counts from 1 in cast order. */
+  | { of: "heal"; id?: string; nth?: number }
   /** A mark it leaves, by status id. */
   | { of: "status"; id: string };
 
@@ -53,8 +54,10 @@ export interface ProseFor {
 /** Everything a written line may put in brackets, for the editor to list. */
 export const TOKENS = [
   { form: "[damage]", says: "what the move hits for, with the scaling on hover" },
+  { form: "[damage:2]", says: "the move's second hit or payout, in the order the cast runs them" },
   { form: "[damage:id]", says: "what a mark hits for each time it bites" },
   { form: "[heal]", says: "what the move heals for" },
+  { form: "[heal:2]", says: "what the move's second heal restores" },
   { form: "[heal:id]", says: "what a mark heals for each turn" },
   { form: "[status:id]", says: "a mark, named after the mark" },
   { form: "[status:id|word]", says: "the same mark, written as your own word" },
@@ -70,7 +73,8 @@ export function readToken(inside: string): { token: Token; label?: string } | nu
   const id = rawId.trim();
   const label = shown?.trim();
   if (of === "damage" || of === "heal") {
-    return { token: { of, ...(id ? { id } : {}) }, ...(label ? { label } : {}) };
+    const which = /^[1-9]\d*$/.test(id) ? { nth: Number(id) } : id ? { id } : {};
+    return { token: { of, ...which }, ...(label ? { label } : {}) };
   }
   if (of === "status" && id !== "") {
     return { token: { of: "status", id }, ...(label ? { label } : {}) };
@@ -98,13 +102,22 @@ export function resolveToken(token: Token, at: ProseFor): Part & { kind: "token"
   if (token.id !== undefined) return markToken(token.of, token.id, at);
   const move = at.move ?? null;
   if (!move) return { kind: "token", label: "?", detail: "Nothing to read this off." };
+  const nth = token.nth ?? 1;
+  const steps = allSteps(move.cast);
   if (token.of === "heal") {
-    const mend = firstStep(move, "heal");
-    if (!mend) return { kind: "token", label: "?", detail: `${move.name} heals nothing.` };
+    const mend = steps.filter((s): s is HealStep => s.kind === "heal")[nth - 1];
+    if (!mend) {
+      const detail = nth === 1 ? `${move.name} heals nothing.` : `${move.name} has no heal number ${nth}.`;
+      return { kind: "token", label: "?", detail };
+    }
     return healToken(mend, at);
   }
-  const hit = firstStep(move, "hit");
-  if (!hit) return { kind: "token", label: "?", detail: `${move.name} hits nothing.` };
+  const hit = steps.filter((s): s is HitStep | DealStep => s.kind === "hit" || s.kind === "deal-card")[nth - 1];
+  if (!hit) {
+    const detail = nth === 1 ? `${move.name} hits nothing.` : `${move.name} has no damage number ${nth}.`;
+    return { kind: "token", label: "?", detail };
+  }
+  if (hit.kind === "deal-card") return payoutToken(hit, at);
   return {
     kind: "token",
     label: damageLabel(hit, at),
@@ -170,7 +183,7 @@ function basisName(basis: Basis): string {
 }
 
 /** What a heal comes to, and what it is a share of. */
-function healToken(mend: Extract<Step, { kind: "heal" }>, at: ProseFor): Part & { kind: "token" } {
+function healToken(mend: HealStep, at: ProseFor): Part & { kind: "token" } {
   const off = mend.basis === "source-mag" ? "mag" : mend.basis === "source-str" ? "str" : null;
   const basis = off === null
     ? "the target's own maximum HP"
@@ -218,7 +231,22 @@ function damageDetail(hit: HitStep): string {
     + ` ${cap(category === "physical" ? "physical" : "magical")} damage is reduced by the target's ${STAT_LABELS[armor]}.`;
 }
 
+/** What a hand of exactly 21 pays out, which the battle reads off the dealer's Strength as physical damage. */
+function payoutToken(deal: DealStep, at: ProseFor): Part & { kind: "token" } {
+  return {
+    kind: "token",
+    label: at.stats
+      ? String(Math.max(1, Math.floor(at.stats.str * deal.payoff)))
+      : `${pct(deal.payoff)} ${STAT_LABELS.str}`,
+    detail: `${pct(deal.payoff)} of the caster's ${STAT_LABELS.str}, when a hand of exactly ${BLACKJACK} pays out.`
+      + ` Physical damage is reduced by the target's ${STAT_LABELS.def}.`,
+    tone: "physical",
+  };
+}
+
 type HitStep = Extract<Step, { kind: "hit" }>;
+type HealStep = Extract<Step, { kind: "heal" }>;
+type DealStep = Extract<Step, { kind: "deal-card" }>;
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 

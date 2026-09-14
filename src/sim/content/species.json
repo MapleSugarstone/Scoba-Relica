@@ -28,7 +28,7 @@
       "art": "cresce"
     },
     "movement": "scamper",
-    "blurb": "A tide-pull caster that leans on Magic and Resistance.",
+    "blurb": "Cresce follow the cycles of the Moon. They can be seen flocking across the world at night.",
     "starter": true
   },
   {
@@ -60,7 +60,7 @@
       "art": "flarea"
     },
     "movement": "hover",
-    "blurb": "Quick and hot-headed, trading bulk for speed.",
+    "blurb": "Flarea's embers are hot enough to keep a Scoba Trainer warm through a harsh winter.",
     "starter": true
   },
   {
@@ -92,7 +92,7 @@
       "art": "grima"
     },
     "movement": "scamper",
-    "blurb": "Slippery and hard to pin down; strikes before it is struck.",
+    "blurb": "Grima is one of the few safer Flux type Scobas. It can subsist off of decaying matter.",
     "starter": true
   },
   {
@@ -125,7 +125,7 @@
       "art": "obera"
     },
     "movement": "hover",
-    "blurb": "Slow and stubborn. Outlasts more than it outhits.",
+    "blurb": "Obera is able to grow verdant moss wherever it flies. Bugs often start moving in circles when its near.",
     "starter": true
   },
   {
@@ -256,7 +256,7 @@
     "movement": "skitter",
     "baby": true,
     "evolvesTo": "allin",
-    "blurb": "It deals a hand it has not learned to read. Every card is a guess.",
+    "blurb": "A chaotic Scoba of good fortune. Roulle gains a new tool in its box each battle.",
     "starter": true
   },
   {
@@ -288,7 +288,7 @@
       "art": "plib"
     },
     "movement": "skitter",
-    "blurb": "Nothing resists it and nothing fears it. Just honest work.",
+    "blurb": "It's Plib!",
     "starter": true
   },
   {
@@ -317,7 +317,8 @@
       "kind": "art",
       "art": "catsquito"
     },
-    "movement": "hover"
+    "movement": "hover",
+    "blurb": "This bloodsucking cuddly creature is a top choice for Scoba companions."
   },
   {
     "id": "meepa",
@@ -346,7 +347,8 @@
       "kind": "art",
       "art": "meepa"
     },
-    "movement": "hop"
+    "movement": "hop",
+    "blurb": "Meepas soak in moonrays for food. They can be seen in small gatherings in fields, facing the night sky."
   },
   {
     "id": "cactunny",
@@ -375,7 +377,8 @@
       "kind": "art",
       "art": "cactunny"
     },
-    "movement": "scamper"
+    "movement": "scamper",
+    "blurb": "Cactunny can summon small suns to adapt to any environment. Though it often causes issues for local Scobas."
   },
   {
     "id": "allin",
@@ -408,7 +411,7 @@
       }
     },
     "movement": "skitter",
-    "blurb": "It counts what it has dealt you and knows exactly when to stop."
+    "blurb": "Allin seems to absorb good luck from people to feed itself. It can be quite dangerous. After its discovery, some Casinos have been reported to hide them around folks with winning-streaks to cut them off."
   },
   {
     "id": "aulium",
@@ -439,7 +442,7 @@
       "art": "aulium"
     },
     "movement": "scamper",
-    "blurb": "No weak spot and no specialty. Hits Plain types hardest."
+    "blurb": "This Scoba is considered an artistic masterpiece by some. It is a collector's Scoba."
   },
   {
     "id": "cottlequeen",
@@ -467,7 +470,8 @@
       "kind": "art",
       "art": "cottlequeen"
     },
-    "movement": "hover"
+    "movement": "hover",
+    "blurb": "This queen protects their troops. They all praise a type of popcorn said to be the best in the world."
   },
   {
     "id": "cottlecorn",
@@ -494,7 +498,8 @@
     },
     "movement": "skitter",
     "pawn": true,
-    "autonomous": true
+    "autonomous": true,
+    "blurb": "A pawn for their queen."
   },
   {
     "id": "sqwoop",
@@ -530,7 +535,7 @@
     "cry": "sqwoop",
     "baby": true,
     "evolvesTo": "octoshake",
-    "blurb": "A sundae in a glass. It hops because it cannot walk."
+    "blurb": "A scrumptious Scoba. It will share its powerful cherry to those it loves."
   },
   {
     "id": "octoshake",
@@ -567,7 +572,7 @@
     },
     "movement": "hop",
     "cry": "octoshake",
-    "blurb": "Everything Sqwoop is, and colder. Nothing it hits gets away."
+    "blurb": "With more Power, this Scoba seems to act in odd ways. It will replace food around a home with icecream, and plant cherry trees wherever it goes."
   },
   {
     "id": "relica",

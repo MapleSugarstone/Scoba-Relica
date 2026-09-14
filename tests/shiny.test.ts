@@ -76,8 +76,8 @@ describe("shiny rolls", () => {
   it("is decided by the seed, so two clients hatch the same one", () => {
     const mom = makeWild("catsquito", 5, rngFrom("mom"));
     const dad = makeWild("catsquito", 5, rngFrom("dad"));
-    const once = breed(mom, dad, rngFrom("same-seed")).child.shiny;
-    const twice = breed(mom, dad, rngFrom("same-seed")).child.shiny;
+    const once = breed(mom, dad, rngFrom("same-seed")).shiny;
+    const twice = breed(mom, dad, rngFrom("same-seed")).shiny;
     expect(once).toBe(twice);
   });
 
@@ -87,7 +87,7 @@ describe("shiny rolls", () => {
     const runs = 12000;
     let shiny = 0;
     for (let i = 0; i < runs; i++) {
-      if (breed(mom, dad, rngFrom(`hatch:${i}`)).child.shiny) shiny += 1;
+      if (breed(mom, dad, rngFrom(`hatch:${i}`)).shiny) shiny += 1;
     }
     expect(shiny).toBeGreaterThan(0);
     const want = runs * SHINY_CHANCE;

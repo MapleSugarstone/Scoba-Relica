@@ -23,6 +23,36 @@ const signed = (n: number): string => `${n >= 0 ? "+" : "-"}${num(Math.abs(n))}`
 /** Text in double quotes, with the quotes and backslashes in it escaped. */
 export const quote = (s: string): string => `"${s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
 
+/**
+ * A move's or a passive's script with its `text` line saying `words`, or with no
+ * `text` line where `words` is null. Every other line stays as it was written. A
+ * new line goes where the writers below put one: before `cast:` in a move, and
+ * under the header in a passive.
+ */
+export function withTextLine(record: string, words: string | null): string {
+  const rows = record.split(/\r?\n/);
+  // Notes written above a record belong to its block, so the header is the first line that is not one.
+  const head = rows.findIndex((r) => r.trim() !== "" && !r.startsWith("#"));
+  if (head < 0) return record;
+  const child = rows.slice(head + 1).find((r) => r.trim() !== "" && !r.trim().startsWith("#"));
+  const pad = child?.match(/^[ \t]+/)?.[0] ?? INDENT;
+  const topLevel = (i: number, word: RegExp): boolean => {
+    const r = rows[i]!;
+    return i > head && r.startsWith(pad) && !/^[ \t]/.test(r.slice(pad.length)) && word.test(r.slice(pad.length));
+  };
+  const line = words === null ? null : `${pad}text ${quote(words)}`;
+  const at = rows.findIndex((_, i) => topLevel(i, /^text\b/i));
+  if (at >= 0) {
+    if (line === null) rows.splice(at, 1);
+    else rows[at] = line;
+    return rows.join("\n");
+  }
+  if (line === null) return record;
+  const cast = /^move\b/i.test(rows[head]!) ? rows.findIndex((_, i) => topLevel(i, /^cast\s*:/i)) : -1;
+  rows.splice(cast >= 0 ? cast : head + 1, 0, line);
+  return rows.join("\n");
+}
+
 /** A name written bare where it can be, and quoted where it has spaces or commas in it. */
 const bare = (s: string): string => (/^[A-Za-z0-9_#.-]+$/.test(s) ? s : quote(s));
 

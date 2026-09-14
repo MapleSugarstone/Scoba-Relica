@@ -124,7 +124,7 @@ status gored "Gored"
   while carried:
     resistance x0.95
 
-status in-the-black "In the Black"
+status in-the-black "Off pace"
   bad
   lasts 3 turns
   stacks up to 3

@@ -514,8 +514,12 @@ function carriedTints(his: ColorCount[], base: ColorCount[], mine: ColorCount[])
   if (fresh.length === 0) return kept;
   const spent = new Set(kept.map((t) => t.to));
   const left = bodyColors(his).filter((c) => !spent.has(c.hex) && !here.has(c.hex));
+  // The turn is the one the line's own art took, so colours past his palette
+  // go the same way in every drawing of it, however few of his are left here.
   const primary = bodyColors(base)[0];
-  const turn = primary && left[0] ? hueTurn(primary.hex, left[0].hex) : 0;
+  const worn = new Set(base.map((c) => c.hex));
+  const donor = bodyColors(his).find((c) => !worn.has(c.hex)) ?? left[0];
+  const turn = primary && donor ? hueTurn(primary.hex, donor.hex) : 0;
   return [...kept, ...pairColors(fresh, left, turn)];
 }
 

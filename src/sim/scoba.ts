@@ -1,5 +1,7 @@
 import type { ElementType, Stats } from "./types";
 import { STAT_NAMES, capStats, statTotal } from "./types";
+import { blendNames } from "./blend";
+import HYBRID_NAMES from "./content/hybrid-names.json";
 import {
   ABILITIES, abilityStatuses, evolutionOf, grantedMoves, MOVES, SPECIES, speciesMoves,
 } from "./species";
@@ -52,13 +54,17 @@ export interface ScobaInstance {
   xp: number;
   /**
    * Its base stat line, which is what it has at the level ceiling. A line
-   * starts as its species' and breeding mixes two of them 80/20. Stats at a
+   * starts as its species' and a hybrid's mixes its parents' 65/35. Stats at a
    * lower level are this scaled down by the level.
    */
   genes: Stats;
   moves: string[]; // 1-4 move ids
   secondaryAbility: string;
-  breedCount: number; // 0-2; 2 means it cannot breed again
+  /**
+   * Bred from two different lines. It goes by a name blended from its mother's
+   * species and its father's, and it cannot breed.
+   */
+  hybrid?: true;
   hp: number; // current effective HP, persisted between battles
   /** Which character it walks with in the overworld. Wild ones have none. */
   owner?: "A" | "B";
@@ -182,7 +188,6 @@ export function makeWild(speciesId: string, level: number, rng: Rng): ScobaInsta
     // A line with no secondary pool has one passive and no second: Pawns are
     // built that way on purpose, and an empty string names no ability at all.
     secondaryAbility: sp.secondaryPool.length > 0 ? pick(rng, sp.secondaryPool) : "",
-    breedCount: 0,
     hp: 0,
   };
   if (rng() < SHINY_CHANCE) inst.shiny = true;
@@ -197,6 +202,21 @@ export function makeWild(speciesId: string, level: number, rng: Rng): ScobaInsta
  */
 export function sireOf(s: ScobaInstance): Sire {
   return s.speciesId;
+}
+
+/** Hybrid names written by hand, by current form and father as `mother:father` species ids. */
+const WRITTEN_HYBRID_NAMES: Record<string, string> = HYBRID_NAMES;
+
+/**
+ * The species a Scoba shows as. A hybrid shows as a species of its own, named
+ * from its current form and its father's species, so the name follows it
+ * through an evolution. A name written for the pairing wins over the blend.
+ */
+export function speciesName(s: ScobaInstance): string {
+  const own = SPECIES[s.speciesId]?.name ?? s.speciesId;
+  const father = s.hybrid && s.sire ? SPECIES[s.sire]?.name : undefined;
+  if (!father) return own;
+  return WRITTEN_HYBRID_NAMES[`${s.speciesId}:${s.sire}`] ?? blendNames(own, father);
 }
 
 export function moveName(id: string): string {

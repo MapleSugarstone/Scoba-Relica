@@ -91,9 +91,9 @@ describe("baby lines", () => {
     expect(babyLineOf(makeWild("tC", 1, rng)).str).toBe(60);
   });
 
-  it("mixes the two baby lines 80/20", () => {
-    expect(childGenes(makeWild("tA", 1, rng), makeWild("tB", 1, rng)).str).toBe(14);
-    expect(childGenes(makeWild("tA", 1, rng), makeWild("tC", 1, rng)).str).toBe(20);
+  it("mixes the two baby lines 65/35", () => {
+    expect(childGenes(makeWild("tA", 1, rng), makeWild("tB", 1, rng)).str).toBe(17);
+    expect(childGenes(makeWild("tA", 1, rng), makeWild("tC", 1, rng)).str).toBe(28);
   });
 
   it("hatches the mother's line as its first form", () => {
@@ -104,11 +104,11 @@ describe("baby lines", () => {
   it("carries a bred line up through evolution", () => {
     const child = makeWild("tBabyA", 1, rng);
     child.genes = childGenes(makeWild("tA", 1, rng), makeWild("tB", 1, rng));
-    expect(child.genes.str).toBe(14);
+    expect(child.genes.str).toBe(17);
     evolve(child);
     expect(child.speciesId).toBe("tA");
-    // 14 is 1.4x what its baby form holds, so it grows into 1.4x the adult.
-    expect(child.genes.str).toBe(140);
+    // 17 is 1.7x what its baby form holds, so it grows into 1.7x the adult.
+    expect(child.genes.str).toBe(170);
   });
 });
 

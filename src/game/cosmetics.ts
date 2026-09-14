@@ -92,32 +92,20 @@ export interface CosmeticDoc {
   pieces: Record<string, Record<string, Placement>>;
   costumes: Record<string, CostumeSetup>;
   lines: Record<string, LineSetup>;
-  /**
-   * Words written over the ones the game works out for itself, keyed by what
-   * they are about: `species:allin`, `ability:invested`, `move:card-throw`.
-   * Plain prose with nothing read back out of it, so an entry here replaces
-   * the whole of what would have been shown and can say anything.
-   */
-  texts: Record<string, string>;
 }
-
-/** What a written line can be about. */
-export type TextKind = "species" | "ability" | "move";
-
-/** The key one is stored under. */
-export const textKey = (kind: TextKind, id: string): string => `${kind}:${id}`;
 
 /** The costume key the player characters are placed under, who have no species. */
 export const PLAYER_COSTUME = "player";
 
 /** Nothing moved: every drawing takes the answers its own art gives. */
 export function emptyCosmetics(): CosmeticDoc {
-  return { pieces: {}, costumes: {}, lines: {}, texts: {} };
+  return { pieces: {}, costumes: {}, lines: {} };
 }
 
 /**
  * Reads a document, taking a file written before there was anything in it but
- * placements as the placements it is.
+ * placements as the placements it is. A `texts` part left in an old file is
+ * dropped, since those lines live in the records they describe now.
  */
 export function readCosmetics(parsed: unknown): CosmeticDoc {
   if (!parsed || typeof parsed !== "object") return emptyCosmetics();
@@ -127,10 +115,9 @@ export function readCosmetics(parsed: unknown): CosmeticDoc {
       pieces: doc.pieces ?? {},
       costumes: doc.costumes ?? {},
       lines: doc.lines ?? {},
-      texts: doc.texts ?? {},
     };
   }
-  return { pieces: parsed as CosmeticDoc["pieces"], costumes: {}, lines: {}, texts: {} };
+  return { pieces: parsed as CosmeticDoc["pieces"], costumes: {}, lines: {} };
 }
 
 function parse(raw: string | null): CosmeticDoc | null {
@@ -421,30 +408,6 @@ export function clearLine(costumes: readonly string[], lineId: string): void {
     delete doc.lines[lineId];
     save();
   });
-}
-
-/** What has been written over this one, or nothing where the game says it. */
-export function writtenText(kind: TextKind, id: string): string | null {
-  return cosmetics().texts[textKey(kind, id)] ?? null;
-}
-
-/** Writes over what the game would say. An empty line puts its own words back. */
-export function setText(kind: TextKind, id: string, text: string): void {
-  const trimmed = text.trim();
-  if (trimmed === "") return clearText(kind, id);
-  remember(`text:${kind}:${id}`);
-  cosmetics().texts[textKey(kind, id)] = trimmed;
-  save();
-}
-
-/** Hands one back to the game to say for itself. */
-export function clearText(kind: TextKind, id: string): void {
-  const doc = cosmetics();
-  const key = textKey(kind, id);
-  if (!(key in doc.texts)) return;
-  remember(`text:${kind}:${id}`);
-  delete doc.texts[key];
-  save();
 }
 
 /** Drops every nudge. Nothing is written until the editor saves. */

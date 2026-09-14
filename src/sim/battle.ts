@@ -17,7 +17,7 @@
 import type { ScobaInstance, Summoner } from "./scoba";
 import {
   MAX_LEVEL, MAX_MANA, inheritFromCaller, moveCost, scobaTypes, statsAt, makeWild,
-  passiveStatuses,
+  passiveStatuses, speciesName,
 } from "./scoba";
 import {
   HYPER_FORM, MOVES, SPECIES, abilityStatuses, firstStep, grantedMoves,
@@ -2169,7 +2169,7 @@ function applyAttrition(ctx: Ctx): void {
 }
 
 export function displayName(s: ScobaInstance): string {
-  return s.nickname ?? SPECIES[s.speciesId]?.name ?? s.speciesId;
+  return s.nickname ?? speciesName(s);
 }
 
 /** What a combatant is carrying, collapsed for display: "Fire x2, Rage x3". */

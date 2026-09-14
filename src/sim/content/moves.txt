@@ -355,7 +355,7 @@ move icecream-soup "Ice Cream Soup"
   type sugar
   costs 30 mana
   aim any ally "Pour it over"
-  text "Tips the whole bowl over an ally. Heals [heal]."
+  text "Throws a bowl of ice cream to an ally. Heals [heal]."
   cast:
     caster focus
     throw icecreamsoup as toss to target
@@ -365,7 +365,7 @@ move tentacle-slap "Tentacle Slap"
   type moon
   costs 50 mana
   aim any enemy
-  text "A wet slap across one enemy. Deals [damage] damage and leaves it [status:slowed]."
+  text "Deal [damage] damage to an enemy. They're [status:slowed|slowed]."
   cast:
     caster lunge
     hit target 50% magic, sound tentacleslap
@@ -387,7 +387,7 @@ move card-throw "Card Throw"
   type fortuna
   costs 15 mana
   aim any enemy
-  text "Deals a card face up onto one enemy for [damage] damage, and adds it to the hand that enemy is [status:dealt|holding]. Exactly 21 pays out. Over 21 busts."
+  text "Deals a card face up onto one enemy for [damage] damage. The enemy hold that card for a [status:dealt|hand]. If a hand adds up to 21 it pays out for [damage:2]. Over 21 busts."
   cast:
     caster rear
     draw a card, swap #bc0006 for #000000 50% of the time
@@ -399,7 +399,7 @@ move black "Black"
   type fortuna, flux
   costs 30 mana
   aim any enemy
-  text "Deals [damage] damage to one enemy and puts it [status:in-the-black|off its pace]."
+  text "Deals [damage] damage to one enemy and puts them [status:in-the-black|off pace]."
   cast:
     caster rear
     throw black as toss to target
@@ -410,7 +410,7 @@ move red "Red"
   type fortuna, sun
   costs 30 mana
   aim any enemy
-  text "Deals [damage] damage to one enemy and leaves it [status:in-the-red|burning] for [damage:in-the-red] a turn, three turns over."
+  text "Deals [damage] damage to one enemy and leaves it [status:in-the-red|burning] for [damage:in-the-red] a turn for three turns."
   cast:
     caster rear
     throw red as toss to target
@@ -421,7 +421,7 @@ move green "Green"
   type fortuna, moss
   costs 80 mana
   aim all enemies "The whole line"
-  text "Deals [damage] damage to the whole enemy line and leaves every one of them [status:in-the-green|opening up]."
+  text "Deals [damage] damage to all enemies and leaves them [status:in-the-green|in debt]."
   cast:
     caster rear
     throw green as toss to target
@@ -433,7 +433,7 @@ move tantalizing-sweets "Tantalizing Sweets"
   costs 100 mana
   cooldown 5
   aim any enemy
-  text "Drops something nobody can refuse on one enemy. Deals [damage] damage, and a kill with it hands the mana and the cooldown straight back."
+  text "Drops the ultimate sweet on one enemy. Deals [damage] damage, and a kill with it hands the mana and the cooldown straight back."
   cast:
     caster rear
     throw "tantalizing sweet" as drop to target

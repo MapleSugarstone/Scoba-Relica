@@ -776,14 +776,17 @@ physical blow.
 
 ## Written text
 
-A move's or a passive's `text` line is what a player reads. Words in brackets
-become highlighted words with the numbers behind them in a hover window.
+A move's or a passive's `text` line is what a player reads. The Words boxes in
+the cosmetics editor edit this same line. Words in brackets become highlighted
+words with the numbers behind them in a hover window.
 
 | Token | What it shows |
 | --- | --- |
 | `[damage]` | What the move's first `hit` step deals, with its scaling on hover. |
+| `[damage:<n>]` | What the move's nth damage deals. A `hit` step counts, and so does the payout of a `deal drawn card` step, in the order the cast runs them. `[damage:2]` is the second. |
 | `[damage:<status>]` | What a status's damage step deals each time it runs. |
 | `[heal]` | What the move's first `heal` step restores. |
+| `[heal:<n>]` | What the move's nth `heal` step restores. |
 | `[heal:<status>]` | What a status's heal step restores each time it runs. |
 | `[status:<id>]` | A status or a field, named, with what it does on hover. |
 | `[status:<id>\|<word>]` | The same, shown as a word of your own, like `[status:cold\|chills]`. |

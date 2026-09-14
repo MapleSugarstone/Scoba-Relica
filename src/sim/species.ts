@@ -328,6 +328,23 @@ export function moveIsStab(has: readonly ElementType[], move: Move): boolean {
   return moveTypes(move).some((t) => has.includes(t));
 }
 
+/** The first form of a species' evolutionary line, which is its baby where the line has one. */
+export function firstFormOf(sp: Species): Species {
+  let at = sp;
+  const walked = new Set([sp.id]);
+  for (;;) {
+    const before = Object.values(SPECIES).find((b) => b.evolvesTo === at.id);
+    if (!before || walked.has(before.id)) return at;
+    walked.add(before.id);
+    at = before;
+  }
+}
+
+/** Whether two species belong to the same evolutionary line. */
+export function sameLine(a: Species, b: Species): boolean {
+  return firstFormOf(a).id === firstFormOf(b).id;
+}
+
 /** The baby form a line hatches as, or null for a line with none. */
 export function babyOf(sp: Species): Species | null {
   if (sp.baby) return sp;

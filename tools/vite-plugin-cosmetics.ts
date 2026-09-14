@@ -5,7 +5,7 @@
 // rather than to open the disk up, so a request can never name a path.
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { Connect, Plugin } from "vite";
+import { normalizePath, type Connect, type Plugin } from "vite";
 import { readScript, type RecordKind } from "../src/sim/script/read";
 
 type FileSpec =
@@ -59,7 +59,7 @@ function formatted(file: FileSpec, body: string): string {
   return `${JSON.stringify(JSON.parse(body), null, 2)}\n`;
 }
 
-function endpoint(root: string, name: FileName): Connect.NextHandleFunction {
+function endpoint(root: string, name: FileName, written: Map<string, string>): Connect.NextHandleFunction {
   const file: FileSpec = FILES[name];
   const path = resolve(root, file.path);
   return (req, res) => {
@@ -96,7 +96,10 @@ function endpoint(root: string, name: FileName): Connect.NextHandleFunction {
       const body = Buffer.concat(chunks).toString("utf8");
       const problem = problemWith(file, body);
       if (problem) return send(400, problem);
-      writeFile(path, formatted(file, body), "utf8")
+      const text = formatted(file, body);
+      // Recorded before the write, because the watcher can report the change first.
+      written.set(normalizePath(path), text);
+      writeFile(path, text, "utf8")
         .then(() => send(200, `Saved to ${file.path}.`))
         .catch((err: unknown) => send(500, `Could not write ${file.path}: ${String(err)}`));
     });
@@ -104,15 +107,24 @@ function endpoint(root: string, name: FileName): Connect.NextHandleFunction {
 }
 
 export function cosmeticsFile(root: string): Plugin {
+  /** What the editor last wrote to each file, by normalized path. */
+  const written = new Map<string, string>();
   return {
     name: "scoba-editor-files",
     apply: "serve",
     configureServer(server) {
-      server.middlewares.use("/api/cosmetics", endpoint(root, "cosmetics"));
+      server.middlewares.use("/api/cosmetics", endpoint(root, "cosmetics", written));
       for (const name of Object.keys(FILES) as FileName[]) {
         if (name === "cosmetics") continue;
-        server.middlewares.use(`/api/content/${name}`, endpoint(root, name));
+        server.middlewares.use(`/api/content/${name}`, endpoint(root, name, written));
       }
+    },
+    // The page that saved already holds what it wrote, so a reload only loses its
+    // place. Vite still drops its cached copy of the file, so a manual reload reads
+    // the new text. A change made outside the editor reloads as usual.
+    async hotUpdate({ file, read }) {
+      const wrote = written.get(file);
+      if (wrote !== undefined && (await read()) === wrote) return [];
     },
   };
 }

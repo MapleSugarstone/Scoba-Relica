@@ -15,10 +15,12 @@
 // Nothing reaches the files until Save, and Reset puts one record back to what
 // was last saved.
 import { rememberStep, type Undoable } from "../game/cosmetics";
+import type { TextKind } from "../game/texts";
 import { checkSpecies, type Problem } from "../sim/content/validate";
 import { SCRIPT_TEXT } from "../sim/content/tables";
 import { joinBlocks, splitBlocks, type Blocks } from "../sim/script/lines";
 import { readScript } from "../sim/script/read";
+import { withTextLine } from "../sim/script/write";
 import { FILE_RECORD, SCRIPT_FILES, brokenRefs, type ScriptFile } from "../sim/script/content";
 import { forgetDerived } from "../sim/rewrite";
 import { ABILITIES, MOVES, SPECIES, allSteps, type Species } from "../sim/species";
@@ -47,6 +49,12 @@ export interface DataPanel {
   addSpecies(sp: Species): string[];
   /** Files a new record without handing it to anyone. Returns what is wrong, or nothing. */
   addRecord(file: ScriptFile, text: string): string[];
+  /** A move's or a passive's `text` line, or a line's blurb, or null where it has none. */
+  words(kind: TextKind, id: string): string | null;
+  /** The same, as it was last saved. */
+  savedWords(kind: TextKind, id: string): string | null;
+  /** Rewrites that one line of a record as one step. Empty takes it out. Returns what is wrong, or nothing. */
+  setWords(kind: TextKind, id: string, text: string): string[];
 }
 
 interface Host {
@@ -286,6 +294,50 @@ export function buildDataPanel(host: Host): DataPanel {
     SPECIES[sp.id] = clone(sp);
     host.changed();
     host.note(`${sp.name} added. Save to write it to species.json.`);
+    return [];
+  };
+
+  // --- the words a player reads ---
+
+  const scriptFileOf = (kind: "move" | "ability"): ScriptFile => (kind === "move" ? "moves" : "passives");
+
+  const words = (kind: TextKind, id: string): string | null => {
+    if (kind === "species") return SPECIES[id]?.blurb ?? null;
+    return (kind === "move" ? MOVES[id]?.text : ABILITIES[id]?.text) ?? null;
+  };
+
+  const savedWords = (kind: TextKind, id: string): string | null => {
+    if (kind === "species") return (savedSpecies[id] as Species | undefined)?.blurb ?? null;
+    const file = scriptFileOf(kind);
+    const block = blockOf(saved[file], id);
+    if (!block) return null;
+    const read = readScript(block.text, FILE_RECORD[file]);
+    return (kind === "move" ? read.moves[0]?.text : read.abilities[0]?.text) ?? null;
+  };
+
+  const setWords = (kind: TextKind, id: string, text: string): string[] => {
+    // A script line cannot hold a line break, and a blurb is one line wherever it is shown.
+    const said = text.replace(/\s+/g, " ").trim();
+    if (said === (words(kind, id) ?? "")) return [];
+    if (kind === "species") {
+      const sp = SPECIES[id];
+      if (!sp) return [`There is no line called ${id}.`];
+      const next = clone(sp);
+      if (said === "") delete next.blurb;
+      else next.blurb = said;
+      changeSpecies(id, next, `${sp.name}'s blurb changed`);
+      return [];
+    }
+    const file = scriptFileOf(kind);
+    const block = blockOf(live[file], id);
+    if (!block) return [`There is no ${KIND_NAME[file].toLowerCase()} called ${id}.`];
+    const next = withTextLine(block.text, said === "" ? null : said);
+    const found = scriptProblems(file, id, next);
+    if (found.length > 0) return found.map((p) => `${id} line ${p.line} ${p.says}.`);
+    rememberStep(`data:${file}:${id}`, blockTarget(file, id));
+    applyScript(file, id, next);
+    host.changed();
+    host.note(`${id} text changed. Save to write it to ${file}.txt.`);
     return [];
   };
 
@@ -614,7 +666,7 @@ export function buildDataPanel(host: Host): DataPanel {
   };
 
   return {
-    root, show, sync, dirty, save, addSpecies,
+    root, show, sync, dirty, save, addSpecies, words, savedWords, setWords,
     addRecord: (file, text) => createRecord(file, text, null, false),
   };
 }

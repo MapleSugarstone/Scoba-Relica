@@ -3,11 +3,10 @@ import {
   BIG_SHADOW, DEFAULT_SHADOW, NO_SHADOW, asOneStep, canRedo, canUndo, clearLine, clearPlacement,
   clearSetup, cosmetics, cosmeticsJson, emptyCosmetics, installCosmetics, movementFor,
   parseCosmetics, placedCount, placementFor, readCosmetics, redoCosmetics, setMovement,
-  rememberStep, setPlacement, setSetup, setText, setupFor, shadowFor, undoCosmetics, writtenText,
+  rememberStep, setPlacement, setSetup, setupFor, shadowFor, undoCosmetics,
   type Undoable,
 } from "../src/game/cosmetics";
 import { HYPER_FORM, MOVES, SPECIES, costumesOf, kinCostumes } from "../src/sim/species";
-import { abilityText, generatedText, moveText, speciesText } from "../src/game/texts";
 
 /** A document of its own for each case, since the module holds the working copy. */
 beforeEach(() => {
@@ -125,62 +124,12 @@ describe("a piece on a costume", () => {
   });
 });
 
-describe("words written over the ones the game works out", () => {
-  it("says nothing until something is written", () => {
-    expect(writtenText("ability", "invested")).toBeNull();
-    expect(abilityText("invested")).toBe(generatedText.ability("invested"));
-  });
-
-  it("replaces the whole of what would have been shown", () => {
-    setText("ability", "invested", "It plays the long game.");
-    expect(abilityText("invested")).toBe("It plays the long game.");
-    // The generated line is still there to go back to.
-    expect(generatedText.ability("invested")).toContain("30%");
-  });
-
-  it("covers a line, a passive and a move alike", () => {
-    setText("species", "allin", "Never bluffs.");
-    setText("move", "card-throw", "Deals one off the top.");
-    expect(speciesText(SPECIES["allin"]!)).toBe("Never bluffs.");
-    expect(moveText(MOVES["card-throw"]!)).toBe("Deals one off the top.");
-  });
-
-  it("hands one back to the game when it is emptied", () => {
-    setText("species", "allin", "Never bluffs.");
-    setText("species", "allin", "   ");
-    expect(writtenText("species", "allin")).toBeNull();
-    expect(speciesText(SPECIES["allin"]!)).toBe(SPECIES["allin"]!.blurb);
-  });
-
-  it("takes the surrounding whitespace off what is written", () => {
-    setText("move", "black", "  Doubles down.  ");
-    expect(writtenText("move", "black")).toBe("Doubles down.");
-  });
-
-  it("keeps one line clear of another", () => {
-    setText("ability", "invested", "One.");
-    setText("ability", "roll-the-wheel", "Two.");
-    expect(abilityText("invested")).toBe("One.");
-    expect(abilityText("roll-the-wheel")).toBe("Two.");
-  });
-
-  it("steps back off a written line like anything else", () => {
-    setText("species", "allin", "Never bluffs.");
-    expect(undoCosmetics()).toBe(true);
-    expect(writtenText("species", "allin")).toBeNull();
-    expect(redoCosmetics()).toBe(true);
-    expect(writtenText("species", "allin")).toBe("Never bluffs.");
-  });
-
-  it("goes into the document that gets committed", () => {
-    setText("species", "allin", "Never bluffs.");
-    const doc = JSON.parse(cosmeticsJson()) as { texts: Record<string, string> };
-    expect(doc.texts["species:allin"]).toBe("Never bluffs.");
-  });
-
-  it("reads a document written before there were any words in it", () => {
-    const old = readCosmetics({ pieces: {}, costumes: {}, lines: {} });
-    expect(old.texts).toEqual({});
+describe("words, which live in the records they describe", () => {
+  it("drops the texts an older document carried", () => {
+    const old = readCosmetics({ pieces: {}, costumes: {}, lines: {}, texts: { "move:green": "Old." } });
+    expect(old).toEqual(emptyCosmetics());
+    installCosmetics(old, () => undefined);
+    expect(JSON.parse(cosmeticsJson())).not.toHaveProperty("texts");
   });
 });
 

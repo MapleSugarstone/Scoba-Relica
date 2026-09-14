@@ -166,6 +166,12 @@ export function hueShift([r, g, b]: RGB, turns: number): RGB {
   ];
 }
 
+/** The grey a colour would be with its hue taken out, at the same lightness. */
+export function greyOf([r, g, b]: RGB): RGB {
+  const v = Math.round((Math.max(r, g, b) + Math.min(r, g, b)) / 2);
+  return [v, v, v];
+}
+
 /** Exact-match palette swap onto a fresh canvas. Transparent pixels are kept. */
 export function paletteSwap(
   img: HTMLImageElement | HTMLCanvasElement,

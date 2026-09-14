@@ -23,6 +23,12 @@ describe("reading one bracket", () => {
     expect(readToken("status:cold")?.token).toEqual({ of: "status", id: "cold" });
   });
 
+  it("reads a number after the colon as a place in the cast", () => {
+    expect(readToken("damage:2")?.token).toEqual({ of: "damage", nth: 2 });
+    expect(readToken("heal:3")?.token).toEqual({ of: "heal", nth: 3 });
+    expect(readToken("damage:in-the-red")?.token).toEqual({ of: "damage", id: "in-the-red" });
+  });
+
   it("has nothing for the cost or the type, which are shown beside the name", () => {
     expect(readToken("cost")).toBeNull();
     expect(readToken("type")).toBeNull();
@@ -239,6 +245,18 @@ describe("a written line", () => {
     // Flat damage is neither, and is coloured as what it is.
     expect(parseProse("[damage]", { move: MOVES["cherry-on-top"]! })[0])
       .toMatchObject({ tone: "true" });
+  });
+
+  it("reads the second damage off the payout that follows the hit", () => {
+    expect(labels("[damage:1] then [damage:2]", cardThrow)).toEqual(["30% Strength", "230% Strength"]);
+    const at = { move: cardThrow, stats: statsFor({ str: 120 }), level: 30 };
+    expect(parseProse("[damage:2]", at)[0]).toMatchObject({ label: "276", tone: "physical" });
+    expect(details("[damage:2]", cardThrow)[0]).toContain("exactly 21 pays out");
+  });
+
+  it("says so where a move has no damage in that place", () => {
+    expect(labels("[damage:3]", cardThrow)).toEqual(["?"]);
+    expect(details("[damage:3]", cardThrow)[0]).toBe("Card Throw has no damage number 3.");
   });
 
   it("counts flat damage off the level rather than a stat", () => {
