@@ -387,6 +387,8 @@ export const REFERENCE: RefGroup[] = [
     in: CARRIED,
     lines: [
       { form: "while carried:", says: "Standing effects, for as long as it is there.", example: "while carried:" },
+      { form: "grows <n> <art>", says: "Art growing out of the holder, that many pieces a stack.", example: "grows 6 randomcoral" },
+      { form: "cuts the next hit by <share>", says: "Takes that share off the next damage it takes, for a charge.", example: "cuts the next hit by 50%" },
       { form: "when <trigger>:", says: "Steps that run when the trigger happens.", example: "when a turn ends:" },
     ],
   },
@@ -407,7 +409,7 @@ export const REFERENCE: RefGroup[] = [
       { form: "it lands magic | physical | a spell", says: "The same, for one kind of hit.", example: "when it lands magic:" },
       { form: "it kills", says: "The holder's attack makes a Scoba faint.", example: "when it kills:" },
       { form: "it faints", says: "The holder faints. other is the killer.", example: "when it faints:" },
-      { form: "an ally faints | an enemy faints", says: "Someone on that side faints.", example: "when an ally faints:" },
+      { form: "an ally faints | an enemy faints | anyone faints", says: "Someone on that side faints, or on either side.", example: "when anyone faints:" },
       { form: "below <n>% hp", says: "Damage leaves the holder at or under that share.", example: "when below 50% hp:" },
     ],
   },
@@ -428,7 +430,9 @@ export const REFERENCE: RefGroup[] = [
     in: STEPPED,
     lines: [
       { form: "hit <who> <n>% <stat> + <n>% <stat>", says: "An attack through the chart and armor. First stat sets physical or magic.", example: "hit target 120% strength" },
-      { form: "hit <who> <n> per level", says: "Flat damage that ignores the chart and armor.", example: "hit target 2 per level" },
+      { form: "hit <who> <n>% <stat> + <n> at max level", says: "A flat amount on top of the shares, scaled by the attacker's level.", example: "hit target 8% magic + 8 at max level" },
+      { form: "hit <who> ..., per stack of <status>", says: "Counts the hit once per stack the target carries, and skips anyone carrying none.", example: "hit target 8% magic, per stack of coraled" },
+      { form: "hit <who> <n> per level", says: "A flat amount per level of the attacker in place of the shares.", example: "hit target 2 per level" },
       { form: "hit ..., as <element> <physical|magic>, sound <name>", says: "Options on a hit.", example: "hit target 100% magic, as sun magic" },
       { form: "damage <who> <share>, as <element> <physical|magic|true>", says: "A set amount, no chart, no same-type bonus, no armor.", example: "damage holder 15% of source magic, as sun magic, fixed when applied" },
       { form: "damage ..., counts as attack | sets off hits | fixed when applied", says: "Options on damage.", example: "damage holder 10% of their max hp, as true, counts as attack" },
@@ -451,9 +455,11 @@ export const REFERENCE: RefGroup[] = [
     in: STEPPED,
     lines: [
       { form: "inflict <status> on <who>, for <n> turns", says: "Lands a status on each Scoba.", example: "inflict fire on target" },
+      { form: "clear <status> from <who>", says: "Takes one named status off, however many stacks it holds.", example: "clear coraled from target" },
       { form: "cleanse <good|bad> marks from <who>", says: "Takes every status of one half off.", example: "cleanse bad marks from target" },
       { form: "copy marks from <who> to <who>", says: "Copies every status from the first to each of the second.", example: "copy marks from target to target2" },
       { form: "lay <field> over <its side|the enemy side|both sides>", says: "Lays a field, taking the old one off.", example: "lay sunblessed over both sides" },
+      { form: "raise <who> as a pawn at <share> level, as <element> <element>", says: "Puts a fallen Scoba back as a Pawn of the caster's side. The steps after it reach it as \"raised\".", example: "raise target as a pawn at 75% level, as moon flux" },
     ],
   },
   {

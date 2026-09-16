@@ -86,7 +86,7 @@ describe("what a costume is set to", () => {
   });
 });
 
-describe("how a line carries itself", () => {
+describe("how a costume carries itself", () => {
   it("is its species' until something says otherwise", () => {
     expect(movementFor("octoshake")).toBeNull();
     setMovement("octoshake", "hover");
@@ -97,14 +97,35 @@ describe("how a line carries itself", () => {
     setMovement("octoshake", "hover");
     setMovement("octoshake", null);
     expect(movementFor("octoshake")).toBeNull();
-    expect(cosmetics().lines["octoshake"]).toBeUndefined();
+    expect(cosmetics().costumes["octoshake"]).toBeUndefined();
   });
 
-  it("belongs to the line rather than to one of its drawings", () => {
-    // Hyper-Mode is a redrawing, not a different gait.
+  it("belongs to one drawing, so Hyper-Mode can carry itself its own way", () => {
     setMovement("octoshake", "skitter");
+    setMovement("hyper-octoshake", "hover");
     expect(movementFor("octoshake")).toBe("skitter");
-    expect(setupFor("hyper-octoshake")).toEqual({});
+    expect(movementFor("hyper-octoshake")).toBe("hover");
+    // A costume that names none takes its species', not the one beside it.
+    expect(movementFor("octoshake-cherryless")).toBeNull();
+  });
+
+  it("leaves the rest of a costume alone when its gait goes", () => {
+    setSetup("hyper-octoshake", { body: { dx: 1, dy: 2 } });
+    setMovement("hyper-octoshake", "hover");
+    setMovement("hyper-octoshake", null);
+    expect(setupFor("hyper-octoshake").body).toEqual({ dx: 1, dy: 2 });
+  });
+
+  it("reads a gait written against the line before gaits moved onto costumes", () => {
+    installCosmetics({
+      pieces: {}, costumes: {}, lines: { octoshake: { movement: "hover" } },
+    }, () => {});
+    // Every costume of the line takes it, since that is what it used to mean.
+    expect(movementFor("octoshake", "octoshake")).toBe("hover");
+    expect(movementFor("hyper-octoshake", "octoshake")).toBe("hover");
+    // What the costume says wins over it.
+    setMovement("hyper-octoshake", "skitter");
+    expect(movementFor("hyper-octoshake", "octoshake")).toBe("skitter");
   });
 });
 
@@ -350,7 +371,7 @@ describe("how much has been set", () => {
     expect(placedCount()).toBe(0);
     setPlacement("cherry", "octoshake", { dx: 1, dy: 0 });
     setSetup("octoshake", { body: { dx: 1, dy: 0 } });
-    setMovement("octoshake", "hover");
+    setMovement("hyper-octoshake", "hover");
     expect(placedCount()).toBe(3);
   });
 });

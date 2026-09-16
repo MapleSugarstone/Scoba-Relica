@@ -50,6 +50,7 @@ export const AIM_WORDS = vocab<TargetMode>([
   ["other ally", "other-ally"],
   ["any enemy", "any-enemy"],
   ["any scoba", "any-scoba"],
+  ["fallen scoba", "fallen-scoba"],
   ["benched ally", "benched-ally"],
   ["benched enemy", "benched-enemy"],
   ["all allies", "ally-team"],
@@ -87,6 +88,7 @@ export const TRIGGER_WORDS = vocab<PlainTrigger>([
   ["it takes the field", "switch-in"],
   ["an ally faints", "ally-death"],
   ["an enemy faints", "enemy-death"],
+  ["anyone faints", "any-death"],
 ]);
 
 /**
@@ -102,7 +104,7 @@ const everyShow: Record<ShowPath, true> = { wheel: true, glow: true, burst: true
 const everyStat: Record<StatName, true> = { hp: true, str: true, def: true, res: true, mag: true, spd: true };
 const everyMode: Record<TargetMode, true> = {
   "self": true, "any-ally": true, "other-ally": true, "any-enemy": true, "any-scoba": true,
-  "benched-ally": true, "benched-enemy": true, "ally-team": true, "enemy-team": true,
+  "fallen-scoba": true, "benched-ally": true, "benched-enemy": true, "ally-team": true, "enemy-team": true,
   "random-ally": true, "random-enemy": true, "random-scoba": true,
 };
 const everyTrigger: Record<PlainTrigger, true> = {
@@ -110,6 +112,7 @@ const everyTrigger: Record<PlainTrigger, true> = {
   "use-ability": true, block: true, "hit-magic": true, "hit-physical": true, "hit-any": true,
   "deal-magic": true, "deal-physical": true, "deal-any": true, "deal-spell": true,
   "kill-attack": true, death: true, "switch-in": true, "ally-death": true, "enemy-death": true,
+  "any-death": true,
 };
 
 /** Checked when the module loads, so a word missing for a member fails every test at once. */

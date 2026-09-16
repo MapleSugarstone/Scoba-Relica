@@ -104,10 +104,12 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
   const line = (text: string): string[] => [`${pad}${text}`];
   switch (s.kind) {
     case "hit": {
+      const shares = s.scaling.map((x) => `${pct(x.scale)} ${STAT_WORDS.write[x.stat]}`).join(" + ");
       const amount = s.perLevel !== undefined
         ? `${num(s.perLevel)} per level`
-        : s.scaling.map((x) => `${pct(x.scale)} ${STAT_WORDS.write[x.stat]}`).join(" + ");
+        : `${shares}${s.flatAtCeiling !== undefined ? ` + ${num(s.flatAtCeiling)} at max level` : ""}`;
       const opts: string[] = [];
+      if (s.perStackOf !== undefined) opts.push(`per stack of ${s.perStackOf}`);
       if (s.element !== undefined || s.category !== undefined) {
         opts.push(`as${s.element ? ` ${s.element}` : ""}${s.category ? ` ${s.category}` : ""}`);
       }
@@ -132,6 +134,11 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
       return line(`inflict ${s.status} on ${who(s.on, names)}`
         + `${s.turns !== undefined ? `, for ${num(s.turns)} turn${s.turns === 1 ? "" : "s"}` : ""}`);
     case "cleanse": return line(`cleanse ${s.polarity} marks from ${who(s.on, names)}`);
+    case "clear-status": return line(`clear ${s.status} from ${who(s.on, names)}`);
+    case "raise": {
+      const as = s.types !== undefined ? `, as ${s.types.join(" ")}` : "";
+      return line(`raise ${who(s.who, names)} as a pawn at ${pct(s.levelShare)} level${as}`);
+    }
     case "copy-marks": return line(`copy marks from ${who(s.from, names)} to ${who(s.to, names)}`);
     case "transfer":
       return line(`take ${pct(s.frac)} hp from ${who(s.from, names)}, ${s.deliver === "damage"
@@ -194,6 +201,7 @@ function standingLine(e: Standing): string {
     case "element-power": return `${e.element} moves ${times(e.mult)}`;
     case "root": return "cannot switch out";
     case "ward": return `blocks ${e.element} hits`;
+    case "soften": return `cuts the next hit by ${pct(e.frac)}`;
     case "mark-power": return `marks it leaves hit ${times(e.mult)} if they last ${num(e.minTurns)} turns or more`;
   }
 }
@@ -269,6 +277,9 @@ export function writeStatus(s: StatusDef): string {
   if (s.stacks) out.push(`${INDENT}stacks${s.maxStacks >= 99 ? "" : ` up to ${num(s.maxStacks)}`}`);
   if (!s.persists) out.push(`${INDENT}lost on switching out`);
   if (s.hand) out.push(`${INDENT}shows a hand of cards`);
+  if (s.growth !== undefined) {
+    out.push(`${INDENT}grows ${s.growthEach === undefined ? "" : `${num(s.growthEach)} `}${bare(s.growth)}`);
+  }
   if (s.power) out.push(`${INDENT}power ${share(s.power.basis, s.power.frac, { kind: "status", aims: [] })}`);
   out.push(...behaviourLines(s));
   return out.join("\n");

@@ -4,6 +4,7 @@ import {
 } from "../engine/sprite";
 import type { MovementStyle } from "../sim/species";
 import type { WorldSprite } from "../engine/paperdoll";
+import { ART } from "../engine/renderer";
 
 export interface ActorSkin {
   sprite: WorldSprite;
@@ -267,6 +268,46 @@ export class Actor {
     if (!solid) ctx.globalAlpha = 1;
     // Shed light is drawn where it fell, so the camera offsets go in raw.
     if (this.sparks.length > 0) drawSparks(ctx, this.sparks, camX, camY, this.fade);
+  }
+
+  /**
+   * Something growing out of the body at one of its own pixels, on the same
+   * transform the sprite is drawn on, turned about its foot. `at` is in art
+   * pixels of the sprite, so a piece planted on a drawn pixel stays on one
+   * however the body hops, lunges or is mirrored. `flip` turns the piece over,
+   * so one drawing reads as two.
+   */
+  drawGrowth(
+    ctx: CanvasRenderingContext2D,
+    camX: number,
+    camY: number,
+    img: CanvasImageSource,
+    at: { x: number; y: number },
+    tilt: number,
+    flip: boolean,
+    alpha = 1,
+  ): void {
+    if (this.hidden || alpha <= 0) return;
+    const w = (img as HTMLCanvasElement).width;
+    const h = (img as HTMLCanvasElement).height;
+    if (!w || !h) return;
+    const s = this.skin.sprite;
+    const u = 1 / ART;
+    const b = bounce(this.motion(), this.hopT, this.hopEase);
+    const dx = Math.round((this.x - camX) * ART) / ART;
+    const dy = Math.round((this.y - camY - b.hop * u) * ART) / ART;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, alpha) * this.fade;
+    ctx.translate(dx, dy);
+    if (b.angle !== 0) ctx.rotate(b.angle);
+    ctx.scale(this.dir * u, u);
+    ctx.translate(at.x - s.px, at.y - s.py);
+    ctx.rotate(tilt);
+    // Mirrored so one drawing reads as two, at the size it was drawn.
+    if (flip) ctx.scale(-1, 1);
+    // Planted on its foot: the stem sits at the pixel and the piece stands off it.
+    ctx.drawImage(img, -w / 2, -h);
+    ctx.restore();
   }
 
   /**

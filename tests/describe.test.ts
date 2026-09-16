@@ -89,7 +89,7 @@ describe("the moves in the game", () => {
       "Deals 70% Sun magic damage to an enemy. At the end of each turn, it takes 15% Sun magic damage for 3 turns. Stacks. (30% mana, cooldown 1)",
     );
     expect(line("hairline")).toBe(
-      "Deals 80% Cipher magic damage to an enemy. When hit, it takes 10% of its max HP as true damage, up to 3 times for 5 turns. (35% mana, cooldown 2)",
+      "Deals 80% Cipher magic damage to an enemy. Then gives it Defense -10%, Resistance -10% for 2 turns. Lost on switching out. (35% mana, cooldown 2)",
     );
   });
 

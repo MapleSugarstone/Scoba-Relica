@@ -213,7 +213,7 @@ move hairline "Hairline"
   costs 35 mana
   cooldown 2
   aim any enemy
-  text "Deals [damage] damage to an enemy and leaves them [status:fragile|fragile] for 5 turns. The next 3 hits on them deal extra damage equal to [damage:fragile]."
+  text "Deals [damage] damage to an enemy and leaves them [status:fragile|fragile], reducing their defense and resistance by 10% for 2 turns."
   cast:
     caster focus
     throw as beam to target
@@ -495,3 +495,57 @@ move sunfall "Sunfall"
     caster rear
     throw as beam to target
     hit target 220% magic
+
+move coral-blast "Coral Blast"
+  type moon, flux
+  costs 20 mana
+  aim any enemy
+  text "Deals [damage] damage to an enemy and leaves them [status:fragile|fragile], reducing their defense and resistance by 10% for 2 turns."
+  cast:
+    caster shake
+    throw "coral-blast" as bolt to target
+    hit target 100% magic, as moon magic
+    inflict fragile on target
+
+move dead-coral "Dead Coral"
+  type flux
+  costs 40 mana
+  aim any enemy
+  text "Leaves an enemy [status:dead-coral|dead coral], dealing [damage:dead-coral] damage at the end of each turn and reducing their resistance by 5%. It stays through switching out."
+  cast:
+    caster focus
+    throw "dead coral" as lob to target
+    inflict dead-coral on target
+
+move coral-shield "Coral Shield"
+  type moon, flux
+  costs 40 mana
+  priority 1
+  aim any ally "Shield"
+  text "Gives an ally a [status:coral-shield|coral shield], reducing the damage of the next hit they take by 50%. It stays through switching out."
+  cast:
+    caster focus
+    throw "coral-shield" as toss to target
+    inflict coral-shield on target
+
+move coral-burst "Coral Burst"
+  type moon, flux
+  costs 15 mana
+  priority 1
+  aim all enemies "Every coral"
+  text "Sets off every [status:coraled|coral] at once. Each one deals [damage] damage to the enemy wearing it, and every coral is spent."
+  cast:
+    caster rear
+    hit target 8% magic + 8 at max level, per stack of coraled, as flux magic
+    clear coraled from target
+
+move coral-ritual "Coral Ritual"
+  type moon, flux
+  costs 100 mana
+  aim fallen scoba "Raise"
+  text "Raises a fallen Scoba as a Pawn at 75% of its level under your control and caster's type. It [status:decaying-coral|decays] for [damage:decaying-coral] damage at the end of each turn."
+  cast:
+    caster focus
+    show coral-ritual as glow over caster
+    raise target as a pawn at 75% level
+    inflict decaying-coral on raised

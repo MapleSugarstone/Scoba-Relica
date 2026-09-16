@@ -270,9 +270,11 @@ export function bodyColors(palette: readonly ColorCount[]): ColorCount[] {
  * The marks a father leaves on a hybrid: his colours over the child's, paired
  * off by how much of each there is.
  *
- * The child keeps the colour it is mostly made of. That one colour is what
- * makes it recognisable as itself, and painting over it turned the child into
- * the father wearing its shape. Everything under it goes.
+ * The colour the child is mostly made of is painted over as well. Nearly every
+ * line is one colour across four fifths of its drawing, so keeping that colour
+ * kept the whole Scoba: a child took its father's passive, its element and its
+ * second colour and still read as its mother's line. What makes it its own is
+ * its shape, which a colour swap never touches.
  *
  * Ties break on the hex itself, so two clients hatching the same pair paint
  * the same pixels.
@@ -282,7 +284,7 @@ export function pickTints(dad: ColorCount[], child: ColorCount[]): Tint[] {
   const donors = bodyColors(dad).filter((c) => !worn.has(c.hex));
   const mine = bodyColors(child);
   const primary = mine[0];
-  if (!primary || mine.length < 2) return [];
+  if (!primary) return [];
   const turn = donors[0] ? hueTurn(primary.hex, donors[0].hex) : 0;
-  return pairColors(mine.slice(1), donors, turn);
+  return pairColors(mine, donors, turn);
 }

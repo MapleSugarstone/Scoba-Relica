@@ -35,10 +35,10 @@ const put = (c: Combatant, id: string, from?: { side: 0 | 1; index: number }) =>
 
 describe("status definitions", () => {
   it("matches a specific hit against a status listening for any hit", () => {
-    const fragile = STATUSES["fragile"]!;
-    expect(triggerMatches(fragile, { on: "hit", category: "magic", element: "sun", spell: true })).toBe(true);
-    expect(triggerMatches(fragile, { on: "hit", category: "physical", element: "plain", spell: true })).toBe(true);
-    expect(triggerMatches(fragile, { on: "turn-end" })).toBe(false);
+    const anyHit = { ...STATUSES["marked"]!, trigger: { on: "hit-any" as const } };
+    expect(triggerMatches(anyHit, { on: "hit", category: "magic", element: "sun", spell: true })).toBe(true);
+    expect(triggerMatches(anyHit, { on: "hit", category: "physical", element: "plain", spell: true })).toBe(true);
+    expect(triggerMatches(anyHit, { on: "turn-end" })).toBe(false);
     // A status listening for one category ignores the other.
     const marked = STATUSES["marked"]!;
     expect(triggerMatches(marked, { on: "hit", category: "magic", element: "cipher", spell: true })).toBe(false);
@@ -149,26 +149,20 @@ describe("statuses in a battle", () => {
     expect(foe.statuses.some((s) => s.id === "fire")).toBe(false);
   });
 
-  it("Fragile deals damage on every hit and spends its three charges", () => {
+  it("Fragile takes a tenth off both defences while it stands", () => {
     const st = duel(["crush"]);
     const foe = st.teams[1][0]!;
-    foe.scoba.moves = [];
+    const bare = combatantStats(foe);
     put(foe, "fragile", { side: 0, index: 0 });
-    const charges = () => foe.statuses.find((s) => s.id === "fragile")?.chargesLeft ?? 0;
-    expect(charges()).toBe(3);
-    resolveTurn(st, [{ kind: "attack", side: 0, slot: 0, picks: [{ side: 1, index: 0 }] }]);
-    if (!foe.fainted) expect(charges()).toBe(2);
+    const now = combatantStats(foe);
+    // The floor lands once at the end of the stat line, so each reads a point either side.
+    expect(Math.abs(now.def - bare.def * 0.9)).toBeLessThanOrEqual(1);
+    expect(Math.abs(now.res - bare.res * 0.9)).toBeLessThanOrEqual(1);
   });
 
-  it("Fragile's own tick does not set itself off again", () => {
-    const st = duel(["crush"]);
-    const foe = st.teams[1][0]!;
-    foe.hp = 10000;
-    foe.scoba.moves = [];
-    put(foe, "fragile", { side: 0, index: 0 });
-    resolveTurn(st, [{ kind: "attack", side: 0, slot: 0, picks: [{ side: 1, index: 0 }] }]);
-    // One hit, one charge: a self-retriggering status would have burned all three.
-    expect(foe.statuses.find((s) => s.id === "fragile")?.chargesLeft).toBe(2);
+  it("Fragile stands two turns and goes with a switch", () => {
+    expect(STATUSES["fragile"]!.duration).toBe(2);
+    expect(STATUSES["fragile"]!.persists).not.toBe(true);
   });
 
   it("elemental immunity turns a hit aside entirely", () => {

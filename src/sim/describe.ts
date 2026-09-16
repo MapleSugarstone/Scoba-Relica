@@ -6,10 +6,10 @@
 // triggers up front, the cost in a trailer, and nothing described by its name
 // where it can be described by what it does.
 import {
-  ABILITIES, MOVES, SPECIES, abilityStatuses, moveTypes, type Move,
+  ABILITIES, MOVES, SPECIES, abilityStatuses, allSteps, moveTypes, type Move,
 } from "./species";
 import {
-  FIELDS, STATUSES,
+  FIELDS, STATUSES, statusName,
   type Basis, type DamageCategory, type FieldDef, type MoveChange, type StatusDef,
   type StatusEffect, type StatusTrigger, type Step, type Who,
   isContinuous,
@@ -75,6 +75,7 @@ const TARGETS: Record<TargetMode, Subject> = {
   "other-ally": one("another ally", "another ally's"),
   "any-enemy": one("an enemy", "an enemy's"),
   "any-scoba": one("anyone", "anyone's"),
+  "fallen-scoba": one("a fallen Scoba", "a fallen Scoba's"),
   "benched-ally": one("a benched ally", "a benched ally's"),
   "benched-enemy": one("a benched enemy", "a benched enemy's"),
   "ally-team": many("all allies", "every ally's"),
@@ -93,6 +94,7 @@ const SCOPES: Record<Exclude<Who, { aim: number }>, Subject> = {
   enemies: many("every enemy", "every enemy's"),
   everyone: many("everyone", "everyone's"),
   others: many("every other Scoba", "every other Scoba's"),
+  raised: one("the Scoba it raised", "the raised Scoba's"),
 };
 
 const scopeOf = (w: Who): Subject => (typeof w === "object" ? THE_TARGET : SCOPES[w]);
@@ -125,6 +127,7 @@ function when(t: StatusTrigger): string {
     case "switch-in": return "On entering the field";
     case "ally-death": return "When an ally faints";
     case "enemy-death": return "When an enemy faints";
+    case "any-death": return "When any Scoba faints";
     case "hp-below": return `When below ${pct(t.frac)} HP`;
     case "passive": return "";
   }
@@ -207,6 +210,7 @@ function state(e: StatusEffect, def: StatusDef, who: Subject): string | null {
       const n = def.charges ?? 0;
       return `absorbs ${n === 1 ? "one" : n > 1 ? String(n) : "every"} ${type(e.element)} hit${n === 1 ? "" : "s"}${n > 0 ? " a battle" : ""}`;
     }
+    case "soften": return `cuts the next hit it takes by ${pct(e.frac)}`;
     case "mark-power":
       return `makes the marks it leaves that stand for ${turns(e.minTurns)} or more ${pct(e.mult - 1)} stronger`;
     default: return null;
@@ -305,6 +309,8 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
     }
     case "grant-item": return `finds ${e.count} ${cap(e.item)}`;
     case "cleanse": return `clears ${who.their} ${e.polarity} statuses`;
+    case "clear-status": return `takes ${statusName(e.status)} off ${scopeOf(e.on).noun || "itself"}`;
+    case "raise": return `raises ${scopeOf(e.who).noun || "itself"} as a Pawn`;
     case "copy-marks":
       return `passes ${who.their} statuses to ${def.trigger.on === "death" ? "whoever struck it down" : "whoever set it off"}`;
     case "hit": {
@@ -408,7 +414,14 @@ export function describeStatus(id: string, opts: StatusOpts = {}): string {
     return `The cards it is holding. Landing on exactly ${BLACKJACK}, with an Ace counting 1 or 11,`
       + " pays out against it at once, and going over clears the hand for nothing.";
   }
-  return join(statusPieces(def, HOLDER, opts));
+  const said = join(statusPieces(def, HOLDER, opts));
+  if (said !== "") return said;
+  // A mark that does nothing on its own is a count something else reads.
+  const readers = Object.values(MOVES)
+    .filter((m) => !m.derived && allSteps(m.cast).some((s) => s.kind === "hit" && s.perStackOf === id))
+    .map((m) => m.name);
+  if (readers.length > 0) return `${readers.join(" and ")} counts how many of these it is carrying.`;
+  return said;
 }
 
 /** What a passive does, which is what its statuses do and what it hands over. */
@@ -467,9 +480,13 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       const t = who(e.to);
       const category = hitCategory(e);
       const elements = e.element ? type(e.element) : moveElements(move);
-      const amount = e.perLevel !== undefined ? `${e.perLevel} per level` : pct(e.scaling[0]?.scale ?? 0);
+      const flat = e.flatAtCeiling !== undefined ? ` plus ${perLevel(e.flatAtCeiling)} per level` : "";
+      const amount = e.perLevel !== undefined ? `${e.perLevel} per level` : `${pct(e.scaling[0]?.scale ?? 0)}${flat}`;
+      const each = e.perStackOf !== undefined
+        ? ` for each stack of ${STATUSES[e.perStackOf]?.name ?? e.perStackOf} it carries`
+        : "";
       return [{
-        text: `Deals ${amount} ${elements} ${category} damage to ${t.noun || "itself"}.`,
+        text: `Deals ${amount} ${elements} ${category} damage to ${t.noun || "itself"}${each}.`,
         triggered: false,
       }];
     }
@@ -533,6 +550,18 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
     case "cleanse": {
       const t = who(e.on);
       return [{ text: `Clears ${e.polarity} statuses from ${t.noun || "itself"}.`, triggered: false }];
+    }
+    case "clear-status": {
+      const t = who(e.on);
+      return [{ text: `Takes ${statusName(e.status)} off ${t.noun || "itself"}.`, triggered: false }];
+    }
+    case "raise": {
+      const t = who(e.who);
+      const as = e.types !== undefined ? ` as ${e.types.map(type).join(" and ")}` : " in its own elements";
+      return [{
+        text: `Raises ${t.noun || "itself"} as a Pawn${as}, at ${pct(e.levelShare)} of the level it fell at.`,
+        triggered: false,
+      }];
     }
     case "copy-marks": {
       const from = who(e.from);

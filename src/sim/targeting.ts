@@ -41,6 +41,8 @@ export type TargetMode =
   /** Pick anyone standing, either side. */
   | "any-scoba"
   /** Pick from your own bench. */
+  /** Pick one Scoba that has fainted, on either side, bench included. */
+  | "fallen-scoba"
   | "benched-ally"
   /** Pick from the enemy bench. */
   | "benched-enemy"
@@ -72,6 +74,7 @@ export const TARGET_LABELS: Record<TargetMode, string> = {
   "other-ally": "another ally",
   "any-enemy": "one enemy",
   "any-scoba": "anyone",
+  "fallen-scoba": "a fallen Scoba",
   "benched-ally": "a benched ally",
   "benched-enemy": "a benched enemy",
   "ally-team": "all allies",
@@ -82,7 +85,7 @@ export const TARGET_LABELS: Record<TargetMode, string> = {
 };
 
 const PICKED: TargetMode[] = [
-  "any-ally", "other-ally", "any-enemy", "any-scoba", "benched-ally", "benched-enemy",
+  "any-ally", "other-ally", "any-enemy", "any-scoba", "fallen-scoba", "benched-ally", "benched-enemy",
 ];
 
 const RANDOM: TargetMode[] = ["random-ally", "random-enemy", "random-scoba"];
@@ -129,6 +132,16 @@ function benched(st: BattleState, side: 0 | 1): number[] {
   return out;
 }
 
+/** Team indices that have fainted, out or benched, since a raising can reach either. */
+function fallen(st: BattleState, side: 0 | 1): number[] {
+  const out: number[] = [];
+  st.teams[side].forEach((c, i) => {
+    // A Pawn that falls is gone rather than lying there to be raised.
+    if (c.fainted && !c.pawn) out.push(i);
+  });
+  return out;
+}
+
 /**
  * Everyone a spec could land on. For picked modes this is the menu the player
  * chooses from; for team and random modes it is the pool the spec draws from.
@@ -153,6 +166,8 @@ export function candidates(st: BattleState, user: TargetRef, mode: TargetMode): 
     case "any-scoba":
     case "random-scoba":
       return [...refs(ally, standing(st, ally)), ...refs(foe, standing(st, foe))];
+    case "fallen-scoba":
+      return [...refs(ally, fallen(st, ally)), ...refs(foe, fallen(st, foe))];
     case "benched-ally":
       return refs(ally, benched(st, ally));
     case "benched-enemy":

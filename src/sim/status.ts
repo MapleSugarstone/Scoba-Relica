@@ -43,9 +43,10 @@ export type StatusTrigger =
   | { on: "death" }
   /** The holder is sent out. */
   | { on: "switch-in" }
-  /** Someone else goes down. */
+  /** Someone else goes down. `any-death` answers either side. */
   | { on: "ally-death" }
   | { on: "enemy-death" }
+  | { on: "any-death" }
   /** The holder drops to or below a share of its pool. */
   | { on: "hp-below"; frac: number };
 
@@ -108,6 +109,8 @@ export type Who =
   | "everyone"
   /** Every standing member of both teams but the self. */
   | "others"
+  /** The Scoba a `raise` step just put on the field, for the steps after it. */
+  | "raised"
   /** One of a move's target groups, by the order its aims are written in. */
   | { aim: number };
 
@@ -189,6 +192,13 @@ export type Step =
    */
   | {
     kind: "hit"; to: Who; scaling: Scaling[]; perLevel?: number;
+    /** A flat amount at the level ceiling, scaled by the attacker's level, on top of the shares. */
+    flatAtCeiling?: number;
+    /**
+     * Counted once for each stack of this status the target carries, and not
+     * thrown at all where the target carries none.
+     */
+    perStackOf?: string;
     element?: ElementType; category?: "physical" | "magic"; sound?: string;
   }
   /** A set amount, with no chart and no armor. */
@@ -218,6 +228,14 @@ export type Step =
    * dealer's Strength and clears. One that goes over busts and clears.
    */
   | { kind: "deal-card"; to: Who; payoff: number; hand: string }
+  /**
+   * Raises a fallen Scoba as a Pawn on the caster's side, at `levelShare` of the
+   * level it fell at, wearing the caster's colours. `types` replaces what it is,
+   * and the steps after it reach it as `raised`.
+   */
+  | { kind: "raise"; who: Who; levelShare: number; types?: ElementType[] }
+  /** Takes one named status off each Scoba in `on`, however many stacks it holds. */
+  | { kind: "clear-status"; status: string; on: Who }
   /** Runs `then` only if a Scoba in `fell` that was standing when the cast began is down now. */
   | { kind: "if"; fell: Who; then: Step[] }
   /** Puts back the mana the cast was paid with and clears its cooldown. */
@@ -294,6 +312,11 @@ export type Standing =
    * spends a charge when it catches something.
    */
   | { kind: "ward"; element: ElementType }
+  /**
+   * Takes `frac` off the next instance of damage the holder takes, whatever it
+   * is. Read where damage lands, and spends a charge when it catches something.
+   */
+  | { kind: "soften"; frac: number }
   /** The holder cannot be called back. Read where a switch is offered. */
   | { kind: "root" }
   /**
@@ -342,6 +365,14 @@ export interface StatusDef {
   sound?: string;
   /** Its stacks are a hand of cards, drawn over the holder's head. */
   hand?: boolean;
+  /**
+   * Art that grows out of the holder, by file name in `assets/Powers`. A name
+   * with numbered files beside it (`randomcoral1`, `randomcoral2`) draws one of
+   * them per piece. `growthEach` is how many pieces a stack is worth, which is
+   * one where it is left out.
+   */
+  growth?: string;
+  growthEach?: number;
   /** Standing effects, then the steps its trigger runs, each in written order. */
   effects: StatusEffect[];
 }
@@ -555,7 +586,7 @@ export interface ReadEffect {
  */
 const CONTINUOUS = new Set<StatusEffect["kind"]>([
   "stat-add", "stat-set", "stat-scale", "stat-share", "stat-offset", "stat-power",
-  "stat-boost", "immune", "vulnerable", "element-power", "root", "ward", "mark-power",
+  "stat-boost", "immune", "vulnerable", "element-power", "root", "ward", "soften", "mark-power",
 ]);
 
 export function isContinuous(kind: StatusEffect["kind"]): boolean {
@@ -645,6 +676,17 @@ export function wardAgainst(list: StatusInstance[], element: ElementType): Statu
   return null;
 }
 
+/** The first status cutting the next hit down, if anything does, and by how much. */
+export function softenOn(list: StatusInstance[]): { inst: StatusInstance; frac: number } | null {
+  for (const inst of list) {
+    if (inst.chargesLeft === 0) continue;
+    const def = STATUSES[inst.id];
+    const found = def?.effects.find((e) => e.kind === "soften");
+    if (found?.kind === "soften") return { inst, frac: found.frac };
+  }
+  return null;
+}
+
 /**
  * What actually happened, as opposed to what a status is listening for. A hit
  * is one event carrying its category and element rather than three separate
@@ -689,6 +731,8 @@ export function triggerMatches(def: StatusDef, event: TriggerEvent): boolean {
       default: return false;
     }
   }
+  // Anyone but the holder: the fainted Scoba answers its own `death` instead.
+  if (t.on === "any-death") return event.on === "ally-death" || event.on === "enemy-death";
   if (t.on !== event.on) return false;
   if (t.on === "hp-below" && event.on === "hp-below") return event.frac <= t.frac;
   return true;

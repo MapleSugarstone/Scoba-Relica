@@ -16,6 +16,12 @@ import { stagePace } from "./pace";
 import {
   accessoryAnchor, centerAnchor, critterLook, critterBounds, lookOf, originAnchor, personSkin,
   type CritterBounds, type FormTag,
+  growthArt,
+  growthMiddle,
+  growthRoll,
+  growthSpots,
+  paintedFor,
+  type ScobaImage,
 } from "./critters";
 import {
   formsOf, statusSummary,
@@ -28,6 +34,7 @@ import {
   type CasterAnim, type Move, type MoveVfx, type Species,
 } from "../sim/species";
 import { FIELDS, STATUSES } from "../sim/status";
+import type { Tint } from "../sim/scoba";
 import { rngFrom } from "../sim/rng";
 import { TYPE_COLORS } from "../sim/types";
 import { ALL_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, isPawnSlot, type TargetRef } from "../sim/targeting";
@@ -1709,7 +1716,7 @@ export class BattleStage {
         this.push({
           dur,
           start: () => {
-            const sprite = artNamed(this.art, step.art, move?.tint);
+            const sprite = this.paintedBy(ev.at, artNamed(this.art, step.art, move?.tint));
             for (const f of reached()) {
               if (step.path === "wheel") {
                 // Over the head rather than on it, so the wheel reads as
@@ -1738,7 +1745,7 @@ export class BattleStage {
             const from = this.find(ev.at);
             const sprite = step.drawn
               ? ev.face ? faceArt(this.art, ev.face, move?.tint) : undefined
-              : artNamed(this.art, step.art, move?.tint);
+              : this.paintedBy(ev.at, artNamed(this.art, step.art, move?.tint));
             let thrown = false;
             for (const ref of ev.to ?? []) {
               const target = this.find(ref);
@@ -2104,6 +2111,48 @@ export class BattleStage {
     };
   }
 
+  /**
+   * A piece of art in the colours of whoever on that mark threw or left it, so
+   * a line wearing a father's colours throws them too. A Scoba in its own
+   * line's colours is handed the art as it was drawn.
+   */
+  private paintedBy(ref: TargetRef | undefined, img: ScobaImage | undefined): ScobaImage | undefined {
+    if (!ref || !img) return img;
+    const c = this.st.teams[ref.side][ref.index];
+    const sp = c ? SPECIES[c.scoba.speciesId] : undefined;
+    if (!c || !sp) return img;
+    return paintedFor(this.art, sp, c.scoba, img, formsOf(c));
+  }
+
+  /**
+   * Whatever the marks on a Scoba grow out of it: one piece per stack, planted
+   * on one of the body's own pixels and turned about its foot. Which pixel and
+   * which way each piece leans is rolled off the Scoba and the piece's place in
+   * the row, so a coral stays where it grew for as long as it stands.
+   */
+  private drawGrowths(ctx: CanvasRenderingContext2D, f: Fighter, alpha: number): void {
+    // Read off what the round has played so far rather than off the state it
+    // resolved to, so a coral grows with the blow that grew it.
+    for (const held of this.shownOf(f.side, f.index).marks) {
+      const name = STATUSES[held.id]?.growth;
+      if (name === undefined) continue;
+      const pieces = growthArt(this.art, name).map((p) => this.paintedBy(held.from, p) ?? p);
+      const spots = growthSpots(f.actor.skin.sprite.img);
+      if (pieces.length === 0 || spots.length === 0) continue;
+      const many = held.stacks * (STATUSES[held.id]?.growthEach ?? 1);
+      for (let i = 0; i < many; i++) {
+        const key = `${f.side}.${f.index}.${held.id}.${i}`;
+        const spot = spots[Math.floor(growthRoll(`${key}:where`) * spots.length)]!;
+        const piece = pieces[Math.floor(growthRoll(`${key}:which`) * pieces.length)]!;
+        const middle = growthMiddle(spots);
+        const out = Math.atan2(spot.x - middle.x, middle.y - spot.y);
+        const lean = out + (growthRoll(`${key}:tilt`) - 0.5) * GROWTH_LEAN.jitter;
+        const tilt = Math.max(-GROWTH_LEAN.most, Math.min(GROWTH_LEAN.most, lean));
+        f.actor.drawGrowth(ctx, 0, 0, piece, spot, tilt, growthRoll(`${key}:flip`) < 0.5, alpha);
+      }
+    }
+  }
+
   // --- drawing ---
 
 
@@ -2174,6 +2223,8 @@ export class BattleStage {
           // The animation offset is a draw-time shift, so the actor keeps
           // owning where it actually stands.
           ctx.translate(f.ox + jitter, f.oy);
+          // Behind the body, so what shows is whatever clears its outline.
+          this.drawGrowths(ctx, f, alpha);
           f.actor.draw(ctx, 0, 0);
           // Every wash is the Scoba's own shape, drawn on the same transform
           // it is, so none of them reads as a box sitting over the field.
@@ -2428,6 +2479,15 @@ const WHEEL_BITE = 6;
 
 /** Where a hand sits over the head it was dealt to, in world units. */
 const HAND_LIFT = 7;
+
+/**
+ * How far a grown piece can lean off upright, in radians, and how much of that
+ * is rolled rather than read off where it sits. A piece points away from the
+ * middle of the body, so one on a flank sticks out sideways and one on the
+ * crown stands up, and nothing quite lies down.
+ */
+const GROWTH_LEAN = { most: 1.45, jitter: 0.3 };
+
 
 /** How far along each card in a hand sits from the one behind it, as a share of a card's width. */
 const HAND_SPREAD = 0.5;

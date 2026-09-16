@@ -245,14 +245,15 @@ describe("the element a hybrid takes from its father", () => {
 describe("the father's colour mask", () => {
   const c = (hex: string, count: number) => ({ hex, count });
 
-  it("keeps what the child is mostly made of and repaints the rest", () => {
+  it("paints the child's colours with his, commonest over commonest", () => {
     const dad = [c("#000000", 900), c("#1d19ff", 400), c("#1613c1", 90), c("#ffffff", 300)];
     const child = [c("#000000", 800), c("#0e821b", 500), c("#53a367", 120), c("#eeff00", 18)];
     const out = pickTints(dad, child);
-    // Its main green is left alone; the two under it take his two blues.
-    expect(out.some((t) => t.from === "#0e821b")).toBe(false);
-    expect(out).toContainEqual({ from: "#53a367", to: "#1d19ff" });
-    expect(out).toContainEqual({ from: "#eeff00", to: "#1613c1" });
+    // Its main green takes his main blue, and the one under it takes his second.
+    expect(out).toContainEqual({ from: "#0e821b", to: "#1d19ff" });
+    expect(out).toContainEqual({ from: "#53a367", to: "#1613c1" });
+    // Nothing of his left for the last, so it is turned to match the rest.
+    expect(out.find((t) => t.from === "#eeff00")?.to).not.toBe("#eeff00");
   });
 
   it("turns what his palette does not reach rather than leaving it behind", () => {
@@ -263,11 +264,12 @@ describe("the father's colour mask", () => {
       c("#88cc44", 60), c("#eeff00", 18),
     ];
     const out = pickTints(dad, child);
-    expect(out.map((t) => t.from)).toEqual(["#53a367", "#88cc44", "#eeff00"]);
+    expect(out.map((t) => t.from)).toEqual(["#0e821b", "#53a367", "#88cc44", "#eeff00"]);
     expect(out[0]!.to).toBe("#1d19ff");
-    // The two past his palette are turned rather than dropped.
-    expect(out[1]!.to).not.toBe("#88cc44");
-    expect(out[2]!.to).not.toBe("#eeff00");
+    // The three past his palette are turned rather than dropped.
+    expect(out[1]!.to).not.toBe("#53a367");
+    expect(out[2]!.to).not.toBe("#88cc44");
+    expect(out[3]!.to).not.toBe("#eeff00");
   });
 
   it("turns what a grey father's palette does not reach grey, at its own lightness", () => {
@@ -277,18 +279,21 @@ describe("the father's colour mask", () => {
       c("#000000", 700), c("#fdedd4", 543), c("#f2aebd", 57), c("#b65832", 48), c("#d60300", 18),
     ];
     const out = pickTints(plib, child);
-    expect(out).toContainEqual({ from: "#f2aebd", to: "#dbdbdb" });
-    expect(out).toContainEqual({ from: "#b65832", to: "#636363" });
-    // The cherry red has no grey of his to take, so it goes grey on its own.
-    expect(out).toContainEqual({ from: "#d60300", to: "#6b6b6b" });
-    expect(out.some((t) => t.from === "#fdedd4")).toBe(false);
+    expect(out).toContainEqual({ from: "#fdedd4", to: "#dbdbdb" });
+    expect(out).toContainEqual({ from: "#f2aebd", to: "#636363" });
+    // The two past his palette have no grey of his to take, so they go grey on their own.
+    for (const from of ["#b65832", "#d60300"]) {
+      const to = out.find((t) => t.from === from)?.to ?? "";
+      expect(to.slice(1, 3)).toBe(to.slice(3, 5));
+      expect(to.slice(3, 5)).toBe(to.slice(5, 7));
+    }
   });
 
   it("turns nothing when the child's own main colour is the grey one", () => {
     const dad = [c("#1d19ff", 400)];
     const child = [c("#808080", 500), c("#53a367", 120), c("#eeff00", 18)];
     expect(pairColors([c("#eeff00", 18)], [], hueTurn("#808080", "#1d19ff"))).toEqual([]);
-    expect(pickTints(dad, child)).toEqual([{ from: "#53a367", to: "#1d19ff" }]);
+    expect(pickTints(dad, child)).toEqual([{ from: "#808080", to: "#1d19ff" }]);
   });
 
   it("leaves line art alone, so a black and white child takes no mask", () => {
@@ -297,10 +302,10 @@ describe("the father's colour mask", () => {
     expect(pickTints(dad, child)).toEqual([]);
   });
 
-  it("does nothing to a child of one colour, since that one is kept", () => {
+  it("paints a child of one colour, since that colour is the whole of it", () => {
     const dad = [c("#000000", 900), c("#87ff77", 600)];
     const child = [c("#000000", 800), c("#a31557", 300)];
-    expect(pickTints(dad, child)).toEqual([]);
+    expect(pickTints(dad, child)).toEqual([{ from: "#a31557", to: "#87ff77" }]);
   });
 
   it("never paints one of the child's colours twice", () => {
@@ -310,19 +315,23 @@ describe("the father's colour mask", () => {
     expect(new Set(out.map((t) => t.from)).size).toBe(out.length);
   });
 
-  it("marks an Obera's Wispen child without taking its body colour", () => {
+  it("marks an Obera's Wispen child, body colour and all", () => {
     // Pixel counts measured off the shipped art, so the rule is pinned to a
     // pair that really happens rather than to numbers made up for a test.
     const obera = [c("#000000", 1359), c("#0e821b", 518), c("#53a367", 122), c("#eeff00", 18)];
     const wispen = [c("#000000", 1089), c("#8914ff", 347), c("#5800aa", 246), c("#ffffff", 10)];
     const out = pickTints(obera, wispen);
-    expect(out.some((t) => t.from === "#8914ff")).toBe(false);
-    expect(out).toContainEqual({ from: "#5800aa", to: "#0e821b" });
+    expect(out).toContainEqual({ from: "#8914ff", to: "#0e821b" });
+    expect(out).toContainEqual({ from: "#5800aa", to: "#53a367" });
   });
 
   it("breaks ties on the colour itself, so two clients paint the same pixels", () => {
     const dad = [c("#ff0000", 100), c("#00ff00", 100)];
     const child = [c("#123456", 40), c("#abcdef", 40)];
-    expect(pickTints(dad, child)).toEqual([{ from: "#abcdef", to: "#00ff00" }]);
+    // Both sides tie on count, so both are ordered by their own hex.
+    expect(pickTints(dad, child)).toEqual([
+      { from: "#123456", to: "#00ff00" },
+      { from: "#abcdef", to: "#ff0000" },
+    ]);
   });
 });

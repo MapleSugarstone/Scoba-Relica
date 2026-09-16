@@ -15,8 +15,10 @@ import { DEFAULT_LOOK } from "../engine/recolor";
 import { ART } from "../engine/renderer";
 import {
   accessoryBox, accessorySpot, autoPieceSpot, centerAnchor, contentBox, contentMiddle,
-  critterImage, forgetBuiltArt, originAnchor,
+  critterImage, forgetBuiltArt, movementOf, originAnchor,
 } from "../game/critters";
+import { MOTIONS } from "../game/actors";
+import { bounce } from "../engine/sprite";
 import {
   BIG_SHADOW, DEFAULT_SHADOW, NO_SHADOW, PLAYER_COSTUME, asOneStep, canRedo, canUndo,
   clearLine, clearPlacement, cosmeticsJson, movementFor, placedCount, placementFor,
@@ -38,6 +40,33 @@ import {
 
 /** How much bigger than the sprite the preview is drawn. */
 const ZOOM = 3;
+
+/**
+ * How the preview moves the drawing. Each is a thing the game actually does
+ * with it: standing in the world, walking about in it, waiting its turn on the
+ * battle stage, and walking onto that stage.
+ */
+type Showing = "still" | "overworld" | "idle" | "entering";
+
+const SHOWINGS: { id: Showing; label: string; hint: string }[] = [
+  { id: "still", label: "Still", hint: "Standing where it is." },
+  { id: "overworld", label: "Overworld", hint: "Walking about the island." },
+  { id: "idle", label: "In battle", hint: "Waiting its turn on the stage." },
+  { id: "entering", label: "Walking on", hint: "Coming onto the stage." },
+];
+
+/** How much of its walk a Scoba keeps while it waits on the battle stage. */
+const BATTLE_IDLE = 0.45;
+
+/**
+ * How far off its mark a Scoba starts when it walks onto the stage, in sprite
+ * pixels. Inside the frame rather than off the edge of it, so the whole walk is
+ * on screen in a box this size.
+ */
+const WALK_ON_FROM = 26;
+
+/** Sprite pixels a second, which is about the pace the stage walks one on at. */
+const WALK_ON_PACE = 40;
 
 /** The box every dex portrait is fitted into, so the grid is one size throughout. */
 const DEX_CELL = { w: 74, h: 62 };
@@ -515,10 +544,23 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
       const name = artNameFor(sp, c.tags) ?? sp.id;
       return Object.keys(setupFor(name)).length > 0
         || pieces.some((p) => placementFor(p, name) !== null);
-    }) || movementFor(sp.id) !== null;
+    }) || movementFor(sp.id, sp.id) !== null;
 
   /** The drag in progress, on top of whatever is already stored. */
   let dragging: { fromX: number; fromY: number; dx: number; dy: number } | null = null;
+
+  /**
+   * What the preview is doing with the drawing, and where it is in that. The
+   * phase and the ease are the ones an actor keeps, so what the preview shows
+   * is the walk the game would give it rather than one written twice.
+   */
+  let showing: Showing = "still";
+  let hopT = 0;
+  let hopEase = 0;
+  /** How far left of its mark the walk-on has it, in sprite pixels. */
+  let walkOff = 0;
+  let frame = 0;
+  let last = 0;
 
   const drag = (): Spot => ({ dx: dragging?.dx ?? 0, dy: dragging?.dy ?? 0 });
   const plus = (a: Spot, b: Spot): Spot => ({ dx: a.dx + b.dx, dy: a.dy + b.dy });
@@ -843,24 +885,88 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     const sp = SPECIES[speciesId];
     gaitRow.hidden = !sp || onPlayer();
     if (!sp) return;
-    const set = movementFor(sp.id);
+    const worn = costume();
+    const set = movementFor(worn, sp.id);
     gaitRow.appendChild(el("div", "cosLabel", "Gait"));
     const own = el("button", `cosGaitB${set === null ? " on" : ""}`, `Its own (${sp.movement})`);
+    own.title = `How ${sp.name} carries itself while it is drawn this way.`;
     own.addEventListener("click", () => {
-      setMovement(sp.id, null);
+      setMovement(worn, null);
       refresh();
     });
     gaitRow.appendChild(own);
     for (const g of GAITS) {
       const b = el("button", `cosGaitB${set === g ? " on" : ""}`, g);
       b.addEventListener("click", () => {
-        setMovement(sp.id, g);
+        setMovement(worn, g);
         refresh();
       });
       gaitRow.appendChild(b);
     }
   };
   main.appendChild(gaitRow);
+
+  // --- what the walk looks like ---
+  const showRow = el("div", "cosRow");
+  const drawShowings = (): void => {
+    showRow.innerHTML = "";
+    showRow.appendChild(el("div", "cosLabel", "Moving"));
+    for (const s of SHOWINGS) {
+      const b = el("button", `cosGaitB cosShowB${s.id === showing ? " on" : ""}`, s.label);
+      b.title = s.hint;
+      b.addEventListener("click", () => {
+        // Pressing the one that is already on starts it again, which is what
+        // the walk-on is for: it plays once and then stands there.
+        setShowing(s.id);
+      });
+      showRow.appendChild(b);
+    }
+  };
+  main.appendChild(showRow);
+
+  /**
+   * Runs the preview's own frame loop while there is something to see. A still
+   * drawing is painted once and left, so nothing turns over in the background
+   * while the editor sits open on it.
+   */
+  const step = (now: number): void => {
+    frame = 0;
+    const dt = Math.min(0.05, last === 0 ? 1 / 60 : (now - last) / 1000);
+    last = now;
+    const gait = MOTIONS[gaitNow()];
+    hopT += dt * gait.rate;
+    if (showing === "entering" && walkOff > 0) {
+      walkOff = Math.max(0, walkOff - WALK_ON_PACE * dt);
+    }
+    // Walking at full while it travels, and down to the battle idle once it
+    // has arrived. The same easing an actor does, so both settle alike.
+    const want = showing === "overworld" || (showing === "entering" && walkOff > 0)
+      ? 1
+      : showing === "still" ? 0 : BATTLE_IDLE;
+    hopEase += (want - hopEase) * Math.min(1, dt * 9);
+    paint();
+    const settled = showing === "still" && hopEase < 0.01 && walkOff === 0;
+    if (settled) {
+      hopEase = 0;
+      last = 0;
+      paint();
+      return;
+    }
+    frame = requestAnimationFrame(step);
+  };
+
+  /** Picks what the preview is doing, and starts the loop where it needs one. */
+  const setShowing = (next: Showing): void => {
+    showing = next;
+    walkOff = next === "entering" ? WALK_ON_FROM : 0;
+    if (next === "still") hopT = 0;
+    if (frame === 0) {
+      last = 0;
+      frame = requestAnimationFrame(step);
+    }
+    drawShowings();
+    paint();
+  };
 
   const state = el("div", "cosNote cosState cosWell");
   main.appendChild(state);
@@ -1033,6 +1139,18 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     ctx.globalAlpha = 1;
   };
 
+  /** The gait the drawing on screen carries itself with. */
+  const gaitNow = (): MovementStyle => {
+    const sp = SPECIES[speciesId];
+    return sp && !onPlayer() ? movementOf(sp, forms) : "hop";
+  };
+
+  /** Where the body is this frame: how far it has hopped, how far it leans, and how far off its mark. */
+  const motion = (): { hop: number; angle: number; dx: number } => {
+    const b = bounce(MOTIONS[gaitNow()], hopT, hopEase);
+    return { hop: b.hop, angle: b.angle, dx: -walkOff };
+  };
+
   const paint = (): void => {
     const ctx = canvas.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
@@ -1043,13 +1161,22 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     const shadow = shadowNow();
     const shadowArt = shadow.art ? art.accessories[shadow.art] : undefined;
 
+    const moved = motion();
     ctx.save();
     ctx.scale(ZOOM, ZOOM);
     // The shadow first, on the ground, then the drawing over it, then the
     // piece on whichever side of it the placement says.
     // Drawn on the same canvas the bodies are, so it goes on whole and lands
     // where it was drawn. The same rule the game draws it by.
+    // A walk carries the shadow along, and the hop and the lean leave it where
+    // it is: that is the whole reason a shadow is drawn apart from the body.
+    ctx.translate(moved.dx, 0);
     if (shadowArt) ctx.drawImage(shadowArt, shadow.dx, shadow.dy);
+    // Everything from here hangs off the feet, which is what the game turns a
+    // drawing about.
+    ctx.translate(DOLL_PIVOT.x, DOLL_PIVOT.y - moved.hop);
+    if (moved.angle !== 0) ctx.rotate(moved.angle);
+    ctx.translate(-DOLL_PIVOT.x, -DOLL_PIVOT.y);
     const off = now.body ?? ZERO;
     let pieceAt: { x: number; y: number } | null = null;
     let pieceBox = { x: 0, y: 0, w: 0, h: 0 };
@@ -1119,7 +1246,7 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     redoB.disabled = !canRedo();
     resetB.disabled = allCostumes().every((c) => Object.keys(setupFor(c)).length === 0
       && pieces.every((p) => placementFor(p, c) === null))
-      && (onPlayer() || movementFor(speciesId) === null);
+      && (onPlayer() || movementFor(speciesId, speciesId) === null);
     resetB.title = `Put ${subjectName()} back on its own art, every costume of it.`;
     hint.textContent = TOOLS.find((t) => t.id === tool)!.hint
       + " Arrow keys move it a pixel at a time.";
@@ -1148,6 +1275,7 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     drawLines();
     drawCostumes();
     drawGaits();
+    drawShowings();
     paint();
     drawState();
   };
@@ -1366,7 +1494,10 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
 
   return {
     root,
-    dispose: () => window.removeEventListener("keydown", keys),
+    dispose: () => {
+      window.removeEventListener("keydown", keys);
+      if (frame !== 0) cancelAnimationFrame(frame);
+    },
     unsavedData: () => data.dirty(),
   };
 }

@@ -201,3 +201,19 @@ passive house-money "Lets go gambling"
       set cost x0.5
     give holder picked move in slot 4
     say "The wheel rolled {picked}."
+
+passive coral-growth "Coral Growth"
+  text "On damaging an enemy, grow a [status:coraled|coral] on them. Corals stay through switching out. Can cast Coral Burst."
+  grants move coral-burst
+  when it lands a hit:
+    inflict coraled on other
+
+passive coral-feast "Coral Feast"
+  text "Whenever any Scoba faints, gain 10% mana."
+  when anyone faints:
+    give holder 10 mana
+
+passive coral-bloom "Coral Bloom"
+  text "On landing an ability, grow an extra [status:coraled|coral] on the enemy."
+  when it lands a spell:
+    inflict coraled on other

@@ -113,7 +113,7 @@ export function contentBox(key: string, img: ScobaImage) {
   return box;
 }
 
-type ScobaImage = HTMLCanvasElement | HTMLImageElement;
+export type ScobaImage = HTMLCanvasElement | HTMLImageElement;
 
 /**
  * A costume a Scoba is currently seen in: `cherryless` once it has spent its
@@ -396,9 +396,12 @@ export function shadowSprite(art: Art, costume: string): WorldSprite | null {
   return { img, px: own.px - shadow.dx, py: own.py - shadow.dy };
 }
 
-/** How a line carries itself: what the editor says, or what its species does. */
-export function movementOf(sp: Species): MovementStyle {
-  return movementFor(sp.id) ?? sp.movement;
+/**
+ * How a Scoba carries itself while it is drawn this way: what the editor says
+ * for this costume, then what it says for the line, then what its species does.
+ */
+export function movementOf(sp: Species, forms: readonly FormTag[] = []): MovementStyle {
+  return movementFor(artNameFor(sp, forms) ?? sp.id, sp.id) ?? sp.movement;
 }
 
 /**
@@ -644,7 +647,7 @@ export function critterSkin(
 ): ActorSkin {
   const skin: ActorSkin = {
     sprite: critterSprite(art, sp, sire, shiny, opts),
-    motion: movementOf(sp),
+    motion: movementOf(sp, opts.forms ?? []),
     sparkle: shiny,
   };
   const shadow = shadowSprite(art, formKey(sp, opts.forms ?? []));
@@ -665,14 +668,105 @@ export function pawnLook(art: Art, sp: Species, from: Summoner): { swaps: Tint[]
   // turn is matched against what the father's mark left behind. The father's
   // marks are however many his palette needs, so the turn is found by where it
   // was put rather than at a fixed place in the list.
-  const inherited = summoner ? tintsFor(art, summoner, from.sire) : [];
+  const inherited = summoner
+    ? from.repaint
+      ? paintedAfter(art, sp, summoner, from.sire)
+      : tintsFor(art, summoner, from.sire)
+    : [];
   const turns = from.shiny && summoner ? shinyTints(art, summoner, from.sire) : [];
-  const kept = sharedSwaps(worn, [...inherited, ...turns]);
+  // A repaint is worked out against this drawing's own palette, so every swap
+  // it names is one it wears; only marks borrowed from elsewhere are matched.
+  const kept = from.repaint
+    ? [...inherited, ...sharedSwaps(worn, turns)]
+    : sharedSwaps(worn, [...inherited, ...turns]);
   return {
     swaps: kept.filter((t): t is Tint => t !== null),
     // It glitters if any of her turned colours reached it at all.
     shiny: kept.slice(inherited.length).some((t) => t !== null),
   };
+}
+
+/**
+ * A Scoba painted in another line's colours: its commonest colour takes the
+ * other's commonest, its second takes the second, and so on down. What is left
+ * over when the other line runs out of colours is turned the same way round the
+ * wheel as the first pair, so the whole drawing reads as one family rather than
+ * as half a repaint.
+ */
+export function paintedAfter(art: Art, sp: Species, after: Species, sire?: Sire): Tint[] {
+  const key = `${sp.id}<<${after.id}${sireKey(sire)}`;
+  const hit = repaints.get(key);
+  if (hit) return hit;
+  const theirs = bodyColors(spriteColors(art, after, sire));
+  const mine = bodyColors(spriteColors(art, sp));
+  const primary = mine[0];
+  const donor = theirs[0];
+  const turn = primary && donor ? hueTurn(primary.hex, donor.hex) : 0;
+  const out = pairColors(mine, theirs, turn);
+  repaints.set(key, out);
+  return out;
+}
+
+const repaints = new Map<string, Tint[]>();
+
+/**
+ * The swaps a Scoba's own drawing wears, so what it throws can be painted to
+ * match it. A Scoba in its line's own colours wears none.
+ */
+export function wornSwaps(
+  art: Art, sp: Species, s: ScobaInstance, forms: readonly FormTag[] = [],
+): Tint[] {
+  if (s.summoner) {
+    const from = s.summoner;
+    const summoner = SPECIES[from.speciesId];
+    if (!summoner) return [];
+    return from.repaint
+      ? paintedAfter(art, sp, summoner, from.sire)
+      : tintsFor(art, summoner, from.sire);
+  }
+  return tintsFor(art, sp, s.sire, forms);
+}
+
+/**
+ * A piece of art in the colours one Scoba is actually wearing, paired off by
+ * how much of each there is. A Scoba in its own line's colours is handed the
+ * art untouched: the art was drawn for that line, and pairing it against the
+ * palette it came from would only shuffle its shades about.
+ */
+export function paintedFor(
+  art: Art, sp: Species, s: ScobaInstance, img: ScobaImage, forms: readonly FormTag[] = [],
+): ScobaImage {
+  if (wornSwaps(art, sp, s, forms).length === 0) return img;
+  const theirs = bodyColors(spriteColors(art, sp, s.sire, s.shiny, forms));
+  const mine = bodyColors(artColors(img));
+  const primary = mine[0];
+  const donor = theirs[0];
+  const turn = primary && donor ? hueTurn(primary.hex, donor.hex) : 0;
+  return paintedLike(img, pairColors(mine, theirs, turn)) as ScobaImage;
+}
+
+const painted = new Map<string, WeakMap<CanvasImageSource, HTMLCanvasElement>>();
+
+/**
+ * A drawing with a Scoba's own swaps on it, so a piece a line throws is in the
+ * colours that line is actually wearing. Built once per drawing and set of
+ * swaps, and handed straight back where there are none.
+ */
+export function paintedLike<T extends CanvasImageSource>(img: T, swaps: readonly Tint[]): T | HTMLCanvasElement {
+  if (swaps.length === 0) return img;
+  const key = swaps.map((t) => `${t.from}>${t.to}`).join(",");
+  let byImg = painted.get(key);
+  if (!byImg) {
+    byImg = new WeakMap();
+    painted.set(key, byImg);
+  }
+  const hit = byImg.get(img);
+  if (hit) return hit;
+  // One pass each, in order, so a swap reads what the one before it left.
+  let out: CanvasImageSource = img;
+  for (const t of swaps) out = paletteSwap(out as HTMLCanvasElement, [[hexToRgb(t.from), hexToRgb(t.to)]]);
+  byImg.set(img, out as HTMLCanvasElement);
+  return out as HTMLCanvasElement;
 }
 
 const pawnImages = new Map<string, ScobaImage>();
@@ -706,7 +800,7 @@ export function critterLook(
   const worn = pawnImage(art, sp, s.summoner, look.swaps);
   const skin: ActorSkin = {
     sprite: { img: worn, ...bodyPivot(formKey(sp, forms), worn) },
-    motion: movementOf(sp),
+    motion: movementOf(sp, forms),
     sparkle: look.shiny,
   };
   const shadow = shadowSprite(art, formKey(sp, forms));
@@ -727,6 +821,32 @@ const palettes = new Map<string, ColorCount[]>();
  * first. Transparent pixels are not a colour; a half-transparent one counts as
  * what it is, since nothing in this art is anti-aliased.
  */
+const imageColors = new WeakMap<CanvasImageSource, ColorCount[]>();
+
+/** Every colour one drawing is made of, commonest first. */
+export function artColors(img: CanvasImageSource): ColorCount[] {
+  const found = imageColors.get(img);
+  if (found) return found;
+  const { w, h } = sizeOf(img as ScobaImage);
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(img, 0, 0);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  const counts = new Map<string, number>();
+  const hex = (n: number): string => n.toString(16).padStart(2, "0");
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3]! < 8) continue;
+    const at = `#${hex(px[i]!)}${hex(px[i + 1]!)}${hex(px[i + 2]!)}`;
+    counts.set(at, (counts.get(at) ?? 0) + 1);
+  }
+  const out = [...counts].map(([h2, count]) => ({ hex: h2, count }))
+    .sort((a, b) => b.count - a.count || a.hex.localeCompare(b.hex));
+  imageColors.set(img, out);
+  return out;
+}
+
 export function spriteColors(
   art: Art, sp: Species, sire?: Sire, shiny = false, forms: readonly FormTag[] = [],
 ): ColorCount[] {
@@ -779,4 +899,99 @@ export function critterPortrait(
   cv.style.height = `${box.h}px`;
   cv.className = "critter";
   return cv;
+}
+
+/**
+ * Where something can grow out of a body: its own drawn pixels, on a coarse
+ * grid so a big sprite does not hand back thousands of them. Read off the art
+ * once and kept against the image, which is what the drawing is keyed by
+ * everywhere else here.
+ */
+const growthPoints = new WeakMap<CanvasImageSource, { x: number; y: number }[]>();
+
+/** Every second pixel, which is close enough for something planted on a body. */
+const GROWTH_STEP = 2;
+
+/**
+ * How far inside the outline a spot has to sit, in art pixels. A piece is drawn
+ * from its foot at the spot, so a spot this far in keeps the foot under the body
+ * and the piece reads as growing out of it rather than as stuck on the edge.
+ */
+const GROWTH_INSET = 5;
+
+export function growthSpots(img: CanvasImageSource): { x: number; y: number }[] {
+  const found = growthPoints.get(img);
+  if (found) return found;
+  const w = (img as HTMLImageElement).naturalWidth || (img as HTMLCanvasElement).width;
+  const h = (img as HTMLImageElement).naturalHeight || (img as HTMLCanvasElement).height;
+  const out: { x: number; y: number }[] = [];
+  if (w && h) {
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext("2d", { willReadFrequently: true })!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(img, 0, 0);
+    const px = ctx.getImageData(0, 0, w, h).data;
+    const solid = (x: number, y: number): boolean =>
+      x >= 0 && y >= 0 && x < w && y < h && px[(y * w + x) * 4 + 3]! > 200;
+    const buried = (x: number, y: number): boolean => {
+      const m = GROWTH_INSET;
+      return solid(x, y) && solid(x - m, y) && solid(x + m, y) && solid(x, y - m) && solid(x, y + m);
+    };
+    const loose: { x: number; y: number }[] = [];
+    for (let y = 0; y < h; y += GROWTH_STEP) {
+      for (let x = 0; x < w; x += GROWTH_STEP) {
+        if (!solid(x, y)) continue;
+        if (buried(x, y)) out.push({ x, y });
+        else loose.push({ x, y });
+      }
+    }
+    // A drawing too thin to bury anything keeps what it has rather than growing nothing.
+    if (out.length === 0) out.push(...loose);
+  }
+  growthPoints.set(img, out);
+  return out;
+}
+
+/**
+ * The art a status grows, as every numbered file beside the name it gives:
+ * `randomcoral` finds `randomcoral1`, `randomcoral2` and so on, and falls back
+ * to a file of exactly that name.
+ */
+export function growthArt(art: Art, name: string): (HTMLCanvasElement | HTMLImageElement)[] {
+  const numbered = Object.keys(art.powers)
+    .filter((k) => k.startsWith(name) && /^[0-9]+$/.test(k.slice(name.length)))
+    .sort()
+    .map((k) => art.powers[k]!);
+  if (numbered.length > 0) return numbered;
+  const one = art.powers[name];
+  return one ? [one] : [];
+}
+
+/** The middle of a body's drawn pixels, which is what a piece growing out of it leans away from. */
+const growthMiddles = new WeakMap<{ x: number; y: number }[], { x: number; y: number }>();
+
+export function growthMiddle(spots: { x: number; y: number }[]): { x: number; y: number } {
+  const found = growthMiddles.get(spots);
+  if (found) return found;
+  let x = 0;
+  let y = 0;
+  for (const s of spots) {
+    x += s.x;
+    y += s.y;
+  }
+  const at = spots.length > 0 ? { x: x / spots.length, y: y / spots.length } : { x: 0, y: 0 };
+  growthMiddles.set(spots, at);
+  return at;
+}
+
+/** A number from 0 to 1 for a key, so a piece keeps its spot and its turn between frames. */
+export function growthRoll(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
 }

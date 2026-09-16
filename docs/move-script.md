@@ -147,6 +147,7 @@ that needs a pick, in order, before the move goes off.
 | `any scoba` | Anyone on the field, on either side. | Yes |
 | `benched ally` | One ally on the bench. | Yes |
 | `benched enemy` | One enemy on the bench. | Yes |
+| `fallen scoba` | One Scoba that has fainted, on either side, bench included. A Pawn that fell is gone rather than lying there. | Yes |
 | `all allies` | Every ally on the field. | No |
 | `all enemies` | Every enemy on the field. | No |
 | `random ally` | One ally on the field, rolled when the move resolves. | No |
@@ -213,6 +214,7 @@ status slowed "Slowed"
 | `stacks` or `stacks up to <n>` | No | Landing it again adds another stack instead of refreshing it. `stacks` alone allows 99. Leave it out and landing it again refreshes the one already there. |
 | `lost on switching out` | No | It comes off when its holder is called back. Leave it out and it stays through a switch. |
 | `shows a hand of cards` | No | Its stack count is a hand of cards, with the last card dealt drawn over the holder's head. `deal drawn card` uses a status like this. |
+| `grows <n> <art>` | No | Art that grows out of the holder behind its body, by file name in `assets/Powers`. Each stack grows `<n>` pieces, or one where the number is left out. A name with numbered files beside it (`randomcoral1`, `randomcoral2`) draws one of them per piece. Each piece leans away from the middle of the body, so one on a flank sticks out sideways and one on the crown stands up. |
 | `power <share>` | No | A number measured once, as the status lands, and kept on it. A standing `power` effect moves a stat by it. See [Shares](#shares). A status keeps one measured number, so a status with a `power` line cannot also hold a damage step marked `fixed when applied`. |
 | `while carried:` | No | Its standing effects. See [Standing effects](#standing-effects). |
 | `when <trigger>:` | No | The steps it runs when the trigger happens. See [Triggers](#triggers) and [Steps](#steps). A status has at most one `when`. |
@@ -318,6 +320,7 @@ caster. A status or a passive runs its steps as the Scoba carrying it.
 | `target`, `target2`, or a name from `as` | Everyone that aim group resolved to. | Not used. |
 | `source` | Not used. | Whoever left the status. A passive has no source, so this reaches nobody. |
 | `other` | Not used. | Whoever was on the far side of the trigger: the attacker for `when hit`, the Scoba struck for `when it lands a hit`, the victim for `when it kills`, and the killer for `when it faints`. |
+| `raised` | The Pawn a `raise` step above it put on the field. Nobody, where the step raised nothing. | Not used. |
 | `allies` | Every Scoba on the caster's team that has not fainted, benched ones and the caster included. | The same, for the holder's team. |
 | `enemies` | Every Scoba on the other team that has not fainted, benched ones included. | The same, for the holder's other team. |
 | `everyone` | Every Scoba on both teams that has not fainted. | The same. |
@@ -484,6 +487,17 @@ physical.
 | `, as <element> <physical or magic>` | Both at once. |
 | `, sound <name>` | The sound it lands with, instead of the plain blow. |
 
+**`hit <who> <share> <stat> + <n> at max level`** adds a flat amount on top of
+the shares, scaled by the attacker's level against the ceiling of 30, so `+ 8 at
+max level` is 8 damage at level 30 and a fifth of that at level 6.
+
+**`, per stack of <status>`** counts the hit once for each stack of that status
+the target carries, and throws it at nobody carrying none.
+
+```
+hit target 8% magic + 8 at max level, per stack of coraled, as flux magic
+```
+
 **`hit <who> <n> per level`** is flat damage: that number times the attacker's
 level, in place of a share of a stat. The rest is an ordinary hit. The same-type
 bonus, the type chart and Defense or Resistance all apply, and it takes the same
@@ -556,6 +570,13 @@ inflict sticky on others, for 2 turns
 | --- | --- |
 | `, for <n> turns` | The status stands this many turns instead of its own `lasts`. |
 
+**`clear <status> from <who>`** takes one named status off each Scoba in
+`<who>`, however many stacks it holds.
+
+```
+clear coraled from target
+```
+
 **`cleanse <good or bad> marks from <who>`** takes every good or every bad status
 off each Scoba in `<who>`, except the statuses its passives are carried as.
 
@@ -571,6 +592,19 @@ lay sunblessed over both sides
 ```
 
 ### Other steps
+
+**`raise <who> as a pawn at <share> level, as <element> <element>`** puts a
+fallen Scoba back on the field as a Pawn of the caster's side, at that share of
+the level it fell at, painted in the caster's own colours and answering to the
+caster's owner. The elements replace what it was, and with none named it comes
+back as whatever the caster is, which is what a hybrid raiser passes on. The body it came from stays down, so
+the side that lost it does not get it back, and the steps after it reach the
+Pawn as `raised`. A side with no free Pawn mark raises nothing.
+
+```
+raise target as a pawn at 75% level, as moon flux
+inflict decaying-coral on raised
+```
 
 **`summon <species> at level <n>`** calls a Scoba to the side of the one running
 the step. A Pawn species takes a Pawn slot and comes out at its summoner's level,
@@ -721,6 +755,7 @@ status.
 | `takes x<n> from <element>` | Damage of that element to the holder is multiplied. |
 | `blocks <element> hits` | The next hit of that element is stopped outright and spends one of the status's charges. |
 | `cannot switch out` | The holder cannot be called back. |
+| `cuts the next hit by <share>` | The next instance of damage the holder takes is cut by that share, and it spends one of the status's charges. |
 | `marks it leaves hit x<n> if they last <n> turns or more` | Every status the holder leaves that stands at least that many turns measures its `power`, and its `fixed when applied` damage, that many times over. |
 
 The stat words are `hp`, `strength`, `defense`, `resistance`, `magic` and
@@ -753,6 +788,7 @@ A `when` block names one trigger.
 | `when it faints:` | The holder faints. |
 | `when an ally faints:` | A Scoba on the holder's team faints. |
 | `when an enemy faints:` | A Scoba on the other team faints. |
+| `when anyone faints:` | A Scoba on either team faints. The holder's own fall is `when it faints:` instead. |
 | `when below <share> hp:` | The holder takes damage and is left at or below that share of its HP bar, like `when below 50% hp:`. |
 
 A trigger that runs steps which set off more triggers can chain four deep, and no

@@ -351,6 +351,40 @@
     "blurb": "Meepas soak in moonrays for food. They can be seen in small gatherings in fields, facing the night sky."
   },
   {
+    "id": "corali",
+    "name": "Corali",
+    "type": "moon",
+    "type2": "flux",
+    "genes": {
+      "hp": 150,
+      "str": 0,
+      "def": 55,
+      "res": 105,
+      "mag": 170,
+      "spd": 20
+    },
+    "primaryAbility": "coral-growth",
+    "secondaryPool": [
+      "coral-feast"
+    ],
+    "hyperAbility": "coral-bloom",
+    "moves": [
+      "coral-blast",
+      "dead-coral",
+      "coral-shield",
+      "coral-ritual"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "corali",
+      "forms": {
+        "hyper": "hyper-corali"
+      }
+    },
+    "movement": "hover",
+    "blurb": "Corali drifts over still water and seeds coral on whatever it touches. A reef left behind it marks where something once stood."
+  },
+  {
     "id": "cactunny",
     "name": "Cactunny",
     "type": "moss",

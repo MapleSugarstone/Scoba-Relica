@@ -18,10 +18,11 @@ status fire "Fire"
 status fragile "Fragile"
   bad
   icon broken_bone
-  lasts 5 turns
-  charges 3
-  when hit:
-    damage holder 10% of their max hp, as true, counts as attack
+  lasts 2 turns
+  lost on switching out
+  while carried:
+    defense x0.9
+    resistance x0.9
 
 status rage "Rage"
   good
@@ -153,3 +154,30 @@ status dealt "Dealt"
   bad
   stacks up to 21
   shows a hand of cards
+
+status coraled "Coraled"
+  bad
+  icon coraled
+  stacks up to 10
+  grows randomcoral
+
+status dead-coral "Dead Coral"
+  bad
+  icon deadcoral
+  while carried:
+    resistance x0.95
+  when a turn ends:
+    damage holder 70% of source magic, as flux magic, fixed when applied
+
+status coral-shield "Coral Shield"
+  good
+  charges 1
+  while carried:
+    cuts the next hit by 50%
+
+status decaying-coral "Decaying Coral"
+  bad
+  icon decayingcoral
+  grows 6 randomcoral
+  when a turn ends:
+    damage holder 10% of their max hp, as true

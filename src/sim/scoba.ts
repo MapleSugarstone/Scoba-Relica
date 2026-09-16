@@ -44,6 +44,11 @@ export interface Summoner {
   speciesId: string;
   sire?: Sire;
   shiny?: boolean;
+  /**
+   * Painted in the summoner's own colours rather than only wearing whatever
+   * marks it has. A raised Pawn is the raiser's work and reads as theirs.
+   */
+  repaint?: boolean;
 }
 
 export interface ScobaInstance {
@@ -85,6 +90,11 @@ export interface ScobaInstance {
    * Scoba is never more than two elements.
    */
   type2?: ElementType;
+  /**
+   * The element it leads with, where something made it something else. Only a
+   * raised Pawn carries one, and a Pawn is never saved.
+   */
+  type1?: ElementType;
   /** Rare colouring: its main colour is turned, and it glitters. */
   shiny?: boolean;
   /** Pawns only: who called it up, which is what it takes its colours from. */
@@ -234,8 +244,9 @@ export function moveName(id: string): string {
 export function scobaTypes(s: ScobaInstance): ElementType[] {
   const sp = SPECIES[s.speciesId];
   if (!sp) return [];
+  const first = s.type1 ?? sp.type;
   const second = s.type2 ?? sp.type2;
-  return second !== undefined && second !== sp.type ? [sp.type, second] : [sp.type];
+  return second !== undefined && second !== first ? [first, second] : [first];
 }
 
 /** Mana ceiling. A move costing more than this could never be cast at all. */

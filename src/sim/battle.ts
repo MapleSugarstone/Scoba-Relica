@@ -16,7 +16,7 @@
 // cannot drift apart in how they land.
 import type { ScobaInstance, Summoner } from "./scoba";
 import {
-  MAX_LEVEL, MAX_MANA, inheritFromCaller, moveCost, scobaTypes, statsAt, makeWild,
+  MAX_LEVEL, MAX_MANA, freshUid, inheritFromCaller, maxHp, moveCost, scobaTypes, statsAt, makeWild,
   passiveStatuses, speciesName,
 } from "./scoba";
 import {
@@ -48,6 +48,7 @@ import {
   tickField,
   triggerMatches,
   wardAgainst,
+  softenOn,
   powerCategory,
   type Basis,
   type ChanceColorChange,
@@ -816,8 +817,18 @@ function damageOf(
     // A flat hit takes its number off the caster's level instead of a stat,
     // and is an ordinary hit from there on.
     dmg = 0;
-    if (attack.step.perLevel !== undefined) dmg = attack.step.perLevel * user.scoba.level;
-    else for (const s of attack.step.scaling) dmg += uStats[s.stat] * s.scale;
+    if (attack.step.perLevel !== undefined) {
+      dmg = attack.step.perLevel * user.scoba.level;
+    } else {
+      for (const s of attack.step.scaling) dmg += uStats[s.stat] * s.scale;
+      // A flat share is written as what it comes to at the ceiling, so a level
+      // 6 attacker lands a fifth of it.
+      const flat = attack.step.flatAtCeiling;
+      if (flat !== undefined) dmg += (flat * user.scoba.level) / MAX_LEVEL;
+    }
+    // Counted once per stack the target carries, so what it comes to is what
+    // the attacker built up there.
+    if (attack.step.perStackOf !== undefined) dmg *= stacksOf(target.statuses, attack.step.perStackOf);
     const types = attackTypes(attack);
     // The Scoba's own elements rather than its species', since a bred one may
     // carry a second it took from its father.
@@ -923,6 +934,7 @@ function dealDamage(ctx: Ctx, targetRef: TargetRef, raw: number, meta: HitMeta):
     return 0;
   }
   let dmg = raw * vulnerabilityMult(target, meta.element, field);
+  dmg *= shieldFactor(ctx, target, targetRef, meta);
   if (target.blocking && !meta.ignoresBlock) dmg *= BLOCK_FACTOR;
   dmg = Math.max(1, Math.floor(dmg));
 
@@ -966,6 +978,22 @@ interface Landed {
 }
 
 /**
+ * What a shield leaves of one instance of damage, spending itself where it
+ * catches something. Read on both paths damage lands on.
+ */
+function shieldFactor(ctx: Ctx, target: Combatant, targetRef: TargetRef, meta: HitMeta): number {
+  const shield = softenOn(target.statuses);
+  if (!shield) return 1;
+  if (shield.inst.chargesLeft > 0) shield.inst.chargesLeft -= 1;
+  target.statuses = target.statuses.filter((held) => held.chargesLeft !== 0);
+  ctx.events.push({
+    text: `${statusName(shield.inst.id)} takes the worst of it for ${displayName(target.scoba)}.`,
+    kind: "status", at: targetRef, by: meta.source ?? undefined,
+  });
+  return 1 - shield.frac;
+}
+
+/**
  * Lands one hit and stops, without running anything it set off.
  *
  * Everything up to and including the HP coming off is here. Everything the
@@ -993,6 +1021,7 @@ function landDamage(ctx: Ctx, targetRef: TargetRef, raw: number, meta: HitMeta):
     return null;
   }
   let dmg = raw * vulnerabilityMult(target, meta.element, field);
+  dmg *= shieldFactor(ctx, target, targetRef, meta);
   if (target.blocking && !meta.ignoresBlock) dmg *= BLOCK_FACTOR;
   dmg = Math.max(1, Math.floor(dmg));
 
@@ -1194,7 +1223,7 @@ function fire(ctx: Ctx, holderRef: TargetRef, event: TriggerEvent, other: Target
     const steps = def.effects.filter((e): e is Step => !isContinuous(e.kind));
     runSteps(ctx, {
       record: def.id, self: holderRef, source: inst.from ?? null, other,
-      groups: [], alive: aliveNow(ctx.st), picked: null, card: null, draws: 0,
+      groups: [], alive: aliveNow(ctx.st), picked: null, raised: null, card: null, draws: 0,
       status: { def, inst }, cast: null,
     }, steps);
   }
@@ -1219,6 +1248,8 @@ interface Run {
   alive: Set<string>;
   /** The move a `pick-move` step picked, for the steps after it. */
   picked: string | null;
+  /** The Scoba a `raise` step put on the field, for the steps after it. */
+  raised: TargetRef | null;
   /** The card a `draw-card` step drew, for the steps after it. */
   card: DrawnCard | null;
   /** How many cards these steps have drawn, so each draw rolls its own card. */
@@ -1248,6 +1279,7 @@ function whoRefs(ctx: Ctx, run: Run, who: Who): TargetRef[] {
     case "self": return [run.self];
     case "source": return run.source ? [run.source] : [];
     case "other": return run.other ? [run.other] : [];
+    case "raised": return run.raised ? [run.raised] : [];
     default: return teamOf(ctx.st, run.self, who);
   }
 }
@@ -1340,6 +1372,8 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       const strikes = group.flatMap((ref) => {
         const target = combatantAt(ctx.st, ref);
         if (!target || target.fainted) return [];
+        // A hit counted per stack is not thrown at all where there are none.
+        if (step.perStackOf !== undefined && stacksOf(target.statuses, step.perStackOf) === 0) return [];
         const { dmg, eff } = damageOf(user, target, attack, field);
         const note = eff > 1 ? " Super effective!" : eff < 1 ? " Not very effective." : "";
         const meta: HitMeta = {
@@ -1406,6 +1440,17 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
     case "cleanse":
       for (const ref of whoRefs(ctx, run, step.on)) cleanse(ctx, ref, step.polarity);
       return true;
+    case "clear-status":
+      for (const ref of whoRefs(ctx, run, step.on)) {
+        const c = combatantAt(ctx.st, ref);
+        if (!c || !c.statuses.some((held) => held.id === step.status)) continue;
+        c.statuses = c.statuses.filter((held) => held.id !== step.status);
+        ctx.events.push({
+          text: `${statusName(step.status)} leaves ${displayName(c.scoba)}.`,
+          kind: "status", at: ref,
+        });
+      }
+      return true;
     case "copy-marks": {
       const from = whoRefs(ctx, run, step.from)[0];
       if (!from) return true;
@@ -1451,6 +1496,18 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
     case "summon":
       summon(ctx, run.self, step.species, step.level);
       return true;
+    case "raise": {
+      const fallen = whoRefs(ctx, run, step.who)[0];
+      if (!fallen) return true;
+      run.raised = raisePawn(ctx, run.self, fallen, step.levelShare, step.types);
+      return true;
+    }
+    case "raise": {
+      const fallen = whoRefs(ctx, run, step.who)[0];
+      if (!fallen) return true;
+      run.raised = raisePawn(ctx, run.self, fallen, step.levelShare, step.types);
+      return true;
+    }
     case "grant-item":
       grantItem(ctx, run.self.side, step.item, step.count);
       return true;
@@ -1751,6 +1808,65 @@ function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
 }
 
 /**
+ * Puts a fallen Scoba back on the field as a Pawn of the caster's side, at a
+ * share of the level it fell at and in the caster's colours. The body it was
+ * raised from stays down where it lies, so the side that lost it does not get
+ * it back, and a raised Pawn is a Pawn in every other way: it takes a Pawn
+ * mark, it is never benched, and a side is beaten when its Scobas are.
+ */
+function raisePawn(
+  ctx: Ctx, callerRef: TargetRef, fallenRef: TargetRef, levelShare: number, types?: ElementType[],
+): TargetRef | null {
+  const st = ctx.st;
+  const side = callerRef.side;
+  const caller = combatantAt(st, callerRef);
+  const body = combatantAt(st, fallenRef);
+  if (!caller || !body || !body.fainted) return null;
+  const slot = freePawnSlot(st, side);
+  if (slot === null) {
+    ctx.events.push({ text: "There is no room for another Pawn.", kind: "info" });
+    return null;
+  }
+  const scoba: ScobaInstance = {
+    ...body.scoba,
+    uid: freshUid(rngFrom(`${st.seed}:raise:${st.turn}:${side}:${slot}`)),
+    level: Math.max(1, Math.round(body.scoba.level * levelShare)),
+    hp: 0,
+  };
+  scoba.owner = caller.scoba.owner;
+  // With nothing named, it comes back as whatever raised it.
+  const asked = types ?? scobaTypes(caller.scoba);
+  if (asked[0]) scoba.type1 = asked[0];
+  if (asked[1]) scoba.type2 = asked[1];
+  else delete scoba.type2;
+  // What it wears is settled where the pixels are, the same as anything else
+  // called up: the sim records who raised it and the art layer does the rest.
+  const worn: Summoner = { speciesId: caller.scoba.speciesId, repaint: true };
+  if (caller.scoba.sire) worn.sire = caller.scoba.sire;
+  if (caller.scoba.shiny) worn.shiny = true;
+  scoba.summoner = worn;
+  scoba.hp = maxHp(scoba);
+  const [c] = makeCombatants([scoba]);
+  if (!c) return null;
+  c.summoned = true;
+  c.pawn = true;
+  if (st.ez && side === 0) grantEz(c);
+  const index = st.teams[side].length;
+  st.teams[side].push(c);
+  st.active[side][slot] = index;
+  ctx.events.push({
+    text: `${displayName(caller.scoba)} raises ${displayName(scoba)}!`,
+    kind: "summon",
+    at: { side, index },
+    by: callerRef,
+  });
+  if (ctx.depth < MAX_TRIGGER_DEPTH) {
+    fire({ ...ctx, depth: ctx.depth + 1 }, { side, index }, { on: "switch-in" }, null);
+  }
+  return { side, index };
+}
+
+/**
  * Enters Hyper-Mode: 25 percent on every stat and then a flat 15, the line's
  * third passive turned on, and the same share of a bigger pool. A Scoba enters
  * once and stays in it for the rest of the battle.
@@ -1939,7 +2055,7 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     if (move) {
       runSteps(ctx, {
         record: move.id, self: userRef, source: userRef, other: null,
-        groups: hits, alive: aliveNow(st), picked: null, card: null, draws: 0,
+        groups: hits, alive: aliveNow(st), picked: null, raised: null, card: null, draws: 0,
         status: null, cast: { move, paid },
       }, move.cast);
     } else {
@@ -2190,6 +2306,8 @@ export interface StatusMark {
   turnsLeft: number;
   /** Charges left; -1 is unlimited. */
   chargesLeft: number;
+  /** Who left it, for anything drawn in that Scoba's colours. */
+  from?: TargetRef;
 }
 
 export function statusSummary(c: Combatant): StatusMark[] {
@@ -2209,6 +2327,7 @@ export function statusSummary(c: Combatant): StatusMark[] {
       stacks: inst.stacks,
       turnsLeft: inst.turnsLeft,
       chargesLeft: inst.chargesLeft,
+      ...(inst.from ? { from: inst.from } : {}),
     });
   }
   return out;

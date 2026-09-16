@@ -69,11 +69,20 @@ export interface CostumeSetup {
   /** Where a throw lands, off the middle of the drawn pixels. */
   center?: Spot;
   shadow?: ShadowSetup;
+  /**
+   * How the Scoba carries itself while it is drawn this way, for a costume that
+   * moves unlike the one the line walks around in. Hyper-Mode is drawn again
+   * from scratch, and a redrawing can want a gait of its own.
+   */
+  movement?: MovementStyle;
 }
 
-/** What a line is beyond its drawings, which is nothing a single costume owns. */
+/**
+ * What a line is beyond its drawings. Nothing is written here any more: the gait
+ * moved onto the costume, and a document written before that still reads, with
+ * its gait standing for every costume of the line that names none of its own.
+ */
 export interface LineSetup {
-  /** Overrides how the line carries itself, for trying a gait without a rebuild. */
   movement?: MovementStyle;
 }
 
@@ -375,17 +384,27 @@ export function lineSetupFor(speciesId: string): LineSetup {
   return cosmetics().lines[speciesId] ?? {};
 }
 
-/** How this line carries itself, or nothing where its species decides. */
-export function movementFor(speciesId: string): MovementStyle | null {
-  return cosmetics().lines[speciesId]?.movement ?? null;
+/**
+ * How a drawing carries itself, or nothing where its species decides. The
+ * costume answers first, and a line-wide gait written before gaits moved onto
+ * costumes answers for every costume that names none.
+ */
+export function movementFor(costume: string, lineId?: string): MovementStyle | null {
+  const doc = cosmetics();
+  return doc.costumes[costume]?.movement
+    ?? (lineId !== undefined ? doc.lines[lineId]?.movement : undefined)
+    ?? null;
 }
 
-/** Overrides a line's gait. Passing nothing puts it back on its species'. */
-export function setMovement(speciesId: string, movement: MovementStyle | null): void {
+/** Overrides one costume's gait. Passing nothing puts it back on its species'. */
+export function setMovement(costume: string, movement: MovementStyle | null): void {
   const doc = cosmetics();
-  remember(`gait:${speciesId}`);
-  if (movement === null) delete doc.lines[speciesId];
-  else doc.lines[speciesId] = { ...doc.lines[speciesId], movement };
+  remember(`gait:${costume}`);
+  const held = { ...doc.costumes[costume] };
+  if (movement === null) delete held.movement;
+  else held.movement = movement;
+  if (Object.keys(held).length === 0) delete doc.costumes[costume];
+  else doc.costumes[costume] = held;
   save();
 }
 

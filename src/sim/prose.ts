@@ -294,10 +294,14 @@ function damageLabel(hit: HitStep, at: ProseFor): string {
       ? `${hit.perLevel} damage per level`
       : String(hit.perLevel * at.level);
   }
+  // A flat share is written as what it comes to at the ceiling, and read out as
+  // what each level of the caster adds.
+  const flat = hit.flatAtCeiling ?? 0;
   if (!at.stats) {
-    return hit.scaling.map((s) => `${pct(s.scale)} ${STAT_LABELS[s.stat]}`).join(" + ");
+    const shares = hit.scaling.map((s) => `${pct(s.scale)} ${STAT_LABELS[s.stat]}`).join(" + ");
+    return `${shares}${flat ? ` + ${perLevel(flat)} damage per level` : ""}`;
   }
-  let base = 0;
+  let base = flat && at.level !== undefined ? (flat * at.level) / MAX_LEVEL : 0;
   for (const s of hit.scaling) base += at.stats[s.stat] * s.scale;
   return String(Math.floor(base));
 }
@@ -310,7 +314,11 @@ function damageDetail(hit: HitStep): string {
   const [first, ...rest] = hit.scaling;
   const also = rest.map((s) => ` and ${pct(s.scale)} of its ${STAT_LABELS[s.stat]}`).join("");
   const main = first ? `${pct(first.scale)} of the caster's ${STAT_LABELS[first.stat]}` : "Nothing";
-  return `${main}${also}. ${reducedBy(hitCategory(hit), "damage")}`;
+  const flat = hit.flatAtCeiling !== undefined ? ` plus ${perLevel(hit.flatAtCeiling)} damage per level` : "";
+  const each = hit.perStackOf !== undefined
+    ? `, for each ${STATUSES[hit.perStackOf]?.name ?? hit.perStackOf} on the target`
+    : "";
+  return `${main}${also}${flat}${each}. ${reducedBy(hitCategory(hit), "damage")}`;
 }
 
 /** What a hand of exactly 21 pays out, which the battle reads off the dealer's Strength as physical damage. */

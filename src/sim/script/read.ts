@@ -223,7 +223,7 @@ const TEAM_WORDS: Record<string, Who> = {
 
 function whoWords(scope: Scope): Record<string, Who> {
   if (scope.kind === "move") {
-    const out: Record<string, Who> = { caster: "self", ...TEAM_WORDS };
+    const out: Record<string, Who> = { caster: "self", raised: "raised", ...TEAM_WORDS };
     for (const [name, aim] of scope.aims) out[name] = { aim };
     return out;
   }
@@ -267,7 +267,7 @@ function readShare(c: Clause, scope: Scope): { basis: Basis; frac: number } {
 // --- steps ---
 
 const STEP_STARTS = [
-  "throw", "show", "sound", "wait", "say", "hit", "damage", "heal", "inflict", "cleanse", "copy",
+  "throw", "show", "sound", "wait", "say", "hit", "damage", "heal", "inflict", "clear", "cleanse", "copy", "raise",
   "take", "summon", "find", "give", "lay", "draw", "deal", "if", "refund", "pick", "change",
 ];
 
@@ -366,6 +366,40 @@ function readStep(line: Line, scope: Scope): Step {
         o.done();
       }
       return step;
+    }
+    case "raise": {
+      const usage = "raise <who> as a pawn at <share> level, as <element> <element>";
+      noBlock(line, usage);
+      const c = clause(line, 0, usage);
+      c.expect("raise");
+      const target = readWho(c, scope);
+      c.expect("as a pawn at");
+      const levelShare = c.percent("the share of its level");
+      if (levelShare <= 0 || levelShare > 1) c.fail("the share of its level should be from 1% to 100%");
+      c.expect("level");
+      c.done();
+      const step: Step = { kind: "raise", who: target, levelShare };
+      for (let i = 1; i < line.clauses.length; i++) {
+        const o = clause(line, i, usage);
+        o.expect("as");
+        const types = [o.vocab(ELEMENT_WORDS, "an element")];
+        if (o.seesAny(ELEMENT_WORDS)) types.push(o.vocab(ELEMENT_WORDS, "an element"));
+        o.done();
+        step.types = types;
+      }
+      return step;
+    }
+    case "clear": {
+      const usage = "clear <status> from <who>";
+      noBlock(line, usage);
+      const c = single(line, usage);
+      c.expect("clear");
+      const status = c.id("the status");
+      scope.refs.push({ table: "statuses", id: status, line: line.no });
+      c.expect("from");
+      const on = readWho(c, scope);
+      c.done();
+      return { kind: "clear-status", status, on };
     }
     case "cleanse": {
       const usage = "cleanse <good|bad> marks from <who>";
@@ -671,7 +705,8 @@ function readThrow(line: Line, scope: Scope): Step {
 }
 
 function readHit(line: Line, scope: Scope): Step {
-  const usage = "hit <who> <share> <stat> + <share> <stat> | hit <who> <n> per level, as <element> <physical|magic>, sound <name>";
+  const usage = "hit <who> <share> <stat> + <share> <stat> + <n> at max level"
+    + " | hit <who> <n> per level, per stack of <status>, as <element> <physical|magic>, sound <name>";
   noBlock(line, usage);
   const c = clause(line, 0, usage);
   c.expect("hit");
@@ -682,17 +717,27 @@ function readHit(line: Line, scope: Scope): Step {
     c.expect("per level");
   } else {
     const scaling: Scaling[] = [];
-    do {
+    for (;;) {
       const scale = c.percent("the share");
       const stat = c.vocab(STAT_WORDS, "a stat");
       scaling.push({ stat, scale });
-    } while (c.take("+"));
+      if (!c.take("+")) break;
+      // A number with no percent after the plus is the flat amount, which ends the list.
+      if (c.seesNumber()) {
+        step.flatAtCeiling = c.count("the flat amount");
+        c.expect("at max level");
+        break;
+      }
+    }
     step.scaling = scaling;
   }
   c.done();
   for (let i = 1; i < line.clauses.length; i++) {
     const o = clause(line, i, usage);
-    if (o.take("sound")) step.sound = o.token("the sound");
+    if (o.take("per stack of")) {
+      step.perStackOf = o.id("the status the stacks are counted off");
+      scope.refs.push({ table: "statuses", id: step.perStackOf, line: line.no });
+    } else if (o.take("sound")) step.sound = o.token("the sound");
     else {
       o.expect("as");
       const named = o.seesAny(ELEMENT_WORDS);
@@ -770,6 +815,7 @@ function readStanding(line: Line, forField: boolean): Standing[] {
     : "<stat> x<n> | <stat> +<n> | <stat> +<n> after scaling | <stat> = <n> | <stat> + <share> of <stat>"
       + " | <stat> + <share> of base + <n> | <stat> - power | <element> moves x<n> | immune to <element>"
       + " | takes x<n> from <element> | cannot switch out | blocks <element> hits"
+      + " | cuts the next hit by <share>"
       + " | marks it leaves hit x<n> if they last <n> turns or more | all stats <change>";
   noBlock(line, usage);
   const c = single(line, usage);
@@ -805,6 +851,12 @@ function readStanding(line: Line, forField: boolean): Standing[] {
     c.expect("hits");
     c.done();
     return [{ kind: "ward", element }];
+  }
+  if (c.take("cuts the next hit by")) {
+    const frac = c.percent("how much it cuts");
+    if (frac <= 0 || frac > 1) c.fail("how much it cuts should be from 1% to 100%");
+    c.done();
+    return [{ kind: "soften", frac }];
   }
   if (c.take("marks it leaves hit")) {
     const mult = c.times("how much harder");
@@ -1083,7 +1135,7 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
   const { id, name } = header(head, "status");
   const known = [
     "good", "bad", "icon", "sound", "lasts", "charges", "stacks", "lost on switching out",
-    "shows a hand of cards", "power", "while carried", "when",
+    "shows a hand of cards", "grows", "power", "while carried", "when",
   ];
   const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs };
   const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], wrote: false };
@@ -1096,6 +1148,8 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
   let icon: string | undefined;
   let sound: string | undefined;
   let hand = false;
+  let growth: string | undefined;
+  let growthEach: number | undefined;
   for (const line of head.children) {
     if (readBehaviour(line, scope, b)) continue;
     const c0 = clause(line, 0, "");
@@ -1144,6 +1198,12 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
       c.expect("shows a hand of cards");
       c.done();
       hand = true;
+    } else if (c0.sees("grows")) {
+      const c = plain("grows <n> <art>");
+      c.expect("grows");
+      if (c.seesNumber()) growthEach = c.count("how many pieces a stack grows");
+      growth = c.token("the art it grows");
+      c.done();
     } else if (c0.sees("power")) {
       const c = plain("power <share> of <whose> <stat>");
       c.expect("power");
@@ -1167,6 +1227,8 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
   if (icon !== undefined) def.icon = icon;
   if (sound !== undefined) def.sound = sound;
   if (hand) def.hand = true;
+  if (growth !== undefined) def.growth = growth;
+  if (growthEach !== undefined) def.growthEach = growthEach;
   return def;
 }
 

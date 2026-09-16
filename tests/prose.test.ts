@@ -228,10 +228,26 @@ describe("a mark's power, and every scaled number in order", () => {
   });
 
   it("colours and notes true damage as ignoring defenses", () => {
-    expect(parseProse("[damage:fragile]", {})[0]).toMatchObject({
-      tone: "true",
-      detail: "10% of its own maximum HP. True damage ignores target's defenses.",
-    });
+    STATUSES["probe-true"] = {
+      ...STATUSES["in-the-red"]!,
+      id: "probe-true",
+      effects: [{
+        kind: "damage",
+        to: "self",
+        damage: {
+          basis: "holder-max-hp", frac: 0.1, element: "plain", category: "true",
+          damageClass: "attack", triggersOnHit: false, snapshot: false,
+        },
+      }],
+    } as never;
+    try {
+      expect(parseProse("[damage:probe-true]", {})[0]).toMatchObject({
+        tone: "true",
+        detail: "10% of its own maximum HP. True damage ignores target's defenses.",
+      });
+    } finally {
+      delete STATUSES["probe-true"];
+    }
     // Flat damage is only a flat base, and the hit is reduced like any other.
     expect(parseProse("[damage]", { move: MOVES["cherry-on-top"]! })[0]).toMatchObject({
       tone: "physical",
