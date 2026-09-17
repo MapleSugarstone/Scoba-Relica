@@ -41,7 +41,8 @@ export const PATH_WORDS = vocab<MoveVfx>([
 ]);
 
 export const SHOW_WORDS = vocab<ShowPath>([
-  ["wheel", "wheel"], ["glow", "glow"], ["burst", "burst"], ["flames", "flames"],
+  ["wheel", "wheel"], ["glow", "glow"], ["burst", "burst"], ["ghost", "ghost"], ["flames", "flames"],
+  ["clock", "clock"], ["liftoff", "liftoff"], ["landing", "landing"],
 ]);
 
 export const AIM_WORDS = vocab<TargetMode>([
@@ -100,7 +101,9 @@ const everyAnim: Record<CasterAnim, true> = { shake: true, lunge: true, blink: t
 const everyPath: Record<MoveVfx, true> = {
   bolt: true, lob: true, toss: true, drop: true, burst: true, flames: true, glow: true, beam: true,
 };
-const everyShow: Record<ShowPath, true> = { wheel: true, glow: true, burst: true, flames: true };
+const everyShow: Record<ShowPath, true> = {
+  wheel: true, glow: true, burst: true, ghost: true, flames: true, clock: true, liftoff: true, landing: true,
+};
 const everyStat: Record<StatName, true> = { hp: true, str: true, def: true, res: true, mag: true, spd: true };
 const everyMode: Record<TargetMode, true> = {
   "self": true, "any-ally": true, "other-ally": true, "any-enemy": true, "any-scoba": true,

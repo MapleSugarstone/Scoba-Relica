@@ -10,12 +10,13 @@ import {
   type BattleState,
   type Combatant,
 } from "../src/sim/battle";
-import { stacksOf } from "../src/sim/status";
+import { STATUSES, isContinuous, stacksOf } from "../src/sim/status";
 import { makeWild, passiveStatuses, statsAt, type ScobaInstance } from "../src/sim/scoba";
 import { MOVES, SPECIES, effectivenessAgainst, typeLabel } from "../src/sim/species";
 import { rngFrom } from "../src/sim/rng";
 
-const wild = (species: string, level: number, seed: string) => makeWild(species, level, rngFrom(seed));
+const wild = (species: string, level: number, seed: string): ScobaInstance =>
+  ({ ...makeWild(species, level, rngFrom(seed)), hobby: "unmotivated" });
 const owned = (s: ScobaInstance, owner: "A" | "B"): ScobaInstance => ({ ...s, owner });
 
 /** One Scoba out with a spare behind it, against one enemy with a spare too. */
@@ -36,14 +37,17 @@ function duel(mine: string, theirs: string, moves?: string[]): BattleState {
 const held = (c: Combatant): string[] => c.statuses.map((s) => s.id);
 
 describe("passives as statuses", () => {
-  it("hangs both abilities on a Scoba as it goes out, and keeps them off the tag row", () => {
+  it("hangs both abilities on a Scoba as it goes out, and reads the standing ones on the row", () => {
     const st = duel("plib", "grima");
     const me = st.teams[0][0]!;
     const sp = SPECIES["plib"]!;
     expect(held(me)).toContain(sp.primaryAbility);
     expect(held(me)).toContain(me.scoba.secondaryAbility);
-    // The card already names the abilities, so they are not repeated as marks.
-    expect(statusSummary(me).map((m) => m.id)).toEqual([]);
+    // A passive that holds for as long as it is carried is true of the Scoba
+    // right now, so it is read on the row beside everything else that is. One
+    // that only waits for a trigger is not, and stays with the abilities.
+    const standing = held(me).filter((id) => STATUSES[id]?.effects.some((e) => isContinuous(e.kind)));
+    expect(statusSummary(me).map((m) => m.id)).toEqual(standing);
   });
 
   it("reads the same stats out of a battle as in one", () => {

@@ -4,7 +4,7 @@
 // back the same way. `docs/move-script.md` describes them all for an author.
 import type { Ability, Move } from "../species";
 import type {
-  Basis, ChanceColorChange, FieldDef, FieldEffect, MoveChange, Scaling, Standing, StatusDamage,
+  Basis, ChanceColorChange, FieldDef, FieldEffect, HobbyDef, MoveChange, Scaling, Standing, StatusDamage,
   StatusDef, StatusTrigger, Step, Who,
 } from "../status";
 import type { TargetSpec } from "../targeting";
@@ -27,13 +27,14 @@ export interface ReadResult {
   statuses: StatusDef[];
   abilities: Ability[];
   fields: FieldDef[];
+  hobbies: HobbyDef[];
   problems: Problem[];
   refs: Ref[];
   /** The line each record's header is on, by id. */
   lines: Record<string, number>;
 }
 
-export type RecordKind = "move" | "status" | "passive" | "field";
+export type RecordKind = "move" | "status" | "passive" | "field" | "hobby";
 
 // --- reading one clause ---
 
@@ -157,6 +158,12 @@ class Clause {
     return w.text.toLowerCase();
   }
 
+  /** Whether the next word reads as an amount, a negative one included. */
+  seesAmount(): boolean {
+    const w = this.peek();
+    return !!w && !w.quoted && /^-?\d+(\.\d+)?$/.test(w.text);
+  }
+
   /** Whether the next word is a plain number, rather than a percentage or a word. */
   seesNumber(): boolean {
     const w = this.peek();
@@ -223,7 +230,7 @@ const TEAM_WORDS: Record<string, Who> = {
 
 function whoWords(scope: Scope): Record<string, Who> {
   if (scope.kind === "move") {
-    const out: Record<string, Who> = { caster: "self", raised: "raised", ...TEAM_WORDS };
+    const out: Record<string, Who> = { caster: "self", raised: "raised", traveller: "traveller", ...TEAM_WORDS };
     for (const [name, aim] of scope.aims) out[name] = { aim };
     return out;
   }
@@ -267,7 +274,7 @@ function readShare(c: Clause, scope: Scope): { basis: Basis; frac: number } {
 // --- steps ---
 
 const STEP_STARTS = [
-  "throw", "show", "sound", "wait", "say", "hit", "damage", "heal", "inflict", "clear", "cleanse", "copy", "raise",
+  "throw", "show", "sound", "flash", "wait", "say", "hit", "damage", "heal", "inflict", "clear", "cleanse", "copy", "raise", "undo", "rewind", "travel",
   "take", "summon", "find", "give", "lay", "draw", "deal", "if", "refund", "pick", "change",
 ];
 
@@ -281,7 +288,7 @@ function readStep(line: Line, scope: Scope): Step {
   switch (start) {
     case "throw": return readThrow(line, scope);
     case "show": {
-      const usage = "show <art> as <wheel|glow|burst|flames> on <who>, pointer <art>";
+      const usage = "show <art> as <wheel|clock|glow|burst|ghost|flames|liftoff|landing> on <who>, pointer <art>";
       noBlock(line, usage);
       const c = clause(line, 0, usage);
       c.expect("show");
@@ -292,10 +299,12 @@ function readStep(line: Line, scope: Scope): Step {
       const on = readWho(c, scope);
       c.done();
       const step: Step = { kind: "show", art, path, on };
+      // One clause per hand, in the order they are written: a clock face takes
+      // as many as it has, and each turns faster than the one above it.
       for (let i = 1; i < line.clauses.length; i++) {
         const o = clause(line, i, usage);
         o.expect("pointer");
-        step.pointer = o.token("the pointer art");
+        step.pointers = [...step.pointers ?? [], o.token("the pointer art")];
         o.done();
       }
       return step;
@@ -308,6 +317,18 @@ function readStep(line: Line, scope: Scope): Step {
       const name = c.token("the sound");
       c.done();
       return { kind: "sound", name };
+    }
+    case "flash": {
+      const usage = "flash <color> for <n> seconds";
+      noBlock(line, usage);
+      const c = single(line, usage);
+      c.expect("flash");
+      const color = c.color("the color it washes the screen");
+      c.expect("for");
+      const seconds = c.count("how long it lasts");
+      c.expect("seconds");
+      c.done();
+      return { kind: "flash", color, seconds };
     }
     case "wait": {
       const usage = "wait <seconds> seconds";
@@ -386,6 +407,60 @@ function readStep(line: Line, scope: Scope): Step {
         if (o.seesAny(ELEMENT_WORDS)) types.push(o.vocab(ELEMENT_WORDS, "an element"));
         o.done();
         step.types = types;
+      }
+      return step;
+    }
+    case "travel": {
+      const usage = "travel back <n> turns, <n> mana off, riding <art>";
+      noBlock(line, usage);
+      const c = clause(line, 0, usage);
+      c.expect("travel back");
+      const turns = c.count("how many turns");
+      if (turns < 1) c.fail("travelling goes back at least one turn");
+      if (!c.take("turns")) c.expect("turn");
+      c.done();
+      if (scope.kind !== "move") c.fail("only a move travels");
+      let discount = 0;
+      let art: string | undefined;
+      for (let i = 1; i < line.clauses.length; i++) {
+        const o = clause(line, i, usage);
+        if (o.take("riding")) {
+          art = o.token("the machine it rides");
+          o.done();
+          continue;
+        }
+        discount = o.count("how much is off what it casts back there");
+        o.expect("mana off");
+        o.done();
+      }
+      return { kind: "travel", turns, discount, ...(art !== undefined ? { art } : {}) };
+    }
+    case "rewind": {
+      const usage = "rewind <n> turns";
+      noBlock(line, usage);
+      const c = single(line, usage);
+      c.expect("rewind");
+      const turns = c.count("how many turns");
+      if (turns < 1) c.fail("a rewind goes back at least one turn");
+      if (!c.take("turns")) c.expect("turn");
+      c.done();
+      return { kind: "rewind", turns };
+    }
+    case "undo": {
+      const usage = "undo what <who> takes this round, marked <status>";
+      noBlock(line, usage);
+      const c = clause(line, 0, usage);
+      c.expect("undo what");
+      const on = readWho(c, scope);
+      c.expect("takes this round");
+      c.done();
+      const step: Step = { kind: "undo-round", on };
+      for (let i = 1; i < line.clauses.length; i++) {
+        const o = clause(line, i, usage);
+        o.expect("marked");
+        step.mark = o.id("the status it marks them with");
+        scope.refs.push({ table: "statuses", id: step.mark, line: line.no });
+        o.done();
       }
       return step;
     }
@@ -468,7 +543,7 @@ function readStep(line: Line, scope: Scope): Step {
       return { kind: "grant-item", item, count };
     }
     case "give": {
-      const usage = "give <who> <n> mana | give <who> picked move as extra | give <who> picked move in slot <n>";
+      const usage = "give <who> <n> mana | give <who> <picked move|a move> as extra | give <who> <picked move|a move> in slot <n>";
       noBlock(line, usage);
       const c = single(line, usage);
       c.expect("give");
@@ -484,6 +559,20 @@ function readStep(line: Line, scope: Scope): Step {
         if (!Number.isInteger(slot) || slot < 1) c.fail("the slot should be a whole number from 1");
         c.done();
         return { kind: "give-move", to, slot: slot - 1 };
+      }
+      if (!c.seesAmount()) {
+        // A move named outright, handed over the same way a picked one is.
+        const move = c.id("the move");
+        scope.refs.push({ table: "moves", id: move, line: line.no });
+        if (c.take("as extra")) {
+          c.done();
+          return { kind: "give-move", to, slot: null, move };
+        }
+        c.expect("in slot");
+        const slot = c.number("the slot");
+        if (!Number.isInteger(slot) || slot < 1) c.fail("the slot should be a whole number from 1");
+        c.done();
+        return { kind: "give-move", to, slot: slot - 1, move };
       }
       const amount = c.count("how much mana");
       c.expect("mana");
@@ -814,7 +903,8 @@ function readStanding(line: Line, forField: boolean): Standing[] {
     ? "<element> moves x<n> | immune to <element> | takes x<n> from <element>"
     : "<stat> x<n> | <stat> +<n> | <stat> +<n> after scaling | <stat> = <n> | <stat> + <share> of <stat>"
       + " | <stat> + <share> of base + <n> | <stat> - power | <element> moves x<n> | immune to <element>"
-      + " | takes x<n> from <element> | cannot switch out | blocks <element> hits"
+      + " | takes x<n> from <element> | takes x<n> from everything | cannot switch out | cannot enter hyper-mode"
+      + " | casts again at <share> | blocks <element> hits"
       + " | cuts the next hit by <share>"
       + " | marks it leaves hit x<n> if they last <n> turns or more | all stats <change>";
   noBlock(line, usage);
@@ -827,6 +917,10 @@ function readStanding(line: Line, forField: boolean): Standing[] {
   if (c.take("takes")) {
     const mult = c.times("how much it takes");
     c.expect("from");
+    if (c.take("everything")) {
+      c.done();
+      return [{ kind: "frail", mult }];
+    }
     const element = c.vocab(ELEMENT_WORDS, "an element");
     c.done();
     return [{ kind: "vulnerable", element, mult }];
@@ -845,6 +939,16 @@ function readStanding(line: Line, forField: boolean): Standing[] {
   if (c.take("cannot switch out")) {
     c.done();
     return [{ kind: "root" }];
+  }
+  if (c.take("cannot enter hyper-mode")) {
+    c.done();
+    return [{ kind: "no-hyper" }];
+  }
+  if (c.take("casts again at")) {
+    const frac = c.percent("how much the second cast is worth");
+    if (frac <= 0 || frac > 1) c.fail("a second cast is worth from 1% to 100%");
+    c.done();
+    return [{ kind: "echo", frac }];
   }
   if (c.take("blocks")) {
     const element = c.vocab(ELEMENT_WORDS, "an element");
@@ -1134,7 +1238,7 @@ function snapshots(steps: Step[]): number {
 function readStatus(head: Line, refs: Ref[]): StatusDef {
   const { id, name } = header(head, "status");
   const known = [
-    "good", "bad", "icon", "sound", "lasts", "charges", "stacks", "lost on switching out",
+    "good", "bad", "text", "icon", "sound", "lasts", "charges", "stacks", "lost on switching out",
     "shows a hand of cards", "grows", "power", "while carried", "when",
   ];
   const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs };
@@ -1160,6 +1264,11 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
     if (c0.sees("good") || c0.sees("bad")) {
       const c = plain("good | bad");
       polarity = c.vocab(POLARITY_WORDS, "good or bad");
+      c.done();
+    } else if (c0.sees("text")) {
+      const c = plain("text \"<words>\"");
+      c.expect("text");
+      def.text = c.quoted("the text");
       c.done();
     } else if (c0.sees("icon")) {
       const c = plain("icon <art>");
@@ -1234,7 +1343,7 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
 
 function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: StatusDef | null } {
   const { id, name } = header(head, "passive");
-  const known = ["text", "wears", "grants move", "once per battle", "charges", "while carried", "when"];
+  const known = ["text", "icon", "wears", "grants move", "once per battle", "charges", "while carried", "when"];
   const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs };
   const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], wrote: false };
   const ability: Ability = { id, name };
@@ -1242,6 +1351,7 @@ function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: Statu
   let grants: string | undefined;
   let wears: string | undefined;
   let text: string | undefined;
+  let icon: string | undefined;
   for (const line of head.children) {
     if (readBehaviour(line, scope, b)) continue;
     const c0 = clause(line, 0, "");
@@ -1253,6 +1363,11 @@ function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: Statu
       const c = plain("text \"<words>\"");
       c.expect("text");
       text = c.quoted("the text");
+      c.done();
+    } else if (c0.sees("icon")) {
+      const c = plain("icon <name>");
+      c.expect("icon");
+      icon = c.token("the sigil");
       c.done();
     } else if (c0.sees("wears")) {
       const c = plain("wears <accessory>");
@@ -1291,9 +1406,51 @@ function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: Statu
       id, name, polarity: "good", trigger: b.trigger, duration: null, charges,
       stacks: false, maxStacks: 1, persists: true, innate: true,
       effects: [...b.standing, ...b.steps],
+      ...(icon !== undefined ? { icon } : {}),
     }
     : null;
+  if (icon !== undefined && !b.wrote) {
+    throw new ScriptError(head.no, "carries nothing, so it never shows a sigil. Take the icon line off");
+  }
   return { ability, status };
+}
+
+/**
+ * A hobby is a name, the two lines that describe it and the standing changes it
+ * makes, which are written the same way a passive's are.
+ */
+function readHobby(head: Line): HobbyDef {
+  const { id, name } = header(head, "hobby");
+  const known = ["doing", "text", "while carried"];
+  const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs: [] };
+  const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], wrote: false };
+  let doing: string | undefined;
+  let text: string | undefined;
+  for (const line of head.children) {
+    if (readBehaviour(line, scope, b)) continue;
+    const c0 = clause(line, 0, "");
+    const plain = (usage: string): Clause => {
+      noBlock(line, usage);
+      return single(line, usage);
+    };
+    if (c0.sees("doing")) {
+      const c = plain("doing \"<words>\"");
+      c.expect("doing");
+      doing = c.quoted("what the Scoba is doing");
+      c.done();
+    } else if (c0.sees("text")) {
+      const c = plain("text \"<words>\"");
+      c.expect("text");
+      text = c.quoted("the text");
+      c.done();
+    } else {
+      unknownLine(line, known);
+    }
+  }
+  if (doing === undefined) throw new ScriptError(head.no, "has no \"doing\" line, which is what its Scoba's card says");
+  if (text === undefined) throw new ScriptError(head.no, "has no \"text\" line, which is what the hut reads out");
+  if (b.steps.length > 0) throw new ScriptError(head.no, "is not a trigger: a hobby only ever changes stats");
+  return { id, name, doing, text, effects: b.standing };
 }
 
 function readField(head: Line): FieldDef {
@@ -1358,7 +1515,9 @@ function readField(head: Line): FieldDef {
  * out and the mistake is reported, so one broken record does not hide the rest.
  */
 export function readScript(text: string, kind: RecordKind, firstLine = 1): ReadResult {
-  const out: ReadResult = { moves: [], statuses: [], abilities: [], fields: [], problems: [], refs: [], lines: {} };
+  const out: ReadResult = {
+    moves: [], statuses: [], abilities: [], fields: [], hobbies: [], problems: [], refs: [], lines: {},
+  };
   let roots: Line[];
   try {
     roots = readLines(text, firstLine);
@@ -1382,6 +1541,7 @@ export function readScript(text: string, kind: RecordKind, firstLine = 1): ReadR
           break;
         }
         case "field": out.fields.push(readField(head)); break;
+        case "hobby": out.hobbies.push(readHobby(head)); break;
       }
       out.refs.push(...refs);
       const id = head.clauses[0]?.[1]?.text;

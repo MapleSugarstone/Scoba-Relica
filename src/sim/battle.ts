@@ -27,6 +27,7 @@ import { BLACKJACK, DECK, addToHand, deckIndex, type Card, type CardFace } from 
 import { STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
 import type { Rng } from "./rng";
 import { mulberry32, hashSeed, rngFrom } from "./rng";
+import { logRound, recording } from "./replay";
 import {
   FIELDS,
   STATUSES,
@@ -49,6 +50,8 @@ import {
   triggerMatches,
   wardAgainst,
   softenOn,
+  hyperShut,
+  echoFrac,
   powerCategory,
   type Basis,
   type ChanceColorChange,
@@ -74,6 +77,8 @@ import {
   candidates,
   combatantAt,
   isPawnSlot,
+  isTravelSlot,
+  TRAVEL_SLOT,
   needsPick,
   pickError,
   resolveTargets,
@@ -86,7 +91,7 @@ import {
   type TargetSpec,
 } from "./targeting";
 
-export { ALL_SLOTS, FIELD_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, isPawnSlot };
+export { ALL_SLOTS, FIELD_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, TRAVEL_SLOT, isPawnSlot, isTravelSlot };
 
 export const START_MANA = 40;
 export const MANA_PER_TURN = 20;
@@ -183,6 +188,14 @@ export interface Combatant {
    * slot, and never keeps a team alive on its own.
    */
   pawn?: boolean;
+  /**
+   * Standing in a time it does not belong to: the one that travelled, waiting
+   * to take its seat back when the past has played out. It is on the field like
+   * anything else while it is there, and everything can reach it.
+   */
+  aside?: boolean;
+  /** Taken off everything it casts, for as long as it is somewhere it does not belong. */
+  costOff?: number;
   /** Moves a step has put in a slot, by slot index, for this battle only. */
   swapped?: Record<number, string>;
   /**
@@ -203,6 +216,33 @@ export type OwnerId = "A" | "B";
  * co-op battle waiting on the other player to walk over and join.
  */
 export type SlotHolder = OwnerId | "*" | null;
+
+/**
+ * A replacement that walked onto an emptied mark. Held by the Scoba's uid
+ * rather than by its place in the team, since what a replay needs to find is
+ * the same Scoba rather than whoever is standing where it stood.
+ */
+export interface Filled {
+  side: 0 | 1;
+  slot: Slot;
+  uid: string;
+}
+
+/** One round as it can be played again: the battle before it, and what was chosen. */
+export interface TurnRecord {
+  turn: number;
+  before: Omit<BattleState, "history">;
+  choices: Choice[];
+  /**
+   * Who walked on between the round before this one and this one. Replacements
+   * are picked between rounds rather than in them, so a round that replayed
+   * without these left an emptied mark empty for the rest of the journey.
+   */
+  filled?: Filled[];
+}
+
+/** How many rounds back a rewind can reach. Three, and one to spare. */
+export const REWIND_KEEP = 4;
 
 export interface BattleState {
   seed: string;
@@ -232,6 +272,51 @@ export interface BattleState {
    * called it: without it the court stays at a quarter of everyone's size.
    */
   ez: boolean;
+  /**
+   * The last few rounds, newest last: what the battle looked like before each
+   * one and what was chosen in it. A rewind puts the state back to one of these
+   * and a replay runs the choices again. Kept to `REWIND_KEEP` rounds, and each
+   * snapshot holds no history of its own, so nothing nests.
+   */
+  history?: TurnRecord[];
+  /**
+   * Replacements that have walked on since the last round, waiting to be filed
+   * with the round they walked on for. Drained as that round opens.
+   */
+  filling?: Filled[];
+  /**
+   * What an `undo-round` step is holding for the end of this round: who was
+   * undone, and what they were carrying when it ran. It lives on the state
+   * rather than in the run, because the step and the putting back are a round
+   * apart. Cleared as the round closes.
+   */
+  undoing?: {
+    side: 0 | 1; index: number; hp: number; statuses: StatusInstance[];
+    /** The mark worn while it is held, taken off as the round is put back. */
+    mark?: string;
+  }[];
+  /**
+   * A rewind has put the battle somewhere else, so the round it happened in
+   * stops where it is. Cleared as that round closes.
+   */
+  rewound?: boolean;
+  /** A journey has been made, so nobody makes another one this battle. */
+  travelled?: boolean;
+  /**
+   * A journey in progress: the rounds still to play again, where the traveller
+   * is standing, and the seat it is coming back to. While this is set, the only
+   * choice asked for is the traveller's: everyone else repeats what they chose
+   * the first time around.
+   */
+  travelling?: {
+    left: TurnRecord[];
+    visitor: TargetRef;
+    seat: TargetRef;
+    /** The machine it rides, for the scene to carry it there and away again. */
+    art?: string;
+    /** It has ridden away, so the rounds still to play have nobody to ask. */
+    gone?: true;
+  };
   /**
    * What the opening triggers said before there was a round to say it in. A
    * passive that summons as its Scoba takes the field fires here, and the
@@ -272,12 +357,25 @@ export interface BattleEvent {
   text: string;
   kind: "spell" | "hit" | "faint" | "switch" | "heal" | "block" | "catch" | "flee" | "win" | "info"
   | "status" | "summon" | "field" | "hyper" | "card"
+  /** A Scoba stepping out of its own time, or back into it. */
+  | "travel"
   /** Something drawn or heard that a step asked for, with no line in the log. */
   | "show";
   /** Who the line is about: the one hit, healed, marked or sent out. */
   at?: TargetRef;
+  /**
+   * Which Scoba `at` named when the line was written. A rewind later in the
+   * same round renumbers whatever the round appended, so a place that held a
+   * called Pawn can hold somebody else by the time the scene plays the call.
+   */
+  uid?: string;
   /** Who brought it about, when that is somebody else. */
   by?: TargetRef;
+  /**
+   * For a `travel` line: whether a Scoba is leaving its own time, taking its
+   * seat back, or the whole battle has wound back to an earlier turn.
+   */
+  way?: "out" | "back" | "again";
   /** The move behind it, so an animation can be picked for it. */
   moveId?: string;
   /**
@@ -311,7 +409,7 @@ export interface BattleEvent {
 }
 
 /** The steps that change only what is drawn and heard. */
-export type VisualStep = Extract<Step, { kind: "motion" | "throw" | "show" | "sound" | "wait" | "wear" }>;
+export type VisualStep = Extract<Step, { kind: "motion" | "throw" | "show" | "sound" | "flash" | "wait" | "wear" }>;
 
 /**
  * A battle opens with everyone whole: full HP, full mana, nobody down. The
@@ -348,14 +446,14 @@ export function makeCombatants(team: ScobaInstance[]): Combatant[] {
  */
 export function slotInPlay(st: BattleState, side: 0 | 1, slot: Slot): boolean {
   if (slot < 0 || slot >= FIELD_SLOTS) return false;
-  if (isPawnSlot(slot)) return (st.active[side][slot] ?? -1) >= 0;
+  if (isPawnSlot(slot) || isTravelSlot(slot)) return (st.active[side][slot] ?? -1) >= 0;
   if (slot >= st.slots) return false;
   return side === 1 || st.slotOwner[slot] !== null;
 }
 
 /** Which character's Scobas may fill this slot, or `"*"` for no restriction. */
 function holderOf(st: BattleState, side: 0 | 1, slot: Slot): SlotHolder {
-  if (side === 1 || isPawnSlot(slot)) return "*";
+  if (side === 1 || isPawnSlot(slot) || isTravelSlot(slot)) return "*";
   return st.slotOwner[slot] ?? null;
 }
 
@@ -367,7 +465,7 @@ function holderOf(st: BattleState, side: 0 | 1, slot: Slot): SlotHolder {
  * leaves it by falling.
  */
 export function benchFor(st: BattleState, side: 0 | 1, slot: Slot): number[] {
-  if (isPawnSlot(slot) || !slotInPlay(st, side, slot)) return [];
+  if (isPawnSlot(slot) || isTravelSlot(slot) || !slotInPlay(st, side, slot)) return [];
   const holder = holderOf(st, side, slot);
   const out: number[] = [];
   st.teams[side].forEach((c, i) => {
@@ -384,6 +482,14 @@ export function benchFor(st: BattleState, side: 0 | 1, slot: Slot): number[] {
  * rather than spending a turn to arrive.
  */
 export function slotsAwaitingChoice(st: BattleState, side: 0 | 1): Slot[] {
+  // While a journey is being played out, the only choice anyone makes is the
+  // traveller's: everyone else is repeating what they already chose.
+  const journey = st.travelling;
+  if (journey) {
+    if (journey.gone || side !== journey.visitor.side) return [];
+    const at = ALL_SLOTS.find((slot) => st.active[side][slot] === journey.visitor.index);
+    return at === undefined ? [] : [at];
+  }
   return ALL_SLOTS.filter(
     (slot) => slotInPlay(st, side, slot) && (st.active[side][slot] ?? -1) >= 0,
   );
@@ -395,6 +501,7 @@ export function emptySlots(st: BattleState, side: 0 | 1): Slot[] {
   return ALL_SLOTS.filter(
     (slot) =>
       !isPawnSlot(slot) &&
+      !isTravelSlot(slot) &&
       slotInPlay(st, side, slot) &&
       (st.active[side][slot] ?? -1) < 0 &&
       benchFor(st, side, slot).length > 0,
@@ -411,6 +518,9 @@ export function sendIn(st: BattleState, side: 0 | 1, slot: Slot, benchIndex: num
   if (!benchFor(st, side, slot).includes(benchIndex)) return [];
   const c = st.teams[side][benchIndex]!;
   st.active[side][slot] = benchIndex;
+  // Filed so a rewind can send the same Scoba on again. A replacement is picked
+  // between rounds rather than in one, so nothing else would remember it.
+  (st.filling ??= []).push({ side, slot, uid: c.scoba.uid });
   const events: BattleEvent[] = [{
     text: `${displayName(c.scoba)} joins the fight.`,
     kind: "switch",
@@ -473,7 +583,7 @@ function emptyField(): number[] {
 function fillSlots(st: BattleState, side: 0 | 1): number[] {
   const out = emptyField();
   for (const slot of ALL_SLOTS) {
-    if (isPawnSlot(slot) || !slotInPlay(st, side, slot)) continue;
+    if (isPawnSlot(slot) || isTravelSlot(slot) || !slotInPlay(st, side, slot)) continue;
     const holder = holderOf(st, side, slot);
     out[slot] = st.teams[side].findIndex(
       (c, i) => !c.fainted && !c.pawn && !out.includes(i) && (holder === "*" || c.scoba.owner === holder),
@@ -606,6 +716,7 @@ function vulnerabilityMult(c: Combatant, element: ElementType, field: FieldEffec
   let mult = 1;
   for (const { effect, stacks } of readEffects(c, field)) {
     if (effect.kind === "vulnerable" && effect.element === element) mult *= Math.pow(effect.mult, stacks);
+    if (effect.kind === "frail") mult *= Math.pow(effect.mult, stacks);
   }
   return mult;
 }
@@ -652,7 +763,10 @@ export function heldMoves(c: Combatant): string[] {
  */
 export function castCost(c: Combatant, moveId: string): number {
   const handed = (c.given ?? []).includes(moveId) || Object.values(c.swapped ?? {}).includes(moveId);
-  return handed ? MOVES[moveId]?.manaCost ?? 0 : moveCost(c.scoba, moveId);
+  const full = handed ? MOVES[moveId]?.manaCost ?? 0 : moveCost(c.scoba, moveId);
+  // A traveller casts cheaply while it is in the past: it is spending mana it
+  // has not earned yet.
+  return Math.max(0, full - (c.costOff ?? 0));
 }
 
 export function moveReady(c: Combatant, moveId: string): { ok: boolean; why?: string } {
@@ -680,6 +794,7 @@ export function hyperError(c: Combatant): string | null {
   const sp = SPECIES[c.scoba.speciesId];
   if (!sp?.hyperAbility) return "This Scoba has no Hyper-Mode.";
   if (c.hyper) return "Already in Hyper-Mode.";
+  if (hyperShut(c.statuses)) return "Its Hyper-Mode is gone.";
   if (c.mana < HYPER_COST) return `Costs ${HYPER_COST} mana.`;
   return null;
 }
@@ -702,6 +817,7 @@ export function choiceError(st: BattleState, c: Choice): string | null {
     // The slot is checked before the Scoba: whether anyone is playing it, and
     // whose it is, decide the move regardless of who was named.
     if (isPawnSlot(c.slot)) return "A Pawn cannot be called back.";
+    if (isTravelSlot(c.slot)) return "It is not even from this turn.";
     if (!slotInPlay(st, c.side, c.slot)) return "Nobody is playing that slot.";
     // A rooted Scoba stays where it is. Checked before the bench, since what
     // stops the switch is the one leaving rather than the one coming in.
@@ -737,6 +853,9 @@ export function choiceError(st: BattleState, c: Choice): string | null {
     if (!castableMoves(user).includes(c.moveId)) return "Scoba does not know that spell.";
     const ready = moveReady(user, c.moveId);
     if (!ready.ok) return ready.why ?? "Not ready.";
+    if (st.travelled && MOVES[c.moveId]?.cast.some((s) => s.kind === "travel")) {
+      return "That journey has already been made.";
+    }
   }
   const specs = specsFor(c);
   const picks = c.picks ?? [];
@@ -1250,6 +1369,13 @@ interface Run {
   picked: string | null;
   /** The Scoba a `raise` step put on the field, for the steps after it. */
   raised: TargetRef | null;
+  /**
+   * What this run is worth against the record as written, and whether it is an
+   * echo of a cast rather than the cast itself. An echo's numbers are a share
+   * of the real ones, and what it leaves behind is marked as an echo too.
+   */
+  scale?: number;
+  chrono?: boolean;
   /** The card a `draw-card` step drew, for the steps after it. */
   card: DrawnCard | null;
   /** How many cards these steps have drawn, so each draw rolls its own card. */
@@ -1280,6 +1406,7 @@ function whoRefs(ctx: Ctx, run: Run, who: Who): TargetRef[] {
     case "source": return run.source ? [run.source] : [];
     case "other": return run.other ? [run.other] : [];
     case "raised": return run.raised ? [run.raised] : [];
+    case "traveller": return ctx.st.travelling ? [ctx.st.travelling.visitor] : [];
     default: return teamOf(ctx.st, run.self, who);
   }
 }
@@ -1330,6 +1457,7 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
     case "throw":
     case "show":
     case "sound":
+    case "flash":
     case "wait":
     case "wear": {
       if (step.kind === "wear") {
@@ -1340,7 +1468,10 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       }
       const reach = step.kind === "throw" ? step.to : step.kind === "show" ? step.on
         : step.kind === "motion" || step.kind === "wear" ? step.who : "self";
-      const to = whoRefs(ctx, run, reach).filter((ref) => combatantAt(ctx.st, ref)?.fainted === false);
+      // Art shown on a Scoba is shown wherever that Scoba is, fallen or not:
+      // a clock over the one it is counting out has to reach it.
+      const to = whoRefs(ctx, run, reach)
+        .filter((ref) => step.kind === "show" || combatantAt(ctx.st, ref)?.fainted === false);
       // A card is thrown as it was drawn, so the scene shows the card the hand
       // is about to be dealt rather than rolling one of its own.
       if (step.kind === "throw" && step.drawn && !run.card) return true;
@@ -1375,6 +1506,7 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
         // A hit counted per stack is not thrown at all where there are none.
         if (step.perStackOf !== undefined && stacksOf(target.statuses, step.perStackOf) === 0) return [];
         const { dmg, eff } = damageOf(user, target, attack, field);
+        const worth = Math.max(1, Math.floor(dmg * (run.scale ?? 1)));
         const note = eff > 1 ? " Super effective!" : eff < 1 ? " Not very effective." : "";
         const meta: HitMeta = {
           element,
@@ -1386,7 +1518,7 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
           ...(move ? { moveId: move.id } : {}),
           ...(step.sound !== undefined ? { sound: step.sound } : {}),
         };
-        return [{ at: ref, raw: dmg, meta }];
+        return [{ at: ref, raw: worth, meta }];
       });
       dealTogether(ctx, strikes);
       return true;
@@ -1404,7 +1536,7 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
           ctx.events.push({ text: `${run.status.def.name} hits ${displayName(target.scoba)}.`, kind: "status", at: ref });
         }
         const reduced = power * mitigation(armorAgainst(d.category, target));
-        dealDamage(ctx, ref, Math.max(1, Math.floor(reduced)), {
+        dealDamage(ctx, ref, Math.max(1, Math.floor(reduced * (run.scale ?? 1))), {
           element: d.element,
           category: d.category,
           damageClass: d.damageClass,
@@ -1422,7 +1554,7 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
         return true;
       }
       for (const ref of group) {
-        const amount = basisValue(ctx, step.basis, ref, run.source) * step.frac;
+        const amount = basisValue(ctx, step.basis, ref, run.source) * step.frac * (run.scale ?? 1);
         heal(ctx, ref, run.cast ? Math.floor(amount) : amount, {
           ...(run.cast ? { source: run.self, moveId: run.cast.move.id } : {}),
           ...(step.sound !== undefined ? { sound: step.sound } : {}),
@@ -1434,12 +1566,52 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       for (const ref of whoRefs(ctx, run, step.on)) {
         // A status that hangs another one measures it from whoever left the
         // first, so a mark keeps naming the caster it came from as it spreads.
-        inflict(ctx, ref, step.status, run.source ?? run.self, step.turns);
+        inflict(
+          ctx, ref, step.status, run.source ?? run.self, step.turns,
+          run.chrono ? { scale: run.scale ?? 1 } : undefined,
+        );
       }
       return true;
     case "cleanse":
       for (const ref of whoRefs(ctx, run, step.on)) cleanse(ctx, ref, step.polarity);
       return true;
+    case "travel": {
+      travel(ctx, run, step.turns, step.discount, step.art);
+      return true;
+    }
+    case "rewind": {
+      const undone = rewind(ctx.st, step.turns);
+      if (undone.length === 0) return true;
+      ctx.st.rewound = true;
+      // A `travel` line rather than a plain one: the board is a different turn
+      // now, and the scene has to be put back together before it draws again.
+      ctx.events.push({
+        text: `The battle winds back ${undone.length} turn${undone.length === 1 ? "" : "s"}.`,
+        kind: "travel",
+        way: "again",
+      });
+      return true;
+    }
+    case "undo-round": {
+      const held = ctx.st.undoing ?? [];
+      for (const ref of whoRefs(ctx, run, step.on)) {
+        const c = combatantAt(ctx.st, ref);
+        if (!c || c.fainted) continue;
+        // One Scoba is held once a round, by whatever undid it first.
+        if (held.some((u) => u.side === ref.side && u.index === ref.index)) continue;
+        // The mark goes on before the snapshot is taken, so putting the round
+        // back does not put the mark back with it.
+        if (step.mark) inflict(ctx, ref, step.mark, run.source ?? run.self);
+        const after = combatantAt(ctx.st, ref);
+        held.push({
+          side: ref.side, index: ref.index, hp: c.hp,
+          statuses: structuredClone((after ?? c).statuses),
+          ...(step.mark ? { mark: step.mark } : {}),
+        });
+      }
+      ctx.st.undoing = held;
+      return true;
+    }
     case "clear-status":
       for (const ref of whoRefs(ctx, run, step.on)) {
         const c = combatantAt(ctx.st, ref);
@@ -1502,12 +1674,6 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       run.raised = raisePawn(ctx, run.self, fallen, step.levelShare, step.types);
       return true;
     }
-    case "raise": {
-      const fallen = whoRefs(ctx, run, step.who)[0];
-      if (!fallen) return true;
-      run.raised = raisePawn(ctx, run.self, fallen, step.levelShare, step.types);
-      return true;
-    }
     case "grant-item":
       grantItem(ctx, run.self.side, step.item, step.count);
       return true;
@@ -1560,7 +1726,7 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       if (run.picked) run.picked = deriveMove(run.picked, step.changes, step.key);
       return true;
     case "give-move": {
-      const picked = run.picked;
+      const picked = step.move ?? run.picked;
       if (!picked) return true;
       for (const ref of whoRefs(ctx, run, step.to)) {
         const c = combatantAt(ctx.st, ref);
@@ -1656,7 +1822,12 @@ function snapshotStep(effects: StatusEffect[]): Extract<Step, { kind: "damage" }
 
 /** Puts a status on a target, snapshotting its damage if it asks for that. */
 export function inflict(
-  ctx: Ctx, targetRef: TargetRef, statusId: string, from: TargetRef | null, turns?: number,
+  ctx: Ctx,
+  targetRef: TargetRef,
+  statusId: string,
+  from: TargetRef | null,
+  turns?: number,
+  echo?: { scale: number },
 ): void {
   const def = STATUSES[statusId];
   const target = combatantAt(ctx.st, targetRef);
@@ -1684,6 +1855,13 @@ export function inflict(
   if (power !== undefined && def.power) power *= mitigation(armorAgainst(powerCategory(def), target));
   const inst = newStatus(statusId, from ?? undefined, power, ctx.st.turn);
   if (!inst) return;
+  // An echo of a cast lands an echo of the status: worth its share, and beside
+  // whatever plain instance is already there rather than refreshing it.
+  if (echo) {
+    inst.chrono = true;
+    inst.scale = echo.scale;
+    if (inst.power !== undefined) inst.power *= echo.scale;
+  }
   // What put it there can say how long it stands, over the mark's own clock.
   if (turns !== undefined) inst.turnsLeft = turns;
   const how = applyStatus(target.statuses, inst);
@@ -1800,6 +1978,7 @@ function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
     text: `${displayName(caller.scoba)} calls up ${displayName(scoba)}!`,
     kind: "summon",
     at: { side, index },
+    uid: scoba.uid,
     by: callerRef,
   });
   if (ctx.depth < MAX_TRIGGER_DEPTH) {
@@ -1858,6 +2037,7 @@ function raisePawn(
     text: `${displayName(caller.scoba)} raises ${displayName(scoba)}!`,
     kind: "summon",
     at: { side, index },
+    uid: scoba.uid,
     by: callerRef,
   });
   if (ctx.depth < MAX_TRIGGER_DEPTH) {
@@ -1937,13 +2117,20 @@ function canonicalOrder(choices: Choice[]): Choice[] {
 
 export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[] {
   if (st.winner !== -1 || st.outcome !== "") return [{ text: "The battle is over.", kind: "info" }];
-  const choices = canonicalOrder(unordered);
+  // Filed before anything reads the state, since `withRecorded` takes a round
+  // off a journey and a replay that started after that would run a round short.
+  if (recording()) logRound(st.turn, structuredClone(st), structuredClone(unordered));
+  // Declared before the choices are settled: a round being played again walks
+  // its replacements back on first, and that is the round's opening rather than
+  // something that happened before it.
+  const events: BattleEvent[] = [];
+  const choices = canonicalOrder(withRecorded(st, unordered, events));
   for (const c of choices) {
     const err = choiceError(st, c);
     if (err) throw new Error(`illegal choice from side ${c.side} slot ${c.slot}: ${err}`);
   }
   const rng = turnRng(st);
-  const events: BattleEvent[] = [];
+  remember(st, choices);
   st.turn += 1;
   const ctx: Ctx = { st, events, rng, depth: 0 };
 
@@ -2026,7 +2213,7 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     .map((o) => o.c);
 
   for (const c of ordered) {
-    if (st.winner !== -1) break;
+    if (st.winner !== -1 || st.rewound) break;
     if (c.kind !== "spell" && c.kind !== "attack") continue;
     const user = combatant(st, c.side, c.slot);
     if (!user || user.fainted) continue;
@@ -2053,11 +2240,23 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     const hits = specs.map((spec, i) => resolveTargets(st, userRef, spec, c.picks[i] ?? null, rng));
 
     if (move) {
-      runSteps(ctx, {
+      const run = {
         record: move.id, self: userRef, source: userRef, other: null,
         groups: hits, alive: aliveNow(st), picked: null, raised: null, card: null, draws: 0,
-        status: null, cast: { move, paid },
-      }, move.cast);
+        status: null,
+        cast: { move, paid },
+      };
+      runSteps(ctx, run, move.cast);
+      // Cast a second time where something echoes it, for a share of the first
+      // and leaving echoes of whatever the first left.
+      const echo = echoFrac(user.statuses);
+      if (echo > 0 && !user.fainted && st.winner === -1 && !st.rewound) {
+        ctx.events.push({
+          text: `${move.name} happens again.`,
+          kind: "spell", at: userRef, moveId: move.id,
+        });
+        runSteps(ctx, { ...run, alive: aliveNow(st), scale: echo, chrono: true }, move.cast);
+      }
     } else {
       basicAttack(ctx, userRef, hits[0] ?? []);
     }
@@ -2068,12 +2267,309 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     fire(ctx, userRef, c.kind === "spell" ? { on: "use-ability" } : { on: "basic-attack" }, struck);
   }
 
+  // A round that wound the battle back is over where it was wound back: the
+  // end of it belongs to a turn that no longer happened.
+  if (st.rewound) {
+    delete st.rewound;
+    delete st.undoing;
+    return events;
+  }
   endOfTurn(ctx);
+  putBack(ctx);
   for (const side of [0, 1] as const) closeRanks(st, side);
+  // The traveller came back for one round, and this was it: it rides away and
+  // the rounds it has left play themselves out before anyone is asked again.
+  if (st.travelling && !replaying) rideAway(ctx);
+  if (st.travelling) playBackRounds(ctx);
   // Catches a battle that opened with a side already down, since nothing
   // fainted this turn to notice it.
   checkWipe(ctx);
   return events;
+}
+
+/**
+ * Travelling: the battle goes back and the caster stands in that time as a
+ * visitor. The round it left ends there. Next round the visitor picks a move
+ * like anybody else while everyone around it repeats what they chose, and the
+ * rounds after that play themselves out.
+ *
+ * The visitor is a copy on a spare mark rather than the Scoba itself, because
+ * the Scoba itself is already standing there, three rounds younger. Everything
+ * reaches it while it is there, and it is taken off the field once the rounds
+ * have been played. What happens to it happens to the Scoba it came from: a
+ * visitor that falls in the past is a Scoba that fell.
+ */
+function travel(ctx: Ctx, run: Run, turns: number, discount: number, art?: string): void {
+  const st = ctx.st;
+  const caster = combatantAt(st, run.self);
+  const move = run.cast?.move;
+  if (!caster || !move) return;
+  // One round further back than it travels: the round it is leaving is not one
+  // of the rounds played again.
+  const undone = rewind(st, turns + 1);
+  const left = undone.slice(0, -1);
+  if (left.length === 0) {
+    ctx.events.push({ text: "There is no time to go back to.", kind: "info" });
+    return;
+  }
+  // Set before anything is played again, so a journey recorded in one of those
+  // rounds is refused rather than made twice.
+  st.travelled = true;
+  const side = run.self.side;
+  const visitor: Combatant = {
+    ...structuredClone(caster), aside: true, blocking: false, ...(discount > 0 ? { costOff: discount } : {}),
+  };
+  const index = st.teams[side].length;
+  st.teams[side].push(visitor);
+  st.active[side][TRAVEL_SLOT] = index;
+  st.travelling = {
+    left, visitor: { side, index }, seat: run.self,
+    ...(art !== undefined ? { art } : {}),
+  };
+  ctx.events.push({
+    text: `${displayName(caster.scoba)} steps back ${left.length} turn${left.length === 1 ? "" : "s"}.`,
+    kind: "travel",
+    way: "out",
+    at: { side, index },
+  });
+  // One journey a battle, for everyone: what is left of the move is a shard.
+  for (const team of st.teams) {
+    for (const c of team) {
+      c.scoba.moves.forEach((id, at) => {
+        if (id === move.id) c.swapped = { ...c.swapped, [at]: TRAVEL_SPENT };
+      });
+      for (const [at, id] of Object.entries(c.swapped ?? {})) {
+        if (id === move.id) c.swapped![Number(at)] = TRAVEL_SPENT;
+      }
+    }
+  }
+  // The round it left is over: what came after it happened in a past that is
+  // gone, and the next round is the first of the ones being played again.
+  st.rewound = true;
+}
+
+/**
+ * Plays the rounds a journey has left, with everyone repeating what they chose
+ * and anything no longer legal simply not happening. The traveller's own choice
+ * is the player's, and it is made in the first of those rounds; the rest play
+ * themselves out.
+ */
+function playBackRounds(ctx: Ctx): void {
+  const st = ctx.st;
+  // Each round played here ends with a call back to this function, so the
+  // rounds would nest one inside the next without a guard.
+  if (replaying) return;
+  replaying = true;
+  try {
+    while (st.travelling && st.travelling.left.length > 0 && !st.rewound) {
+      if (st.winner !== -1 || st.outcome !== "") return;
+      ctx.events.push(...resolveTurn(st, []));
+    }
+  } finally {
+    replaying = false;
+  }
+  if (st.travelling && st.travelling.left.length === 0 && !st.rewound) delete st.travelling;
+}
+
+/** Set while `playBackRounds` is running the rounds a journey has left. */
+let replaying = false;
+
+/**
+ * The traveller takes its seat back. What it is carrying is what Unwind is
+ * carrying: it is the one that made the journey. Where the Scoba it left behind
+ * fell in the meantime, there is no seat to take and Unwind is dead.
+ */
+/**
+ * The traveller rides away, at the end of the one round it came back for. What
+ * became of it there is its own business: whether it walked away or fell, the
+ * Scoba the battle goes on with is the one that was already standing here, and
+ * the past it changed is the past everyone now has.
+ */
+function rideAway(ctx: Ctx): void {
+  const st = ctx.st;
+  const journey = st.travelling;
+  if (!journey || journey.gone) return;
+  journey.gone = true;
+  const visitor = combatantAt(st, journey.visitor);
+  // One that fell back there is not riding anywhere, so nothing is shown and
+  // its mark is simply cleared.
+  if (visitor && !visitor.fainted) {
+    if (journey.art !== undefined) {
+      ctx.events.push({
+        text: "", kind: "show", at: journey.visitor, to: [journey.visitor],
+        visual: { kind: "show", art: journey.art, path: "liftoff", on: "self" },
+      });
+    }
+    ctx.events.push({
+      text: `${displayName(visitor.scoba)} rides back to its own turn.`,
+      kind: "travel", way: "back", at: journey.visitor,
+    });
+  }
+  // Its mark is cleared and it is counted as no longer standing, but it keeps
+  // its place in the team. Taking it out renumbers everyone after it, and the
+  // rounds still to be played again this round write their events against the
+  // numbers as they are now: a Pawn called in one of them took the number the
+  // traveller had just given up, and rode off in the machine in its place.
+  const { side, index } = journey.visitor;
+  const visitorAt = st.teams[side][index];
+  if (visitorAt) visitorAt.fainted = true;
+  st.active[side] = st.active[side].map((i) => (i === index ? -1 : i));
+}
+
+/** What a spent journey leaves in the slot it was cast from. */
+const TRAVEL_SPENT = "time-shatter";
+
+/**
+ * Puts back what an `undo-round` step held, once the round has played out. A
+ * Scoba that fell in the meantime is left where it fell: what an undo answers
+ * is damage that was survived.
+ */
+function putBack(ctx: Ctx): void {
+  const held = ctx.st.undoing;
+  if (!held) return;
+  delete ctx.st.undoing;
+  for (const u of held) {
+    const c = ctx.st.teams[u.side][u.index];
+    if (!c || c.fainted) continue;
+    const back = Math.min(u.hp, combatantMaxHp(c));
+    const moved = c.hp !== back || c.statuses.length !== u.statuses.length;
+    c.hp = back;
+    // The mark the undo wore comes off with the putting back: what it said was
+    // that this was coming, and it has come.
+    c.statuses = u.statuses.filter((held2) => held2.id !== u.mark);
+    if (!moved) continue;
+    ctx.events.push({
+      text: `${displayName(c.scoba)} is as it was.`,
+      kind: "status", at: { side: u.side, index: u.index }, hp: c.hp,
+    });
+  }
+}
+
+/**
+ * Which mark a Scoba was standing on when a round was filed. A choice names a
+ * mark, but a target names a Scoba, so this is what turns one into the other.
+ */
+function markIn(field: number[], index: number): Slot | undefined {
+  return ALL_SLOTS.find((slot) => field[slot] === index);
+}
+
+/**
+ * A recorded target, aimed at whoever holds that mark now. What a Scoba aimed
+ * at is the Scoba across from it, so where the one it picked has fallen and
+ * another has taken the mark, the move lands on the one standing there.
+ *
+ * A target that was on no mark is left alone: it was never a mark that was
+ * aimed at, and there is nothing to follow.
+ */
+function aimedAgain(record: TurnRecord, st: BattleState, pick: TargetRef | null): TargetRef | null {
+  if (!pick) return null;
+  const was = markIn(record.before.active[pick.side], pick.index);
+  if (was === undefined) return pick;
+  const now = st.active[pick.side][was] ?? -1;
+  return now >= 0 ? { side: pick.side, index: now } : pick;
+}
+
+/** The same choice, aimed at the marks it was aimed at rather than at the Scobas. */
+function recordedAgain(record: TurnRecord, st: BattleState, c: Choice): Choice {
+  if (c.kind !== "spell" && c.kind !== "attack") return c;
+  return { ...c, picks: c.picks.map((p) => aimedAgain(record, st, p)) };
+}
+
+/**
+ * Sends on whoever walked onto an emptied mark before this round, where they
+ * can still walk on. One that is already standing, or that fell earlier in this
+ * timeline than it did in the last, simply does not.
+ */
+function fillRecorded(st: BattleState, record: TurnRecord, events: BattleEvent[]): void {
+  // By mark rather than in the order they were picked. A co-op fight fills its
+  // own marks as the player answers and the peer's as the message lands, so the
+  // two clients file the same replacements in whichever order they arrived in.
+  const order = [...(record.filled ?? [])].sort((a, b) => a.side - b.side || a.slot - b.slot);
+  for (const f of order) {
+    const bench = st.teams[f.side].findIndex((c) => c.scoba.uid === f.uid);
+    if (bench < 0) continue;
+    events.push(...sendIn(st, f.side, f.slot, bench));
+  }
+}
+
+/**
+ * The choices a round runs with. While a journey is being played out, the round
+ * is one that already happened: everyone walks back on and repeats what they
+ * chose, aimed at the marks they aimed at, and anything that cannot happen at
+ * all simply does not. What the traveller does is whatever was asked for now.
+ *
+ * Every choice is attempted rather than checked against who made it. A move is
+ * named on a mark, so a Scoba that walked on to replace the one that chose it
+ * casts it too where it knows the same move.
+ */
+function withRecorded(st: BattleState, asked: Choice[], events: BattleEvent[]): Choice[] {
+  const journey = st.travelling;
+  if (!journey || journey.left.length === 0) return asked;
+  const record = journey.left[0]!;
+  journey.left = journey.left.slice(1);
+  // Before the choices are read: what a round was chosen by is whoever was
+  // standing once the replacements had walked on.
+  fillRecorded(st, record, events);
+  const mine = asked.filter((c) => {
+    const at = markIn(st.active[c.side], journey.visitor.index);
+    return c.side === journey.visitor.side && at !== undefined && c.slot === at;
+  });
+  const again = record.choices
+    .filter((c) => !mine.some((m) => m.side === c.side && m.slot === c.slot))
+    .map((c) => recordedAgain(record, st, c))
+    .filter((c) => choiceError(st, c) === null);
+  return [...again, ...mine];
+}
+
+/**
+ * The battle as it stands, with its history left out: a snapshot is a round's
+ * opening, and keeping the rounds before it inside it would nest one copy of
+ * the battle inside the next.
+ */
+function snapshotOf(st: BattleState): Omit<BattleState, "history"> {
+  const { history: _history, ...rest } = st;
+  return structuredClone(rest);
+}
+
+/** Files this round so a later one can go back to it. */
+function remember(st: BattleState, choices: Choice[]): void {
+  const history = st.history ?? [];
+  // Taken off the state before the snapshot, so a round is filed with the
+  // replacements that walked on for it rather than carrying them into the next.
+  const filled = st.filling;
+  delete st.filling;
+  history.push({
+    turn: st.turn,
+    before: snapshotOf(st),
+    choices: structuredClone(choices),
+    ...(filled && filled.length > 0 ? { filled } : {}),
+  });
+  while (history.length > REWIND_KEEP) history.shift();
+  st.history = history;
+}
+
+/**
+ * Puts the battle back to how it stood `turns` rounds ago and hands back the
+ * rounds that were undone, newest last, so a caller can play them again.
+ *
+ * Nothing is left of what happened in between: the state is replaced field by
+ * field rather than patched, since a rewind that kept anything would be a
+ * rewind with a hole in it. Where the battle has not run that many rounds yet,
+ * it goes back as far as it has.
+ */
+export function rewind(st: BattleState, turns: number): TurnRecord[] {
+  const history = st.history ?? [];
+  if (history.length === 0 || turns < 1) return [];
+  const at = Math.max(0, history.length - turns);
+  const record = history[at]!;
+  const undone = history.slice(at);
+  const back = structuredClone(record.before);
+  for (const key of Object.keys(st) as (keyof BattleState)[]) {
+    if (key !== "history") delete (st as unknown as Record<string, unknown>)[key];
+  }
+  Object.assign(st, back);
+  st.history = history.slice(0, at);
+  return undone;
 }
 
 /** A basic attack, on the Scobas its target resolved to. */
@@ -2313,7 +2809,12 @@ export interface StatusMark {
 export function statusSummary(c: Combatant): StatusMark[] {
   const out: StatusMark[] = [];
   for (const inst of c.statuses) {
-    if (STATUSES[inst.id]?.innate) continue;
+    // A passive that does something for as long as it is carried is read on
+    // the row like any other mark, since what it is doing is true right now.
+    // One that only waits for a trigger is not standing on the Scoba at all,
+    // and belongs with the abilities rather than among its marks.
+    const def = STATUSES[inst.id];
+    if (def?.innate && !def.effects.some((e) => isContinuous(e.kind))) continue;
     const found = out.find((o) => o.id === inst.id);
     if (found) {
       found.stacks += inst.stacks;

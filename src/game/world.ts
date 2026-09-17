@@ -1,4 +1,5 @@
 import type { TileMap } from "../engine/tilemap";
+import type { Island } from "./islands";
 
 /** One kind of Scoba in a zone, and how it behaves while it is out. */
 export interface ZoneSpecies {
@@ -65,4 +66,10 @@ export interface WorldDef {
   /** Terrain arrays behind the painter, exposed so the dev editor can edit
    * them live and the content snapshot can capture them. */
   layout?: { land: boolean[]; deck: boolean[] };
+  /**
+   * The islands a generated map is made of, and the one the pair start on,
+   * which is the one the nest stands on. An authored map is one piece of
+   * ground and has none.
+   */
+  islands?: { all: Island[]; home: Island };
 }

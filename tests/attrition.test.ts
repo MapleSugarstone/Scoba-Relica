@@ -13,7 +13,8 @@ import {
 import { makeWild, type ScobaInstance } from "../src/sim/scoba";
 import { rngFrom } from "../src/sim/rng";
 
-const wild = (species: string, level: number, seed: string) => makeWild(species, level, rngFrom(seed));
+const wild = (species: string, level: number, seed: string): ScobaInstance =>
+  ({ ...makeWild(species, level, rngFrom(seed)), hobby: "unmotivated" });
 const owned = (s: ScobaInstance, owner: "A" | "B"): ScobaInstance => ({ ...s, owner });
 
 /** A battle parked at a given turn, with everyone at full and nothing to do. */

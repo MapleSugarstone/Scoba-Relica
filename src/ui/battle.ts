@@ -37,16 +37,19 @@ import {
   type SlotHolder,
 } from "../sim/battle";
 import {
-  ALL_SLOTS, TARGET_LABELS, isPawnSlot, needsPick, sameRef, type TargetRef, type TargetSpec,
+  ALL_SLOTS, TARGET_LABELS, isPawnSlot, isTravelSlot, needsPick, sameRef, type TargetRef, type TargetSpec,
 } from "../sim/targeting";
 import { statusName, type StatusInstance } from "../sim/status";
 import { restoreDerived } from "../sim/rewrite";
 import { abilityText, moveText } from "../game/texts";
 import { proseBox, proseNodes } from "./prose";
 import { fieldSigilText, sigilText, sigilUrl, type SigilText } from "./sigil";
+import { BUILD_VERSION, devMode } from "../version";
+import { startReplay, stopReplay, takeReplay } from "../sim/replay";
 import { enemyChoices, pawnChoices } from "../sim/ai";
 import { PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
 import { rngFrom } from "../sim/rng";
+import { kitted } from "../sim/kit";
 import { gainXp, MAX_LEVEL, maxHp, moveName, settleCaught, type ScobaInstance } from "../sim/scoba";
 import { AETUS_PER_TRAINER, AETUS_PER_WILD } from "../sim/growth";
 import { ABILITIES, abilityStatuses, MAX_MOVES, MOVES, SPECIES, type Move } from "../sim/species";
@@ -104,6 +107,18 @@ interface BattleSetup {
   /** Shown as the win title and credited for the money reward. */
   trainerName?: string;
   rewardMoney?: number;
+  /**
+   * Both sides fight at this level. The party goes in as copies set to it, so
+   * the fight is about the Scobas rather than the grind and the real party
+   * comes out exactly as it went in.
+   */
+  levelCap?: number;
+  /**
+   * The party goes in with a hobby and teas picked to suit each Scoba, the way
+   * whoever it is fighting was built. Only ever set beside `levelCap`, since
+   * both are what makes a practice bout a fair one.
+   */
+  kit?: boolean;
   onDone: (result: BattleResult) => void;
 }
 
@@ -140,7 +155,7 @@ export function openTrainerBattle(
   ui: UI,
   art: Art,
   save: SaveData,
-  setup: { name: string; enemies: ScobaInstance[]; reward: number },
+  setup: { name: string; enemies: ScobaInstance[]; reward: number; levelCap?: number; kit?: boolean },
   onDone: (result: BattleResult) => void,
   net: BattleNet | null = null,
 ): ActiveBattle | null {
@@ -149,6 +164,8 @@ export function openTrainerBattle(
     wild: false,
     trainerName: setup.name,
     rewardMoney: setup.reward,
+    ...(setup.levelCap !== undefined ? { levelCap: setup.levelCap } : {}),
+    ...(setup.kit === true ? { kit: true } : {}),
     onDone,
   }, net);
 }
@@ -177,7 +194,14 @@ function runBattle(
     fighters.includes("A") ? "A" : null,
     fighters.includes("B") ? "B" : null,
   ];
-  const team = fighters.flatMap((owner) => partyOf(save, owner));
+  const cap = setup.levelCap;
+  const kitRng = rngFrom(`${save.worldSeed}:kit:${Date.now().toString(36)}`);
+  const team = fighters
+    .flatMap((owner) => partyOf(save, owner))
+    // Copies rather than the party itself: what a capped match does to a Scoba,
+    // levels, experience, hobby and teas included, is meant to stay in the match.
+    .map((s) => (cap === undefined ? s : { ...s, level: cap, hp: maxHp({ ...s, level: cap }) }))
+    .map((s) => (setup.kit === true ? kitted(s, kitRng) : s));
   // The guest is handed the fight as it stands rather than rebuilding it: it
   // may have walked in several rounds late, and only the host was there for
   // what happened before that.
@@ -188,12 +212,15 @@ function runBattle(
   // A fight handed over part way through can name moves a step rewrote on the
   // host before this client arrived.
   restoreDerived(st);
+  // Whoever is working on the game records every fight, so a bug can be handed
+  // over as a file rather than as a description of what it looked like.
+  if (devMode()) startReplay(BUILD_VERSION);
   const seed = st.seed;
   // Local player's Scoba reads first, whichever character they control.
   const displayOrder: (0 | 1)[] = localOwner === "A" ? [0, 1] : [1, 0];
   /** Which order the slots are asked about in: Scobas first, Pawns after. */
   const askOrder = (slot: number): number =>
-    isPawnSlot(slot) ? 10 + slot : displayOrder.indexOf(slot as 0 | 1);
+    isPawnSlot(slot) || isTravelSlot(slot) ? 10 + slot : displayOrder.indexOf(slot as 0 | 1);
 
   // Taken from the state rather than from who started it: a guest walking into
   // a fight already in progress has the host standing in it, and building the
@@ -203,7 +230,7 @@ function runBattle(
     fighters: onStage.length > 0 ? onStage : fighters,
     trainer: setup.trainerName !== undefined,
   });
-  stage.onFrame = () => positionPlates();
+  stage.onFrame = () => { positionPlates(); paintFlash(); };
   stage.onRoster = () => rebuildPlates();
   liveStage = stage;
 
@@ -505,32 +532,49 @@ function runBattle(
   }[] = [];
 
   /**
+   * The canvas the near row is drawn on. It sits over the far readouts and
+   * under the near ones, which is what keeps a big Pawn standing in front of a
+   * Scoba from reading as something behind that Scoba's numbers.
+   */
+  const nearCanvas = (): HTMLCanvasElement => {
+    const node = document.createElement("canvas");
+    node.className = "bfront";
+    stage.frontCanvas = node;
+    return node;
+  };
+
+  /**
    * The readouts, one per slot, laid over the scene and moved under whoever
    * is standing there. They sit below the Scobas rather than in a bar at the
    * top, so a Scoba and its numbers read as one thing.
    */
-  const buildPlates = (): HTMLElement => {
-    const layer = el("div", "bplates");
-    plates = [];
+  const buildPlates = (near: boolean): HTMLElement => {
+    const layer = el("div", near ? "bplates near" : "bplates");
     for (const side of [0, 1] as const) {
       for (const slot of ALL_SLOTS) {
+        // The near row is drawn on a canvas of its own over the far readouts,
+        // so its readouts go in a layer over that canvas in turn.
+        if ((isPawnSlot(slot) || isTravelSlot(slot)) !== near) continue;
         // Whoever the scene has on this mark, not whoever the battle does: a
         // Scoba downed this round is still standing there until its faint has
         // played, and its readout should fade out with it rather than
         // vanishing the moment the round resolves.
         const pawn = isPawnSlot(slot);
+        // Both stand at the foot of the field, where a full readout does not
+        // fit, so both are read off the short card.
+        const small = pawn || isTravelSlot(slot);
         // A Pawn called this round is not on the stage yet, so its mark is read
         // off the battle instead. Its readout is built hidden and fades in with
         // the poof rather than turning up a beat after it.
         const index = stage.fighterOn(side, slot)
-          ?? (pawn && (st.active[side][slot] ?? -1) >= 0 ? st.active[side][slot]! : null);
+          ?? (small && (st.active[side][slot] ?? -1) >= 0 ? st.active[side][slot]! : null);
         const c = index === null ? null : st.teams[side][index];
-        const owner = side === 0 && !pawn ? st.slotOwner[slot] ?? null : null;
+        const owner = side === 0 && !small ? st.slotOwner[slot] ?? null : null;
         let built: { node: HTMLElement; refresh: () => void } | null = null;
         if (c && index !== null) {
-          built = pawn ? pawnCard(c, { side, index }) : card(c, { side, index });
+          built = small ? pawnCard(c, { side, index }) : card(c, { side, index });
           markTarget(built.node, { side, index });
-        } else if (pawn) {
+        } else if (small) {
           // An empty Pawn mark is nothing at all: no card holds its place,
           // because nothing is ever coming to fill it.
           continue;
@@ -598,6 +642,26 @@ function runBattle(
     stage.setPawnCard(pawnCardW);
   };
 
+  /** Carries the scene's screen flash across the layers sitting over the canvas. */
+  const paintFlash = (): void => {
+    const wash = stage.flashNow();
+    if (!wash && !flashNode) return;
+    if (!flashNode) {
+      const screen = document.querySelector(".screen.stage");
+      if (!screen) return;
+      flashNode = el("div", "bflash");
+      screen.appendChild(flashNode);
+    }
+    if (!wash) {
+      flashNode.remove();
+      flashNode = null;
+      return;
+    }
+    flashNode.style.background = wash.color;
+    flashNode.style.opacity = String(wash.alpha);
+  };
+  let flashNode: HTMLElement | null = null;
+
   const positionPlates = (): void => {
     // Before the `ready` check: the scene is laid out against this, so it has
     // to be known before the opening walk starts rather than after it.
@@ -642,9 +706,12 @@ function runBattle(
    * the action row out from under whoever is pressing it.
    */
   const rebuildPlates = (): void => {
-    const layer = document.querySelector(".screen.stage > .bplates");
-    if (!(layer instanceof HTMLElement)) return;
-    layer.replaceWith(buildPlates());
+    const far = document.querySelector(".screen.stage > .bplates:not(.near)");
+    const near = document.querySelector(".screen.stage > .bplates.near");
+    if (!(far instanceof HTMLElement) || !(near instanceof HTMLElement)) return;
+    plates = [];
+    far.replaceWith(buildPlates(false));
+    near.replaceWith(buildPlates(true));
     positionPlates();
   };
 
@@ -729,6 +796,39 @@ function runBattle(
     stage.setTurn({ acting, waiting });
   };
 
+  /**
+   * Writes out every round of the fight so far, as the state each one opened
+   * on and the picks it was handed. Running the file back through
+   * `resolveTurn` gives the same events, so a bug that only shows up in one
+   * fight can be handed over rather than described.
+   */
+  const saveReplay = (): void => {
+    const data = takeReplay();
+    if (!data) return;
+    const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date();
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    a.href = url;
+    a.download = `scoba-replay-${pad(d.getMonth() + 1)}${pad(d.getDate())}`
+      + `-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  /** The one button on the battle screen that is not part of the game. */
+  const buildReplayButton = (): HTMLElement | null => {
+    const data = takeReplay();
+    if (!data) return null;
+    const b = el("button", "brec") as HTMLButtonElement;
+    b.type = "button";
+    b.textContent = `Save replay (${data.rounds.length})`;
+    b.title = "Downloads every round of this fight as a file.";
+    b.addEventListener("click", saveReplay);
+    return b;
+  };
+
   const render = (): void => {
     // Rebuilding the page takes every button with it, and a removed button
     // never gets its pointerleave, so the mark goes with the page.
@@ -736,7 +836,10 @@ function runBattle(
     syncTurn();
     ui.screen((s) => {
       s.classList.add("stage");
-      s.appendChild(buildPlates());
+      plates = [];
+      s.appendChild(buildPlates(false));
+      s.appendChild(nearCanvas());
+      s.appendChild(buildPlates(true));
       s.appendChild(buildAimLayer());
 
       // The readouts pin to the top and bottom edges; the band between them
@@ -745,6 +848,8 @@ function runBattle(
       const bottom = el("div", "bbottom");
       bottom.appendChild(buildActions());
       s.appendChild(bottom);
+      const rec = buildReplayButton();
+      if (rec) s.appendChild(rec);
     });
     ui.setLocked(true);
     positionPlates();
@@ -1374,7 +1479,7 @@ function runBattle(
         if (!c || selfRunning(c)) return false;
         // With a peer connected each client answers only for its own
         // character. Solo keeps both, because one player is playing both.
-        return !net || st.slotOwner[slot] === net.localOwner;
+        return !net || answeredBy(slot, c) === net.localOwner;
       })
       .sort((a, b) => askOrder(a) - askOrder(b));
     // Nobody left to ask, but the field is not empty: the round still has to
@@ -1418,9 +1523,18 @@ function runBattle(
     return slotsAwaitingChoice(st, 0).filter((slot) => {
       const c = at(0, slot);
       if (!c || selfRunning(c)) return false;
-      return st.slotOwner[slot] !== net.localOwner && st.slotOwner[slot] !== null;
+      const by = answeredBy(slot, c);
+      return by !== net.localOwner && by !== null;
     });
   };
+
+  /**
+   * Who answers for a slot. A Pawn mark is tied to no character, so whoever the
+   * Scoba standing on it belongs to is the one asked: a Pawn somebody called,
+   * or their own Scoba standing in another time.
+   */
+  const answeredBy = (slot: number, c: Combatant): SlotHolder =>
+    (isPawnSlot(slot) ? (c.scoba.owner as SlotHolder | undefined) ?? null : st.slotOwner[slot] ?? null);
 
   /**
    * The round goes when both players have answered. Solo resolves the moment
@@ -1692,6 +1806,9 @@ function runBattle(
       stage.onRoster = null;
       liveStage = null;
       livePeer = null;
+      // The rounds are only worth holding while the fight they belong to is
+      // still on screen to be exported from.
+      stopReplay();
       writeSave(save);
       autosave(save);
       ui.setLocked(false);

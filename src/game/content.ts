@@ -36,6 +36,20 @@ export type NpcSkin =
 
 export interface TrainerDef {
   team: { species: string; level: number }[];
+  /**
+   * Scobas rolled fresh out of the roster every time they are fought, at this
+   * level. A sparring partner has these in place of a written team, so the
+   * match is a different one each go.
+   */
+  rolled?: { count: number; level: number };
+  /** Fought as often as you like rather than once, and never counted as beaten. */
+  rematch?: boolean;
+  /**
+   * Both sides fight at this level. The player's own Scobas are copied down to
+   * it for the match and their real ones are left alone, so a practice bout
+   * neither needs the grind nor gives any.
+   */
+  levelCap?: number;
   /** Money for beating them. */
   reward: number;
   /** Said before a non-quest battle, and again on rematch attempts. */
@@ -57,6 +71,14 @@ export interface NpcDef {
   lines: string[];
   /** Wander radius in world px; 0 stands still. */
   wander: number;
+  /**
+   * Where to stand them when `x` and `y` are no use, which is every generated
+   * map: an island is laid out fresh for every save, so a written position is
+   * as likely to be water as ground. `"spawn"` puts them beside wherever the
+   * player comes down. `"away"` puts them on one of the other islands, so
+   * reaching them is a trip rather than a step.
+   */
+  stands?: "spawn" | "away";
   trainer?: TrainerDef;
 }
 
@@ -513,7 +535,9 @@ function num(v: unknown, fallback: number): number {
 function normNpc(raw: unknown, fallbackMap: string): NpcDef | null {
   if (!raw || typeof raw !== "object") return null;
   const n = raw as Record<string, unknown>;
-  if (typeof n["id"] !== "string" || typeof n["x"] !== "number" || typeof n["y"] !== "number") return null;
+  if (typeof n["id"] !== "string") return null;
+  const stands = n["stands"] === "spawn" || n["stands"] === "away" ? n["stands"] : undefined;
+  if (!stands && (typeof n["x"] !== "number" || typeof n["y"] !== "number")) return null;
   const skinRaw = n["skin"] as Record<string, unknown> | undefined;
   const skin: NpcSkin = skinRaw?.["kind"] === "scoba" && typeof skinRaw["species"] === "string"
     ? { kind: "scoba", species: skinRaw["species"] }
@@ -525,18 +549,27 @@ function normNpc(raw: unknown, fallbackMap: string): NpcDef | null {
       .map((m) => ({ species: currentSpecies(m["species"] as string), level: m["level"] as number }))
       .filter((m): m is { species: string; level: number } => m.species !== null)
     : [];
+  const rolledRaw = trainerRaw?.["rolled"] as Record<string, unknown> | undefined;
+  const rolled = rolledRaw && typeof rolledRaw["count"] === "number"
+    ? { count: Math.max(1, Math.round(rolledRaw["count"])), level: num(rolledRaw["level"], 1) }
+    : undefined;
+  const cap = trainerRaw?.["levelCap"];
   return {
     id: n["id"],
     name: typeof n["name"] === "string" ? n["name"] : n["id"],
     map: typeof n["map"] === "string" && n["map"] !== "" ? n["map"] : fallbackMap,
-    x: n["x"],
-    y: n["y"],
+    x: typeof n["x"] === "number" ? n["x"] : 0,
+    y: typeof n["y"] === "number" ? n["y"] : 0,
     skin,
     lines: strArr(n["lines"]),
     wander: num(n["wander"], 0),
-    trainer: trainerRaw && team.length > 0
+    ...(stands ? { stands } : {}),
+    trainer: trainerRaw && (team.length > 0 || rolled)
       ? {
         team,
+        ...(rolled ? { rolled } : {}),
+        ...(trainerRaw["rematch"] === true ? { rematch: true } : {}),
+        ...(typeof cap === "number" ? { levelCap: cap } : {}),
         reward: num(trainerRaw["reward"], 0),
         intro: strArr(trainerRaw["intro"]),
         beaten: strArr(trainerRaw["beaten"]),

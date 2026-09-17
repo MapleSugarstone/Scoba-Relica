@@ -286,6 +286,35 @@ export const TEMPLATES: Record<ScriptFile, Template[]> = {
       ].join("\n"),
     },
   ],
+  hobbies: [
+    {
+      label: "One up, one down",
+      says: "Raises one stat by half and takes a quarter off another.",
+      text: (id, name) => [
+        `hobby ${id} ${q(name)}`,
+        `  doing ${q(`Doing ${name.toLowerCase()}`)}`,
+        `  text ${q(`What ${name} is, in a line the hut reads out.`)}`,
+        "  while carried:",
+        "    strength x1.5",
+        "    defense x0.75",
+      ].join("\n"),
+    },
+    {
+      label: "Two up, one down",
+      says: "Raises two stats and takes a fifth off a third.",
+      text: (id, name) => [
+        `hobby ${id} ${q(name)}`,
+        `  doing ${q(`Doing ${name.toLowerCase()}`)}`,
+        `  text ${q(`What ${name} is, in a line the hut reads out.`)}`,
+        "  while carried:",
+        "    strength x1.35",
+        "    defense x1.35",
+        "    strength +15 after scaling",
+        "    defense +15 after scaling",
+        "    resistance x0.8",
+      ].join("\n"),
+    },
+  ],
 };
 
 // --- the reference the palette lists ---

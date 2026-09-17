@@ -39,7 +39,7 @@ export interface Builder {
 }
 
 const KIND_LABEL: Record<ScriptFile, string> = {
-  moves: "move", passives: "passive", statuses: "status", fields: "field",
+  moves: "move", passives: "passive", statuses: "status", fields: "field", hobbies: "hobby",
 };
 
 /** What a destination does to a line, for the builder's attach row. */

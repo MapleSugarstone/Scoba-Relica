@@ -51,7 +51,9 @@ describe("the common stat", () => {
   });
 
   it("sits on top of the line rather than inside its budget", () => {
-    const s = makeWild("octoshake", MAX_LEVEL, rngFrom("c"));
+    // Unmotivated changes no stat, so this reads the line itself rather than
+    // whichever hobby the seed happened to roll.
+    const s = { ...makeWild("octoshake", MAX_LEVEL, rngFrom("c")), hobby: "unmotivated" };
     const line = SPECIES.octoshake!.genes;
     // Octoshake spends nothing on Strength and still has some.
     expect(line.str).toBe(0);

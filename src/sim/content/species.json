@@ -17,9 +17,9 @@
       "warded"
     ],
     "moves": [
-      "moonbeam",
       "crush",
       "cleanse",
+      "moonbeam",
       "eclipse",
       "nuzzle-nap"
     ],
@@ -49,11 +49,11 @@
       "brawn"
     ],
     "moves": [
-      "cinder-spit",
       "crush",
       "ember",
-      "flame-burst",
-      "slam"
+      "cinder-spit",
+      "slam",
+      "flame-burst"
     ],
     "sprite": {
       "kind": "art",
@@ -81,11 +81,11 @@
       "swift"
     ],
     "moves": [
-      "tide-whip",
       "crush",
-      "scatter-shot",
+      "hex",
+      "tide-whip",
       "riptide",
-      "hex"
+      "scatter-shot"
     ],
     "sprite": {
       "kind": "art",
@@ -113,11 +113,11 @@
       "thick-coat"
     ],
     "moves": [
-      "leaf-flick",
-      "crush",
       "brace-up",
-      "vine-lash",
+      "crush",
+      "leaf-flick",
       "tithe",
+      "vine-lash",
       "nuzzle-nap"
     ],
     "sprite": {
@@ -146,8 +146,8 @@
       "mystic"
     ],
     "moves": [
-      "decode",
       "crush",
+      "decode",
       "hairline",
       "null-key",
       "snipe",
@@ -160,6 +160,41 @@
     "movement": "skitter",
     "blurb": "Reads the fight before it happens. Very hard to burn down.",
     "starter": true
+  },
+  {
+    "id": "unwind",
+    "name": "Unwind",
+    "type": "cipher",
+    "type2": "fortuna",
+    "genes": {
+      "hp": 130,
+      "str": 0,
+      "def": 60,
+      "res": 90,
+      "mag": 180,
+      "spd": 40
+    },
+    "primaryAbility": "timelock",
+    "secondaryPool": [
+      "accelerated"
+    ],
+    "moves": [
+      "cogwork",
+      "chrono-bolt",
+      "undo",
+      "time-machine"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "unwind",
+      "forms": {
+        "spent": "unwind-spent",
+        "hyper": "hyper-unwind"
+      }
+    },
+    "movement": "hover",
+    "blurb": "Unwind keeps a few minutes of the world in its works, and spends them putting things back the way they were.",
+    "hyperAbility": "time-travel"
   },
   {
     "id": "wispen",
@@ -179,12 +214,12 @@
       "swift"
     ],
     "moves": [
-      "hex",
       "crush",
-      "mirror-mark",
-      "third-eye",
+      "hex",
+      "moonbeam",
       "blood-pact",
-      "moonbeam"
+      "mirror-mark",
+      "third-eye"
     ],
     "sprite": {
       "kind": "art",
@@ -212,9 +247,9 @@
       "thick-coat"
     ],
     "moves": [
-      "sugar-rush",
-      "crush",
       "forage",
+      "crush",
+      "sugar-rush",
       "gumsnap",
       "rally",
       "slam"
@@ -277,9 +312,9 @@
       "thick-coat"
     ],
     "moves": [
+      "fury",
       "crush",
       "sugar-rush",
-      "fury",
       "slam",
       "nuzzle-nap"
     ],
@@ -308,8 +343,8 @@
       "restless"
     ],
     "moves": [
-      "crush",
       "fury",
+      "crush",
       "sugar-rush",
       "slam"
     ],
@@ -338,9 +373,9 @@
       "moonwell"
     ],
     "moves": [
-      "moonbeam",
       "crush",
       "cleanse",
+      "moonbeam",
       "eclipse"
     ],
     "sprite": {
@@ -370,8 +405,8 @@
     "hyperAbility": "coral-bloom",
     "moves": [
       "coral-blast",
-      "dead-coral",
       "coral-shield",
+      "dead-coral",
       "coral-ritual"
     ],
     "sprite": {
@@ -402,9 +437,9 @@
       "sun-ward"
     ],
     "moves": [
-      "leaf-flick",
-      "ember",
       "brace-up",
+      "ember",
+      "leaf-flick",
       "cinder-spit"
     ],
     "sprite": {
@@ -465,11 +500,11 @@
       "brawn"
     ],
     "moves": [
-      "lucky-strike",
       "crush",
+      "lucky-strike",
       "wild-bolt",
-      "jackpot",
-      "slam"
+      "slam",
+      "jackpot"
     ],
     "sprite": {
       "kind": "art",
@@ -495,8 +530,8 @@
       "queens-guard"
     ],
     "moves": [
-      "lucky-strike",
       "crush",
+      "lucky-strike",
       "court-call",
       "jackpot"
     ],
@@ -628,9 +663,9 @@
     ],
     "moves": [
       "crush",
-      "nuzzle-nap",
       "leaf-flick",
-      "slam"
+      "slam",
+      "nuzzle-nap"
     ],
     "sprite": {
       "kind": "art",

@@ -20,6 +20,7 @@ import {
   growthMiddle,
   growthRoll,
   growthSpots,
+  handPivot,
   paintedFor,
   type ScobaImage,
 } from "./critters";
@@ -33,11 +34,13 @@ import {
   MOVES, SPECIES,
   type CasterAnim, type Move, type MoveVfx, type Species,
 } from "../sim/species";
-import { FIELDS, STATUSES } from "../sim/status";
+import { FIELDS, STATUSES, type ShowPath } from "../sim/status";
 import type { Tint } from "../sim/scoba";
 import { rngFrom } from "../sim/rng";
 import { TYPE_COLORS } from "../sim/types";
-import { ALL_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, isPawnSlot, type TargetRef } from "../sim/targeting";
+import {
+  ALL_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, isPawnSlot, isTravelSlot, sameRef, type TargetRef,
+} from "../sim/targeting";
 import type { SaveData, SlotId } from "../save/save";
 
 /** Where a fighter stands, as a share of the view. */
@@ -64,9 +67,16 @@ interface Fighter {
   /** Team index, so the stage can be re-read off the battle state. */
   index: number;
   /**
-   * The costume it was last drawn in. A Scoba that spends its cherry or goes
-   * Hyper keeps its actor and is re-skinned in place, so what it is wearing
-   * has to be compared against something.
+   * Which body this is, which never changes while it stands there. A rewind
+   * renumbers the whole team at once, so the index is only where it sits today
+   * and is no use for telling one body from another across one.
+   */
+  key: string;
+  /**
+   * Which Scoba it was last drawn as, costume and all. A Scoba that spends its
+   * cherry or goes Hyper keeps its actor and is re-skinned in place, and a
+   * rewind can put a different Scoba on the same mark, so both have to be
+   * compared against something.
    */
   worn: string;
   /** Offset from the anchor, which is what the move animations drive. */
@@ -120,6 +130,19 @@ interface Retreat {
  * follows it in, so what a hit took reads as a band draining out of the bar
  * rather than as the whole bar sliding.
  */
+/** How a reconcile treats bodies the board and the scene disagree about. */
+interface SyncOpts {
+  /**
+   * Rebuild from the board alone, dropping every body it does not name. For a
+   * rewind, where what is on screen belongs to a round that no longer happened.
+   */
+  fresh?: boolean;
+  /** The one body the event now playing is bringing in, which starts hidden. */
+  arriving?: TargetRef;
+  /** Reconcile who is already on the field without introducing anyone new. */
+  hold?: boolean;
+}
+
 interface Shown {
   hp: number;
   hpTrail: number;
@@ -153,7 +176,7 @@ interface FieldWash {
 }
 
 interface Effect {
-  kind: MoveVfx | "impact" | "poof" | "wheel";
+  kind: MoveVfx | "impact" | "poof" | "wheel" | "clock" | "ghost" | "machine";
   t: number;
   dur: number;
   from: Anchor;
@@ -167,8 +190,41 @@ interface Effect {
    * so a move with art and one without travel and land the same way.
    */
   sprite?: HTMLCanvasElement | HTMLImageElement;
-  /** Drawn over the sprite and never turned with it: the wheel's pointer. */
-  pin?: HTMLCanvasElement | HTMLImageElement;
+  /**
+   * Hands drawn over the sprite: held still against a wheel, and turned on a
+   * clock, each one faster than the one before it.
+   */
+  pins?: (HTMLCanvasElement | HTMLImageElement)[];
+}
+
+/**
+ * What a mark is currently drawn as: which Scoba is standing there and what it
+ * is wearing. A mark is held by side and index, and a rewind or a Scoba leaving
+ * the team shuffles the team array under those indexes, so two different Scobas
+ * can hold one mark across a round. Keying only on the costume left the old
+ * body standing there wearing the new one's name.
+ */
+function drawnAs(c: Combatant): string {
+  return [bodyKey(c), ...formsOf(c)].join("+");
+}
+
+/**
+ * Which body a combatant is. Its Scoba, and whether this is the one standing in
+ * a time it does not belong to: a traveller is a copy of the Scoba it came
+ * from, down to the same uid, and the two of them stand on the field together.
+ */
+function bodyKey(c: Combatant): string {
+  return `${c.scoba.uid}${c.aside === true ? ":aside" : ""}`;
+}
+
+/** One thing drawn into the scene, sorted by how near the viewer it stands. */
+interface Item {
+  baseY: number;
+  /** The one that travelled, which keeps its own color while the past is washed. */
+  now?: boolean;
+  /** Drawn on the near canvas, over the readouts, rather than under them. */
+  over?: boolean;
+  draw: (ctx: CanvasRenderingContext2D) => void;
 }
 
 /**
@@ -294,6 +350,9 @@ const FIELD_MAX = 185;
  */
 const SCOBA_ACROSS = [0.28, 0.62];
 
+/** How far out a traveller stands, at the inner end of the row the court fills. */
+const TRAVEL_ACROSS = 0.1;
+
 /**
  * How far in from its own edge a side's first person stands, in world units.
  * Half a doll and a little air, so nobody is drawn off the side of the view.
@@ -369,6 +428,12 @@ const FIELD_WASH = 0.7;
 const FIELD_WASH_FLAT = 0.17;
 /** How a Scoba nobody is controlling this moment is drawn. */
 const WAITING_TINT = "brightness(0.4) saturate(0.7)";
+/** How everything standing in a time it does not belong to is drawn. */
+/** How much of its color a body standing in another time keeps. */
+const PAST_KEEP = 0.45;
+/** The warmth laid over it, and how much of it. */
+const PAST_WARM = "#b98a52";
+const PAST_WARM_A = 0.22;
 
 /**
  * The levels a sprite or a readout is ever drawn at. Fractional opacity is the
@@ -407,6 +472,19 @@ export class BattleStage {
     who?: SlotId;
   }[] = [];
   private effects: Effect[] = [];
+
+  /** A wash over the whole screen, fading as it goes. */
+  private flash: { color: string; t: number; dur: number } | null = null;
+
+  /**
+   * Whether the scene is standing in a time it does not belong to. Read off
+   * playback rather than off the battle, because the battle is already in the
+   * past from the first frame of the round that travels there.
+   */
+  private inPast = false;
+
+  /** The mark a traveller is standing on, which is the one thing the past does not wash. */
+  private visitor: TargetRef | null = null;
   /** The wash over each side, side 0's half of the view and side 1's. */
   private washes: [FieldWash, FieldWash] = [
     { id: null, a: 0, want: null },
@@ -434,6 +512,63 @@ export class BattleStage {
    * nothing is allowed to move, such as while a transition holds the scene.
    */
   onFrame: (() => void) | null = null;
+
+  /**
+   * A second canvas over the readouts, for the row standing nearer the viewer
+   * than the rank they hang from. A readout is a page element and the scene is
+   * one canvas, so everything drawn on that canvas is behind every readout,
+   * whatever is standing where. Splitting the cast across two canvases with the
+   * readouts between them is what puts the near row back in front of them.
+   */
+  frontCanvas: HTMLCanvasElement | null = null;
+
+  private frontCtx: CanvasRenderingContext2D | null = null;
+
+  /** Whether the last frame put anything on the near canvas, so it needs clearing. */
+  private frontLit = false;
+
+  /**
+   * The near canvas, sized and cleared for this frame, or null where there is
+   * none and everything has to go on the one canvas.
+   */
+  private frontContext(r: Renderer): CanvasRenderingContext2D | null {
+    const node = this.frontCanvas;
+    if (!node) {
+      this.frontCtx = null;
+      return null;
+    }
+    const w = r.bufferW * r.scale;
+    const h = r.bufferH * r.scale;
+    if (node.width !== w || node.height !== h) {
+      node.width = w;
+      node.height = h;
+      this.frontCtx = null;
+    }
+    if (!this.frontCtx) {
+      const got = node.getContext("2d");
+      if (!got) return null;
+      this.frontCtx = got;
+    }
+    const c = this.frontCtx;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, w, h);
+    // The same whole number of device pixels per drawn pixel the blitted
+    // buffer lands at, so both canvases share one brush.
+    c.setTransform(ART * r.scale, 0, 0, ART * r.scale, 0, 0);
+    c.imageSmoothingEnabled = false;
+    return c;
+  }
+
+  /**
+   * The wash over the whole screen this frame, for the layers that sit over
+   * the canvas. A flash covers the fight, readouts and all, rather than
+   * whitening the field and leaving the cards hanging in front of it.
+   */
+  flashNow(): { color: string; alpha: number } | null {
+    if (!this.flash) return null;
+    const k = Math.min(1, this.flash.t / this.flash.dur);
+    return { color: this.flash.color, alpha: k < FLASH_HOLD ? 1 : 1 - (k - FLASH_HOLD) / (1 - FLASH_HOLD) };
+  }
   /**
    * Called when the set of fighters or the marks they stand on changed, so the
    * readouts can be rebuilt. A Scoba switched in mid-round and a replacement
@@ -559,6 +694,13 @@ export class BattleStage {
         y: b.top + b.height + PAWN_SINK,
       };
     }
+    // A traveller stands at the foot of the field, on the inner end of it.
+    // Down there its readout hangs below the pair's rather than across them,
+    // and it is plainly not one of the two it came back to.
+    if (isTravelSlot(slot)) {
+      const b = this.band();
+      return { x: mid + out * TRAVEL_ACROSS, y: b.top + b.height + PAWN_SINK };
+    }
     const across = SCOBA_ACROSS[slot] ?? SCOBA_ACROSS[0]!;
     return { x: mid + out * across, y: this.rankY(slot === 0 ? RANK.front : RANK.back) };
   }
@@ -624,13 +766,24 @@ export class BattleStage {
    * since it was last drawn. The actor is kept rather than replaced, so
    * whatever it is in the middle of carries on.
    */
-  private reskin(f: Fighter): void {
+  /**
+   * Puts a body into the costume its Scoba is currently in.
+   *
+   * A mark that now holds a different Scoba is not a costume change. The battle
+   * resolves a whole round before any of it is played, so mid-playback the
+   * board can already be somewhere the scene has not reached: a rewind swaps
+   * the team array under every mark at once. Swapping the body there and then
+   * would show the new one before the move that brought it has played, so that
+   * is left to `sync`, which runs off the event that says the board changed.
+   */
+  private reskin(f: Fighter, arriving = false): void {
     const c = this.st.teams[f.side][f.index];
     const sp = c ? SPECIES[c.scoba.speciesId] : undefined;
     if (!c || !sp) return;
     const forms = formsOf(c);
-    const worn = forms.join("+");
+    const worn = drawnAs(c);
     if (f.worn === worn) return;
+    if (!arriving && f.worn.split("+")[0] !== c.scoba.uid) return;
     f.actor.skin = critterLook(this.art, sp, c.scoba, forms);
     f.bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms));
     f.head = f.bounds.top + idleLift(sp.movement, f.actor.idleMix);
@@ -642,9 +795,21 @@ export class BattleStage {
     for (const f of this.fighters) this.reskin(f);
   }
 
-  sync(): void {
+  /**
+   * Reconciles the bodies on the field with the board.
+   *
+   * `arriving` is the one body the event now playing is about to bring in, and
+   * it is the only one that starts hidden. Anything else already standing on
+   * the board is drawn standing there: a body that starts hidden and has
+   * nothing coming to reveal it is invisible for the rest of the fight, which
+   * is what happened to a Pawn the board already held when a rewind rebuilt
+   * the scene around it.
+   */
+  sync({ fresh = false, arriving, hold = false }: SyncOpts = {}): void {
     const before = this.rosterKey();
     const wanted: Fighter[] = [];
+    /** Bodies already claimed by a mark this pass, so none serves two. */
+    const taken = new Set<Fighter>();
     for (const side of [0, 1] as const) {
       for (const slot of ALL_SLOTS) {
         const index = this.st.active[side][slot] ?? -1;
@@ -657,18 +822,38 @@ export class BattleStage {
         const sp = SPECIES[c.scoba.speciesId];
         if (!sp) continue;
         const forms = formsOf(c);
-        const worn = forms.join("+");
-        const kept = this.fighters.find((f) => f.side === side && f.index === index);
+        const worn = drawnAs(c);
+        // Matched on which body it is rather than on where it sits. A rewind
+        // renumbers the team under every mark at once, and matching on the
+        // number put one Scoba's body on another's mark. The mark it is already
+        // on wins, so nothing shuffles while the roster only grows.
+        const key = bodyKey(c);
+        const mine = (f: Fighter): boolean => !taken.has(f) && f.side === side && f.key === key;
+        const kept = this.fighters.find((f) => mine(f) && f.slot === slot)
+          ?? this.fighters.find(mine);
         if (kept) {
+          taken.add(kept);
+          kept.index = index;
           kept.slot = slot;
           // Changed costume since it was last drawn: re-skin it where it
           // stands rather than replacing the actor, so nothing it is in the
-          // middle of is interrupted.
-          this.reskin(kept);
+          // middle of is interrupted. This is the one place a mark is allowed
+          // to change hands, since it is what reconciles the scene with the
+          // board.
+          this.reskin(kept, true);
           wanted.push(kept);
           continue;
         }
+        // Nobody new: the battle resolves a whole round before the scene plays
+        // any of it, so a mark whose replacement has already been sent on is a
+        // mark whose replacement has not been announced yet. Putting it on the
+        // field here had it appear standing there and then walk on again.
+        if (hold) continue;
         const pawn = isPawnSlot(slot);
+        // Neither one walks on: a Pawn is called and a traveller is set down,
+        // so whichever of them this event is bringing in starts hidden and
+        // that event reveals it.
+        const brought = arriving !== undefined && sameRef({ side, index }, arriving);
         const at = this.anchor(side, slot);
         const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba, forms));
         actor.dir = side === 0 ? 1 : -1;
@@ -681,14 +866,11 @@ export class BattleStage {
         // Deterministic per slot, so the bob is out of step with the others
         // but lands the same way on both clients.
         actor.desync(((side * 2 + slot) * 0.37 + index * 0.19) % 1);
-        // A Pawn is only ever on the field because something called it, and
-        // the call is what brings it in, so it starts hidden and the summon
-        // event is what makes it appear.
         wanted.push({
-          actor, side, slot, index, pawn, worn, ox: 0, oy: 0,
+          actor, side, slot, index, key: bodyKey(c), pawn, worn, ox: 0, oy: 0,
           bounds, head: bounds.top + idleLift(sp.movement, actor.idleMix),
-          alpha: pawn ? 0 : 1, shake: 0, hurt: 0, heal: 0, flare: 0,
-          settled: !pawn, plate: pawn ? 0 : 1, leaving: null,
+          alpha: brought ? 0 : 1, shake: 0, hurt: 0, heal: 0, flare: 0,
+          settled: !brought, plate: brought ? 0 : 1, leaving: null,
           // A hand already dealt is read back off the battle, so one standing
           // on a Scoba that walks off and back on is still over its head.
           hand: handOf(c),
@@ -697,15 +879,73 @@ export class BattleStage {
       }
     }
     // Anyone on the way out is carried over until they have finished fading,
-    // readout and all, rather than being cut the moment their slot clears.
+    // readout and all, rather than being cut the moment their slot clears. A
+    // board that was wound back keeps none of them: they were fading out of a
+    // round that no longer happened, and they would stand over whoever the
+    // other time has on their mark.
     for (const f of this.fighters) {
       if (wanted.includes(f)) continue;
-      if (f.alpha <= 0.02 && f.plate <= 0.01) continue;
-      f.settled = false;
+      if (fresh || (f.alpha <= 0.02 && f.plate <= 0.01)) continue;
+      // Only a body actually walking off loses its readout here. One that is
+      // merely waiting for its own faint to play keeps it: the battle downs a
+      // Scoba as the round resolves, and the scene has not shown that yet, so
+      // unsettling it took the plaque off a Scoba still standing there whole.
+      if (f.leaving) f.settled = false;
       wanted.push(f);
     }
     this.fighters = wanted;
     if (this.rosterKey() !== before) this.onRoster?.();
+  }
+
+  /** Sets the filter a draw runs under, for the one case that wants its own. */
+  private wash(ctx: CanvasRenderingContext2D, extra = ""): void {
+    ctx.filter = extra === "" ? "none" : extra;
+  }
+
+  /**
+   * Warms a canvas into the colors of another time. Drawn over what is already
+   * there and nowhere else, so a canvas that is mostly empty stays that way.
+   *
+   * Neither this nor the draining that goes with it uses a canvas filter. A
+   * filter costs a compositing pass of its own, and filtering a whole canvas
+   * against itself makes the browser take a copy of the surface first: two of
+   * those a frame, one per canvas, halved the frame rate for as long as the
+   * past was on screen.
+   */
+  private tintPast(ctx: CanvasRenderingContext2D): void {
+    if (!this.inPast) return;
+    const { w, h } = this.view;
+    ctx.save();
+    ctx.globalCompositeOperation = "source-atop";
+    ctx.globalAlpha = PAST_WARM_A;
+    ctx.fillStyle = PAST_WARM;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+
+  /**
+   * Takes the color out of a canvas that is opaque all over, which is the one
+   * the ground is on. A blend against flat grey is exactly what `saturate()`
+   * would do and costs a fill rather than a pass.
+   */
+  private drainPast(ctx: CanvasRenderingContext2D): void {
+    if (!this.inPast) return;
+    const { w, h } = this.view;
+    ctx.save();
+    ctx.globalCompositeOperation = "saturation";
+    ctx.globalAlpha = 1 - PAST_KEEP;
+    ctx.fillStyle = "#808080";
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+
+  /**
+   * What the past leaves a body drawn on a canvas that is not opaque. The one
+   * that travelled there keeps its own colours: it belongs to the round the
+   * player is in, and it is the only thing on the field that does.
+   */
+  private pastFilter(now: boolean): string {
+    return this.inPast && !now ? `saturate(${PAST_KEEP})` : "";
   }
 
   /** Who is on the field and which mark each stands on, as one string. */
@@ -786,7 +1026,41 @@ export class BattleStage {
       });
     }
     for (const side of [0, 1] as const) this.setWash(side, this.st.fields[side]?.id ?? null);
+    // The round has played out, so the scene and the battle agree again about
+    // which time everyone is standing in.
+    this.inPast = !!this.st.travelling;
+    this.visitor = this.st.travelling?.visitor ?? null;
     this.sync();
+  }
+
+  /**
+   * Reads every readout off the board as it now stands, with no trail left to
+   * run down. A rewind replaces the whole battle at once, so the numbers belong
+   * to another turn: easing to them would slide each bar from a value that
+   * never became this one, after the flash the change happened behind.
+   */
+  restate(): void {
+    this.shown.clear();
+    for (const side of [0, 1] as const) {
+      this.st.teams[side].forEach((c, index) => {
+        this.shown.set(BattleStage.key(side, index), {
+          hp: c.hp, hpTrail: c.hp, mana: c.mana, manaTrail: c.mana,
+          fainted: c.fainted, marks: statusSummary(c),
+        });
+      });
+    }
+  }
+
+  /**
+   * Whether a place on the board still holds the Scoba an event named. An
+   * event carries a place, and a rewind in the same round can give that place
+   * to somebody else before the scene gets to play it.
+   */
+  private named(ref: TargetRef | undefined, uid: string | undefined): boolean {
+    if (!ref) return false;
+    const c = this.st.teams[ref.side][ref.index];
+    if (!c) return false;
+    return uid === undefined || c.scoba.uid === uid;
   }
 
   private find(ref: TargetRef | undefined): Fighter | null {
@@ -998,6 +1272,9 @@ export class BattleStage {
       }
       this.queue = [];
       this.effects = [];
+      this.flash = null;
+      this.inPast = !!this.st.travelling;
+      this.visitor = this.st.travelling?.visitor ?? null;
       this.snapWashes();
       return Promise.resolve();
     }
@@ -1047,6 +1324,10 @@ export class BattleStage {
     }
     for (const e of this.effects) e.t += dt;
     this.effects = this.effects.filter((e) => e.t < e.dur);
+    if (this.flash) {
+      this.flash.t += dt;
+      if (this.flash.t >= this.flash.dur) this.flash = null;
+    }
     this.stepMotions(dt);
     this.stepWashes(dt);
     for (const v of this.shown.values()) {
@@ -1365,6 +1646,10 @@ export class BattleStage {
    * can write the log line and refresh the readouts at the same moment.
    */
   play(events: BattleEvent[], onEach: (ev: BattleEvent) => void): Promise<void> {
+    // A round with no journey in it either way is one the battle's own answer
+    // is right for: the scene has either been in the past since an earlier
+    // round or has never been there.
+    if (!events.some((e) => e.kind === "travel")) this.inPast = !!this.st.travelling;
     let caster: TargetRef | undefined;
     const groups = volleys(events);
     events.forEach((ev, i) => {
@@ -1427,6 +1712,56 @@ export class BattleStage {
           },
           end: () => {
             if (count !== undefined && count >= BLACKJACK) target.hand = null;
+          },
+        });
+        return;
+      }
+      case "travel": {
+        // A rewind replaces the whole battle at once, so the scene is rebuilt
+        // here to whichever time it has landed in. The traveller itself is set
+        // down by the `landing` step after this one, so it is only put on the
+        // field hidden here. Riding away is not a rewind and does none of that.
+        const back = ev.way === "back";
+        const wound = ev.way === "again";
+        const traveller = wound ? undefined : ev.at;
+        say(back ? TRAVEL_HOME : TRAVEL_OUT, {
+          start: () => {
+            if (back) {
+              // Riding away is not a rewind. The battle stays in the time it is
+              // in and the rounds the traveller came back for play on from
+              // here, so nothing on the board changes but the traveller
+              // leaving. The readouts are left where they are: the battle has
+              // already resolved those rounds by the time this plays, so
+              // reading them off it here snapped every bar to where the rounds
+              // still to play leave it, and then played them again from there.
+              const rode = this.find(ev.at);
+              if (rode) this.fighters = this.fighters.filter((f) => f !== rode);
+              this.visitor = null;
+              return;
+            }
+            // Every number on the board belongs to another turn now, so the
+            // readouts are read again rather than eased toward. This runs while
+            // the flash is still at full, so the bars are already right when it
+            // clears instead of sliding afterwards.
+            this.restate();
+            this.sync({ fresh: true, arriving: traveller });
+            this.resnap();
+            // Everyone standing in the other time is standing there whole. The
+            // Scoba that left is one of them, three rounds younger, and the
+            // machine carrying its older self faded the pair of them out.
+            for (const f of this.fighters) {
+              if (traveller && sameRef({ side: f.side, index: f.index }, traveller)) continue;
+              f.alpha = 1;
+              f.plate = 1;
+              f.settled = true;
+              f.leaving = null;
+            }
+            // A battle that simply wound back is standing in its own time
+            // again, whoever put it there.
+            if (!wound) {
+              this.inPast = true;
+              this.visitor = traveller ?? null;
+            }
           },
         });
         return;
@@ -1537,7 +1872,7 @@ export class BattleStage {
             target.alpha = 1 - k;
             target.oy = k * 6;
           },
-          end: () => this.sync(),
+          end: () => this.sync({ hold: true }),
         });
         return;
       }
@@ -1595,11 +1930,18 @@ export class BattleStage {
         const pawnRef = ev.at;
         const callerRef = ev.by;
         let puffed = false;
+        let called: Fighter | null = null;
         say(SUMMON_TIME, {
           start: () => {
+            // The call is only played where the Pawn it named is still the one
+            // standing in that place. A rewind later in the same round takes
+            // back everything the round appended, so a call made before one can
+            // be pointing at whoever the rewind put there instead, and it drew
+            // the caller's Pawn as that Scoba.
+            if (!this.named(pawnRef, ev.uid)) return;
             sfx.summon();
-            this.sync();
-            const called = this.find(pawnRef);
+            this.sync({ arriving: pawnRef });
+            called = this.find(pawnRef);
             if (!called) return;
             called.alpha = 0;
             called.plate = 0;
@@ -1608,7 +1950,6 @@ export class BattleStage {
           run: (k) => {
             const caller = this.find(callerRef);
             if (caller) caller.shake = k < SUMMON_CALL ? 3.2 : 0;
-            const called = this.find(pawnRef);
             if (!called || k < SUMMON_CALL) return;
             if (!puffed) {
               puffed = true;
@@ -1620,7 +1961,6 @@ export class BattleStage {
           end: () => {
             const caller = this.find(callerRef);
             if (caller) caller.shake = 0;
-            const called = this.find(pawnRef);
             if (!called) return;
             called.alpha = 1;
             called.settled = true;
@@ -1713,26 +2053,78 @@ export class BattleStage {
         return;
       case "show": {
         const dur = SHOW_TIME[step.path];
+        // What the scene waits for is not always how long the drawing lasts. A
+        // ghosted piece spreads out of whatever it landed on, so the blow it
+        // belongs to has to land while it is spreading rather than after it has
+        // gone: the drawing runs its own life beside the queue.
+        const hold = step.path === "ghost" ? 0 : dur;
+        // A machine takes whoever it is shown on with it: they fade into it as
+        // it closes and are hidden for as long as it is carrying them.
+        const carried: Fighter[] = [];
         this.push({
-          dur,
+          dur: hold,
           start: () => {
             const sprite = this.paintedBy(ev.at, artNamed(this.art, step.art, move?.tint));
             for (const f of reached()) {
-              if (step.path === "wheel") {
+              if (step.path === "wheel" || step.path === "clock") {
                 // Over the head rather than on it, so the wheel reads as
                 // something being consulted rather than something landing.
                 const b = this.posOf(f);
                 const up = { x: b.x, y: b.y - f.head - WHEEL_LIFT };
+                const to = step.path === "clock" ? { x: up.x, y: up.y - CLOCK_RISE } : up;
+                const pins = (step.pointers ?? [])
+                  .map((h) => artNamed(this.art, h, undefined))
+                  .filter((h): h is HTMLCanvasElement | HTMLImageElement => h !== undefined);
                 this.effects.push({
-                  kind: "wheel", t: 0, dur, from: up, to: up, color, sprite,
-                  pin: artNamed(this.art, step.pointer, undefined),
+                  kind: step.path === "clock" ? "clock" : "wheel", t: 0, dur, from: up, to, color, sprite, pins,
                 });
+              } else if (step.path === "liftoff" || step.path === "landing") {
+                const b = this.centerOf(f);
+                const sky = { x: b.x, y: -MACHINE_CLEAR };
+                const up = step.path === "liftoff";
+                this.effects.push({
+                  kind: "machine", t: 0, dur, from: up ? b : sky, to: up ? sky : b, color, sprite,
+                });
+                carried.push(f);
+                if (!up) {
+                  f.alpha = 0;
+                  f.plate = 0;
+                  f.settled = false;
+                }
               } else {
                 const b = this.centerOf(f);
                 this.effects.push({ kind: step.path, t: 0, dur, from: b, to: b, color, sprite });
               }
             }
+            if (step.path === "liftoff" || step.path === "landing") sfx.summon();
           },
+          run: (k) => {
+            // Shut inside while the machine is over them. On the way down they
+            // stay shut until it has actually set down, so nobody is standing
+            // there watching their own arrival.
+            const out = step.path === "landing"
+              ? (k - MACHINE_SET) / (1 - MACHINE_SET)
+              : k < MACHINE_DOOR ? 1 - k / MACHINE_DOOR : 0;
+            for (const f of carried) f.alpha = Math.min(1, Math.max(0, out));
+          },
+          end: () => {
+            for (const f of carried) {
+              f.alpha = step.path === "landing" ? 1 : 0;
+              f.settled = step.path === "landing";
+              if (step.path === "landing") f.actor.dir = f.side === 0 ? 1 : -1;
+            }
+          },
+        });
+        return;
+      }
+      case "flash": {
+        const seconds = Math.max(0.01, step.seconds);
+        this.push({
+          // Only the stretch it is at full for. Whatever comes next happens
+          // behind a screen that is already white, so the fade uncovers a
+          // board that has already changed rather than changing it in view.
+          dur: seconds * FLASH_HOLD,
+          start: () => { this.flash = { color: step.color, t: 0, dur: seconds }; },
         });
         return;
       }
@@ -2030,7 +2422,7 @@ export class BattleStage {
     ctx.restore();
   }
 
-  private drawWashes(ctx: CanvasRenderingContext2D): void {
+  private drawWashes(ctx: CanvasRenderingContext2D, onlyDrawn = false): void {
     const { w, h } = this.view;
     const mid = Math.round(w / 2);
     for (const side of [0, 1] as const) {
@@ -2038,9 +2430,9 @@ export class BattleStage {
       const def = wash.id ? FIELDS[wash.id] : null;
       if (!def || wash.a <= 0.01) continue;
       ctx.save();
-      ctx.globalCompositeOperation = "soft-light";
+      ctx.globalCompositeOperation = onlyDrawn ? "source-atop" : "soft-light";
       const lit = ctx.globalCompositeOperation === "soft-light";
-      ctx.globalAlpha = wash.a * (lit ? FIELD_WASH : FIELD_WASH_FLAT);
+      ctx.globalAlpha = wash.a * (lit || onlyDrawn ? FIELD_WASH : FIELD_WASH_FLAT);
       ctx.fillStyle = def.tint;
       ctx.fillRect(side === 0 ? 0 : mid, 0, side === 0 ? mid : w - mid, h);
       ctx.restore();
@@ -2090,6 +2482,8 @@ export class BattleStage {
         side: f.side,
         slot: f.slot,
         index: f.index,
+        /** Which Scoba the body standing here was last drawn as. */
+        worn: f.worn,
         dir: f.actor.dir,
         x: Math.round(f.actor.x + f.ox),
         y: Math.round(f.actor.y + f.oy),
@@ -2101,8 +2495,16 @@ export class BattleStage {
       })),
       effects: this.effects.map((e) => ({ kind: e.kind, t: Number(e.t.toFixed(2)) })),
       shown: [0, 1].flatMap((side) =>
-        this.st.teams[side as 0 | 1].map((_c, i) => ({
+        this.st.teams[side as 0 | 1].map((c, i) => ({
           side, index: i, ...this.shownOf(side as 0 | 1, i),
+          // What the Scoba is, beside what its readout says, so a check can
+          // see the line it was built with rather than only its bars.
+          uid: c.scoba.uid,
+          species: c.scoba.speciesId,
+          level: c.scoba.level,
+          hybrid: c.scoba.hybrid === true,
+          hobby: c.scoba.hobby,
+          teas: c.scoba.teas ?? [],
         })),
       ),
       fields: this.washes.map((f) => ({ id: f.id, want: f.want, a: Number(f.a.toFixed(2)) })),
@@ -2189,13 +2591,13 @@ export class BattleStage {
     ctx.fillStyle = GROUND.nearLip;
     ctx.fillRect(0, step, w, 1);
 
-    const items: { baseY: number; draw: () => void }[] = [];
+    const items: Item[] = [];
     for (const p of this.people) {
       items.push({
         baseY: p.actor.depthY,
-        draw: () => {
-          p.actor.drawShadow(ctx, 0, 0);
-          p.actor.draw(ctx, 0, 0);
+        draw: (c) => {
+          p.actor.drawShadow(c, 0, 0);
+          p.actor.draw(c, 0, 0);
         },
       });
     }
@@ -2203,48 +2605,118 @@ export class BattleStage {
       const at = this.posOf(f);
       const target = this.isTarget(f);
       const waiting = this.turn.waiting.some((r) => r.side === f.side && r.index === f.index);
+      const now = !!this.visitor && sameRef({ side: f.side, index: f.index }, this.visitor);
       items.push({
         // The lagging depth, so a move that lifts or lunges a Scoba does not
         // shuffle it past whoever it is standing beside.
         baseY: f.actor.depthY,
-        draw: () => {
+        now,
+        // The court, a traveller and anyone walking off all stand nearer than
+        // the rank the Scoba readouts hang from, so they are drawn over those
+        // readouts. A Scoba walking on is not: it arrives on its own rank, and
+        // on the near canvas it would be drawn over the people standing in
+        // front of it.
+        over: isPawnSlot(f.slot) || isTravelSlot(f.slot) || f.leaving !== null,
+        draw: (c) => {
           // Anything the move cannot reach fades back while it is being aimed.
           const alpha = stepAlpha(Math.min(f.alpha, this.aim && !target ? 0.4 : 1));
           // The shadow stays on the ground under the body while the sprite
           // floats, lunges or rises, which is the whole point of drawing it.
-          f.actor.drawShadow(ctx, -f.ox, 0, alpha);
+          f.actor.drawShadow(c, -f.ox, 0, alpha);
           if (alpha <= 0) return;
           const jitter = f.shake > 0.05 ? (Math.random() - 0.5) * f.shake : 0;
-          ctx.save();
-          ctx.globalAlpha = alpha;
+          c.save();
+          c.globalAlpha = alpha;
           // Standing by while another Scoba is picked for: darkened rather
           // than faded, so it still reads as one standing on the field.
-          if (waiting) ctx.filter = WAITING_TINT;
+          this.wash(c, [this.pastFilter(now), waiting ? WAITING_TINT : ""].filter((f) => f !== "").join(" "));
           // The animation offset is a draw-time shift, so the actor keeps
           // owning where it actually stands.
-          ctx.translate(f.ox + jitter, f.oy);
+          c.translate(f.ox + jitter, f.oy);
           // Behind the body, so what shows is whatever clears its outline.
-          this.drawGrowths(ctx, f, alpha);
-          f.actor.draw(ctx, 0, 0);
+          this.drawGrowths(c, f, alpha);
+          f.actor.draw(c, 0, 0);
           // Every wash is the Scoba's own shape, drawn on the same transform
           // it is, so none of them reads as a box sitting over the field.
-          if (f.hurt > 0) f.actor.drawTint(ctx, 0, 0, "#f3f2c0", f.hurt * 0.5);
-          if (f.heal > 0) f.actor.drawTint(ctx, 0, 0, "#7aa74a", f.heal * 0.55);
-          if (f.flare > 0) f.actor.drawTint(ctx, 0, 0, "#ffffff", f.flare);
-          ctx.restore();
+          if (f.hurt > 0) f.actor.drawTint(c, 0, 0, "#f3f2c0", f.hurt * 0.5);
+          if (f.heal > 0) f.actor.drawTint(c, 0, 0, "#7aa74a", f.heal * 0.55);
+          if (f.flare > 0) f.actor.drawTint(c, 0, 0, "#ffffff", f.flare);
+          c.restore();
           // The hand rides over the head rather than with the body, so a lunge
           // does not take the cards with it.
-          this.drawHand(ctx, f);
+          this.drawHand(c, f);
         },
       });
     }
     items.sort((a, b) => a.baseY - b.baseY);
-    for (const it of items) it.draw();
+    const paint = (c: CanvasRenderingContext2D, on: Item[]): void => {
+      for (const it of on) {
+        c.save();
+        it.draw(c);
+        c.restore();
+      }
+    };
+    const near = items.filter((it) => it.over);
+    paint(ctx, near.length > 0 ? items.filter((it) => !it.over) : items);
+    // The ground and everyone standing on it belong to the time the battle is
+    // in. The one that travelled there does not, and is drawn after this.
+    this.drainPast(ctx);
+    this.tintPast(ctx);
 
-    for (const e of this.effects) drawEffect(ctx, e);
+    // Whatever is thrown, shown or burst goes over the readouts with the near
+    // row: a move's own art reading as something behind a stat card is worse
+    // than a card reading as something behind a spark.
+    //
+    // Most rounds have neither, and a second canvas cleared and painted every
+    // frame for nothing is the whole cost of having one, so it is only touched
+    // on the frames that put something on it and the one that empties it.
+    const wanted = near.length > 0 || this.effects.length > 0;
+    const front = wanted || this.frontLit ? this.frontContext(r) : null;
+    // Taken out of the page entirely while it holds nothing. A canvas the size
+    // of the field is a layer the browser composites every frame even when it
+    // is empty, and most rounds put nothing on this one.
+    if (this.frontCanvas && wanted !== this.frontLit) {
+      this.frontCanvas.style.display = wanted ? "" : "none";
+    }
+    this.frontLit = wanted;
+    if (front && wanted) {
+      paint(front, near.filter((it) => !it.now));
+      front.save();
+      this.wash(front, this.pastFilter(false));
+      for (const e of this.effects) drawEffect(front, e);
+      front.restore();
+      this.tintPast(front);
+      // After the tint, so the one that travelled keeps its own colors while
+      // everything it is standing among wears the ones of that time.
+      paint(front, near.filter((it) => it.now));
+      // The weather tints what is standing on this canvas and nothing else:
+      // the rest of it is the readouts showing through, and weather does not
+      // fall on a readout.
+      this.drawWashes(front, true);
+    } else {
+      for (const e of this.effects) {
+        ctx.save();
+        drawEffect(ctx, e);
+        ctx.restore();
+      }
+    }
+    // Full for the first blink of it and then fading, so the change it covers
+    // happens behind a screen that is already white.
+    const wash = this.flashNow();
+    if (wash) {
+      ctx.save();
+      ctx.globalAlpha = wash.alpha;
+      ctx.fillStyle = wash.color;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
     this.drawWashes(ctx);
-    this.drawTurn(ctx);
-    this.drawAiming(ctx);
+    // The markers say whose turn it is and what a move can reach, so they go
+    // over everything on the field, which is the near canvas wherever there is
+    // anything on it.
+    const marks = front && wanted ? front : ctx;
+    this.drawTurn(marks);
+    this.drawAiming(marks);
     this.onFrame?.();
   }
 }
@@ -2292,11 +2764,15 @@ function flash(
 const LAND = 0.15;
 
 /** How long each way of showing something in place holds the queue. */
-const SHOW_TIME: Record<"wheel" | "glow" | "burst" | "flames", number> = {
+const SHOW_TIME: Record<ShowPath, number> = {
   wheel: 0.9,
+  clock: 1.3,
   glow: 0.45,
   burst: 0.3,
+  ghost: 0.55,
   flames: 0.45,
+  liftoff: 1.1,
+  landing: 1.0,
 };
 
 /** Sounds the game makes itself rather than reading from a file, by the name a step uses. */
@@ -2471,6 +2947,36 @@ const TRAVEL: Partial<Record<MoveVfx, number>> = {
 /** How far over a head the wheel is held while it is being spun, in world units. */
 const WHEEL_LIFT = 10;
 
+/** How far a clock climbs while it counts, in world units. */
+const CLOCK_RISE = 26;
+
+/** Turns the hand on a clock makes while it climbs. */
+const CLOCK_TURNS = 5;
+
+/** How far a ghosted piece swells as it thins away, as a share of its own size. */
+const GHOST_FROM = 0.45;
+const GHOST_TO = 2.1;
+
+/** How much of a clock's time is spent appearing, and how much fading out. */
+const CLOCK_IN = 0.12;
+const CLOCK_OUT = 0.2;
+
+/** How far past the top of the view a machine goes before it is out of sight. */
+const MACHINE_CLEAR = 40;
+
+/** How much of a machine's flight the door is open for, at the near end of it. */
+const MACHINE_DOOR = 0.3;
+
+/** How far through a landing the machine has set down and its passenger can step out. */
+const MACHINE_SET = 0.82;
+
+/** How much of a screen flash is held at full before it fades. */
+const FLASH_HOLD = 0.35;
+
+/** How long the scene holds on the time a traveller has arrived in, and on the one it comes home to. */
+const TRAVEL_OUT = 0.7;
+const TRAVEL_HOME = 0.5;
+
 /** Turns the wheel makes before it stops. */
 const WHEEL_TURNS = 3;
 
@@ -2527,10 +3033,52 @@ function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
     ctx.scale(u, u);
     ctx.drawImage(e.sprite, -e.sprite.width / 2, -e.sprite.height / 2);
     ctx.restore();
-    if (e.pin) {
+    const pin = e.pins?.[0];
+    if (pin) {
       ctx.scale(u, u);
-      ctx.drawImage(e.pin, -e.pin.width / 2, -e.sprite.height / 2 - e.pin.height + WHEEL_BITE);
+      ctx.drawImage(pin, -pin.width / 2, -e.sprite.height / 2 - pin.height + WHEEL_BITE);
     }
+    ctx.restore();
+    return;
+  }
+  // A clock climbs while its hand goes round, and the face holds still under it.
+  if (e.kind === "clock") {
+    if (!e.sprite) return;
+    const p = 1 - (1 - k) * (1 - k);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = Math.min(1, k / CLOCK_IN) * Math.min(1, (1 - k) / CLOCK_OUT);
+    ctx.translate(e.from.x + (e.to.x - e.from.x) * p, e.from.y + (e.to.y - e.from.y) * p);
+    ctx.scale(u, u);
+    ctx.drawImage(e.sprite, -e.sprite.width / 2, -e.sprite.height / 2);
+    // Every hand is drawn on the same sheet the face is, so each one is left
+    // exactly where the artist put it and turned about the point it is fixed
+    // at. They are turned in the order they were written, each faster than the
+    // last, which is an hour, a minute and a second hand written in that order.
+    (e.pins ?? []).forEach((hand, i) => {
+      const at = handPivot(hand);
+      const ox = at ? at.x - hand.width / 2 : 0;
+      const oy = at ? at.y - hand.height / 2 : 0;
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.rotate(CLOCK_TURNS * (i + 1) * Math.PI * 2 * k * k);
+      ctx.translate(-ox, -oy);
+      ctx.drawImage(hand, -hand.width / 2, -hand.height / 2);
+      ctx.restore();
+    });
+    ctx.restore();
+    return;
+  }
+  // A machine leaving the ground pulls away; one coming down settles onto it.
+  if (e.kind === "machine") {
+    if (!e.sprite) return;
+    const up = e.to.y < e.from.y;
+    const p = up ? k * k : 1 - (1 - k) * (1 - k);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(e.from.x + (e.to.x - e.from.x) * p, e.from.y + (e.to.y - e.from.y) * p);
+    ctx.scale(u, u);
+    ctx.drawImage(e.sprite, -e.sprite.width / 2, -e.sprite.height / 2);
     ctx.restore();
     return;
   }
@@ -2582,6 +3130,11 @@ function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
       x = e.from.x + (e.to.x - e.from.x) * 0.5;
       y = e.from.y - lift + (e.to.y - e.from.y) * 0.5;
       alpha = 1 - k;
+    } else if (e.kind === "ghost") {
+      // Swells out past its own size and thins away with it, so it reads as
+      // something spreading from what it landed on rather than landing on it.
+      scale = GHOST_FROM + (GHOST_TO - GHOST_FROM) * (1 - (1 - k) * (1 - k));
+      alpha = (1 - k) * (1 - k);
     } else {
       // A burst on the spot: up to full size quickly, then out.
       scale = 0.6 + Math.min(1, k * 3) * 0.4;

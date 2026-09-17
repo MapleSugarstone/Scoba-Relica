@@ -688,7 +688,7 @@ export class Overworld {
     let sp = sameMap && (save.pos.x || save.pos.y) ? { x: save.pos.x, y: save.pos.y } : this.world.spawn;
     // A saved position from before a map edit can now be inside a wall.
     if (blocked(this.world.map, sp.x, sp.y, 4)) sp = this.world.spawn;
-    this.npcs = buildNpcs(art, content, this.mapId);
+    this.npcs = buildNpcs(art, content, this.mapId, this.world);
 
     const local = save.characters[save.localSlot];
     const other: SlotId = save.localSlot === "A" ? "B" : "A";
@@ -947,7 +947,7 @@ export class Overworld {
     this.roamers = [];
     this.zoneRespawn = [];
     this.activeBattle = null;
-    this.npcs = buildNpcs(this.art, this.content, mapId);
+    this.npcs = buildNpcs(this.art, this.content, mapId, this.world);
     this.placeCompanions();
     const other: SlotId = this.save.localSlot === "A" ? "B" : "A";
     this.trails[this.save.localSlot].reset(this.player.x, this.player.y);
@@ -1566,6 +1566,8 @@ export class Overworld {
     return {
       player: { x: this.player.x, y: this.player.y, dir: this.player.dir },
       mapId: this.mapId,
+      spawn: { ...this.world.spawn },
+      npcs: this.npcs.map((n) => ({ id: n.def.id, x: Math.round(n.actor.x), y: Math.round(n.actor.y) })),
       // Where a co-op fight is standing, so a test can tell whether the peer's
       // battle was heard about without walking to it.
       activeBattle: this.activeBattle
@@ -1598,7 +1600,7 @@ export class Overworld {
 
   /** Rebuild NPC actors after the editor changes content.npcs. */
   refreshNpcs(): void {
-    this.npcs = buildNpcs(this.art, this.content, this.mapId);
+    this.npcs = buildNpcs(this.art, this.content, this.mapId, this.world);
   }
 
   devWorld(): WorldDef {

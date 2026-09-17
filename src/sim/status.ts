@@ -111,6 +111,8 @@ export type Who =
   | "others"
   /** The Scoba a `raise` step just put on the field, for the steps after it. */
   | "raised"
+  /** The Scoba standing in a time it does not belong to, for the steps after a `travel` one. */
+  | "traveller"
   /** One of a move's target groups, by the order its aims are written in. */
   | { aim: number };
 
@@ -153,7 +155,7 @@ export type MoveVfx =
   | "beam";
 
 /** How something shown in place is drawn. */
-export type ShowPath = "wheel" | "glow" | "burst" | "flames";
+export type ShowPath = "wheel" | "glow" | "burst" | "ghost" | "flames" | "clock" | "liftoff" | "landing";
 
 /** A color on a drawn card replaced by another, `chance` of the time. */
 export interface ChanceColorChange {
@@ -234,6 +236,31 @@ export type Step =
    * and the steps after it reach it as `raised`.
    */
   | { kind: "raise"; who: Who; levelShare: number; types?: ElementType[] }
+  /**
+   * Puts the battle back `turns` rounds, stands the caster there as a visitor,
+   * has it cast the spell the move asked for, and then plays those rounds again
+   * with everyone repeating what they chose. Anything that is no longer legal
+   * simply does not happen.
+   */
+  /** `art` is the machine it rides, shown carrying it there and away again. */
+  | { kind: "travel"; turns: number; discount: number; art?: string }
+  /**
+   * Puts the whole battle back the way it stood `turns` rounds ago. The round it
+   * runs in stops there: everything after it in that round happened in a past
+   * that is gone.
+   */
+  | { kind: "rewind"; turns: number }
+  /**
+   * Remembers what each Scoba in `on` is carrying, and puts them back to it at
+   * the end of the round: the HP they had and the statuses they held. One that
+   * falls in the meantime stays fallen, since what is undone is damage survived.
+   */
+  /**
+   * Holds what everyone in `on` is carrying and puts it back as the round
+   * closes. `mark` is the status they wear while it is held, so the board says
+   * who is being undone, and it comes off with the putting back.
+   */
+  | { kind: "undo-round"; on: Who; mark?: string }
   /** Takes one named status off each Scoba in `on`, however many stacks it holds. */
   | { kind: "clear-status"; status: string; on: Who }
   /** Runs `then` only if a Scoba in `fell` that was standing when the cast began is down now. */
@@ -248,7 +275,7 @@ export type Step =
   /** Rewrites the picked move. `key` names the rewrite, so the same one is built once. */
   | { kind: "change-move"; changes: MoveChange[]; key: string }
   /** Hands the picked move over for the battle: on top of its moves, or in a slot. */
-  | { kind: "give-move"; to: Who; slot: number | null }
+  | { kind: "give-move"; to: Who; slot: number | null; move?: string }
   /** A line in the battle log. `{self}`, `{target}` and `{picked}` are filled in. */
   | { kind: "say"; text: string }
   /** The costume the Scoba is seen in for the rest of the battle. */
@@ -263,9 +290,15 @@ export type Step =
     kind: "throw"; art?: string; drawn?: boolean; path: MoveVfx; from?: string; to: Who;
     sound?: string | null;
   }
-  /** Shows art in place on or over a Scoba. `pointer` is drawn still over a wheel. */
-  | { kind: "show"; art: string; path: ShowPath; on: Who; pointer?: string }
+  /**
+   * Shows art in place on or over a Scoba. `pointers` are the hand a `wheel` is
+   * read against and the hands a `clock` turns, each one faster than the one
+   * written above it.
+   */
+  | { kind: "show"; art: string; path: ShowPath; on: Who; pointers?: string[] }
   | { kind: "sound"; name: string }
+  /** Washes the whole screen in a color and fades it out. */
+  | { kind: "flash"; color: string; seconds: number }
   | { kind: "wait"; seconds: number };
 
 /** An effect that stands for as long as its status does and is read where it matters. */
@@ -305,6 +338,8 @@ export type Standing =
   | { kind: "stat-power"; stat: StatName; mult: number }
   | { kind: "immune"; element: ElementType }
   | { kind: "vulnerable"; element: ElementType; mult: number }
+  /** Everything hurts it more, whatever element it is. */
+  | { kind: "frail"; mult: number }
   /** The holder deals more with one element. */
   | { kind: "element-power"; element: ElementType; mult: number }
   /**
@@ -319,6 +354,13 @@ export type Standing =
   | { kind: "soften"; frac: number }
   /** The holder cannot be called back. Read where a switch is offered. */
   | { kind: "root" }
+  /** The holder can no longer enter Hyper-Mode. Read where the mode is offered. */
+  | { kind: "no-hyper" }
+  /**
+   * Everything the holder casts is cast a second time, worth `frac` of the
+   * first. What the echo leaves behind is marked as an echo too.
+   */
+  | { kind: "echo"; frac: number }
   /**
    * A status the holder leaves that stands for at least `minTurns` is measured
    * `mult` times over when it lands.
@@ -332,9 +374,32 @@ export type StatusPolarity = "good" | "bad";
 /** Which side a field lands on, relative to whoever called it up. */
 export type FieldScope = "allies" | "enemies" | "both";
 
+/**
+ * A hobby: what a Scoba does with its time, and what that does to its stats.
+ * Every Scoba has exactly one, it never changes on its own, and it is part of
+ * the Scoba rather than something it is carrying, so it counts in and out of a
+ * battle alike and nothing can take it off.
+ */
+export interface HobbyDef {
+  id: string;
+  /** What the hut calls it: "Crochet". */
+  name: string;
+  /** What the Scoba is doing, for its own card: "Crocheting". */
+  doing: string;
+  /** The line the hut reads out. */
+  text: string;
+  effects: Standing[];
+}
+
 export interface StatusDef {
   id: string;
   name: string;
+  /**
+   * The line a player reads. A status with none says what it does from its own
+   * effects, which is enough for almost all of them; one that only marks who
+   * something else is about to reach has no effects to say it with.
+   */
+  text?: string;
   /** Which half of a cleanse strips it. */
   polarity: StatusPolarity;
   trigger: StatusTrigger;
@@ -402,6 +467,13 @@ export interface StatusInstance {
   faces?: CardFace[];
   /** For a hand of cards: it holds an Ace, which can count 11. `stacks` counts every Ace as 1. */
   ace?: true;
+  /**
+   * An echo of a cast rather than the cast itself, worth `scale` of what it
+   * would be. It sits beside a plain instance of the same status rather than
+   * refreshing it, so a status that does not stack still stacks this way.
+   */
+  chrono?: true;
+  scale?: number;
 }
 
 /**
@@ -488,6 +560,29 @@ export interface FieldInstance {
   from?: { side: 0 | 1; index: number };
 }
 
+/**
+ * Every hobby, from `content/hobbies.txt`. Every Scoba has one, so the table is
+ * also the list the hut offers and the order it offers them in.
+ */
+export const HOBBIES: Record<string, HobbyDef> = CONTENT_TABLES.hobbies;
+
+export const HOBBY_IDS: string[] = Object.keys(HOBBIES);
+
+/** What a Scoba is doing, for its own card. Empty where it has no hobby yet. */
+export function hobbyDoing(id: string | undefined): string {
+  return id === undefined ? "" : HOBBIES[id]?.doing ?? "";
+}
+
+/**
+ * What a hobby does to a stat line, in the shape `foldStatEffects` reads. A
+ * hobby carries no stacks and no power: it is one copy of itself, always.
+ */
+export function hobbyEffects(id: string | undefined): ReadEffect[] {
+  const def = id === undefined ? undefined : HOBBIES[id];
+  if (!def) return [];
+  return def.effects.map((effect) => ({ effect, stacks: 1, power: 0 }));
+}
+
 /** Every field, from `content/fields.txt`. */
 export const FIELDS: Record<string, FieldDef> = CONTENT_TABLES.fields;
 
@@ -540,7 +635,9 @@ export function applyStatus(
   inst: StatusInstance,
 ): "added" | "stacked" | "refreshed" {
   const def = STATUSES[inst.id]!;
-  const held = list.filter((s) => s.id === inst.id);
+  // An echo is its own instance: it is what makes a status that does not stack
+  // stack, and it is worth less than the one it stands beside.
+  const held = list.filter((s) => s.id === inst.id && !s.chrono === !inst.chrono);
   if (held.length === 0) {
     list.push(inst);
     return "added";
@@ -586,7 +683,7 @@ export interface ReadEffect {
  */
 const CONTINUOUS = new Set<StatusEffect["kind"]>([
   "stat-add", "stat-set", "stat-scale", "stat-share", "stat-offset", "stat-power",
-  "stat-boost", "immune", "vulnerable", "element-power", "root", "ward", "soften", "mark-power",
+  "stat-boost", "immune", "vulnerable", "frail", "element-power", "root", "no-hyper", "echo", "ward", "soften", "mark-power",
 ]);
 
 export function isContinuous(kind: StatusEffect["kind"]): boolean {
@@ -602,13 +699,40 @@ export function continuousEffects(list: StatusInstance[]): ReadEffect[] {
     for (const effect of def.effects) {
       if (isContinuous(effect.kind)) {
         out.push({
-          effect, stacks: inst.stacks, power: inst.power ?? 0,
+          effect: inst.scale === undefined ? effect : shrink(effect, inst.scale),
+          stacks: inst.stacks,
+          power: inst.power ?? 0,
           ...(inst.basis ? { basis: inst.basis } : {}),
         });
       }
     }
   }
   return out;
+}
+
+/**
+ * One effect worth `scale` of itself, for an echo. A share of a stat is that
+ * much of a share; a multiplier moves that much of the way from 1, so a
+ * quarter-strength x0.5 is x0.875 rather than x0.125.
+ */
+function shrink(effect: StatusEffect, scale: number): StatusEffect {
+  switch (effect.kind) {
+    case "stat-add":
+    case "stat-offset":
+      return { ...effect, amount: effect.amount * scale };
+    case "stat-share":
+      return { ...effect, frac: effect.frac * scale };
+    case "stat-scale":
+    case "vulnerable":
+    case "frail":
+    case "element-power":
+    case "mark-power":
+      return { ...effect, mult: 1 + (effect.mult - 1) * scale };
+    case "stat-boost":
+      return { ...effect, frac: effect.frac * scale, flat: effect.flat * scale };
+    default:
+      return effect;
+  }
 }
 
 /** Is anything the holder carries stopping it being called back? */
@@ -663,6 +787,22 @@ export function foldStatEffects(base: Stats, effects: ReadEffect[]): Stats {
     out[name] = floor === null ? v : Math.max(floor, v);
   }
   return out;
+}
+
+/** How much a second cast is worth to this holder, or 0 where nothing echoes. */
+export function echoFrac(list: StatusInstance[]): number {
+  let frac = 0;
+  for (const inst of list) {
+    for (const e of STATUSES[inst.id]?.effects ?? []) {
+      if (e.kind === "echo" && e.frac > frac) frac = e.frac;
+    }
+  }
+  return frac;
+}
+
+/** Whether anything the holder carries has closed Hyper-Mode off. */
+export function hyperShut(list: StatusInstance[]): boolean {
+  return list.some((inst) => STATUSES[inst.id]?.effects.some((e) => e.kind === "no-hyper"));
 }
 
 /** The first status holding a ward against this element, if anything does. */

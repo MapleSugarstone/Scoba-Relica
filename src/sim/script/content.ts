@@ -1,17 +1,17 @@
-// The four script files read together into the tables the game runs on.
+// The script files read together into the tables the game runs on.
 import type { Ability, Move } from "../species";
-import type { FieldDef, StatusDef } from "../status";
+import type { FieldDef, HobbyDef, StatusDef } from "../status";
 import { readScript, type RecordKind, type Ref } from "./read";
 import { missingWords } from "./words";
 
 /** The script files, by the name they are saved under in `src/sim/content`. */
-export type ScriptFile = "moves" | "statuses" | "passives" | "fields";
+export type ScriptFile = "moves" | "statuses" | "passives" | "fields" | "hobbies";
 
-export const SCRIPT_FILES: readonly ScriptFile[] = ["moves", "statuses", "passives", "fields"];
+export const SCRIPT_FILES: readonly ScriptFile[] = ["moves", "statuses", "passives", "fields", "hobbies"];
 
 /** What kind of record each file holds. */
 export const FILE_RECORD: Record<ScriptFile, RecordKind> = {
-  moves: "move", statuses: "status", passives: "passive", fields: "field",
+  moves: "move", statuses: "status", passives: "passive", fields: "field", hobbies: "hobby",
 };
 
 export interface Tables {
@@ -19,6 +19,7 @@ export interface Tables {
   statuses: Record<string, StatusDef>;
   abilities: Record<string, Ability>;
   fields: Record<string, FieldDef>;
+  hobbies: Record<string, HobbyDef>;
 }
 
 /** A problem in one of the files. */
@@ -34,9 +35,9 @@ export interface ReadContent extends Tables {
   refs: (Ref & { file: ScriptFile })[];
 }
 
-/** Reads all four files. Records with mistakes are left out and their mistakes listed. */
+/** Reads every file. Records with mistakes are left out and their mistakes listed. */
 export function readContent(texts: Record<ScriptFile, string>): ReadContent {
-  const out: ReadContent = { moves: {}, statuses: {}, abilities: {}, fields: {}, problems: [], refs: [] };
+  const out: ReadContent = { moves: {}, statuses: {}, abilities: {}, fields: {}, hobbies: {}, problems: [], refs: [] };
   for (const missing of missingWords()) {
     out.problems.push({ file: "moves", line: 0, says: `the script has no word for the ${missing}` });
   }
@@ -60,6 +61,7 @@ export function readContent(texts: Record<ScriptFile, string>): ReadContent {
     for (const s of read.statuses) if (claim(file, at(s.id), s.id, "statuses")) out.statuses[s.id] = s;
     for (const a of read.abilities) if (claim(file, at(a.id), a.id, "abilities")) out.abilities[a.id] = a;
     for (const f of read.fields) if (claim(file, at(f.id), f.id, "fields")) out.fields[f.id] = f;
+    for (const h of read.hobbies) if (claim(file, at(h.id), h.id, "hobbies")) out.hobbies[h.id] = h;
   }
   return out;
 }

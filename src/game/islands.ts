@@ -194,7 +194,7 @@ export function buildIslandWorld(art: Art, seed: string): WorldDef {
     });
   });
 
-  return { map, spawn, encounters, layout: { land, deck } };
+  return { map, spawn, encounters, layout: { land, deck }, islands: { all: islands, home } };
 }
 
 /** The prop kinds a map (procgen or content) can place, all one tile wide. */

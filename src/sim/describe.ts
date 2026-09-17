@@ -95,6 +95,7 @@ const SCOPES: Record<Exclude<Who, { aim: number }>, Subject> = {
   everyone: many("everyone", "everyone's"),
   others: many("every other Scoba", "every other Scoba's"),
   raised: one("the Scoba it raised", "the raised Scoba's"),
+  traveller: one("the Scoba that travelled", "the travelling Scoba's"),
 };
 
 const scopeOf = (w: Who): Subject => (typeof w === "object" ? THE_TARGET : SCOPES[w]);
@@ -198,6 +199,8 @@ function powerOf(basis: Basis, who: Subject): string {
 function state(e: StatusEffect, def: StatusDef, who: Subject): string | null {
   switch (e.kind) {
     case "root": return "cannot switch out";
+    case "no-hyper": return "cannot enter Hyper-Mode";
+    case "echo": return `casts everything a second time, for ${pct(e.frac)} of the first`;
     case "stat-power": {
       const p = def.power;
       if (!p) return null;
@@ -206,6 +209,7 @@ function state(e: StatusEffect, def: StatusDef, who: Subject): string | null {
     }
     case "immune": return `takes no ${type(e.element)} damage`;
     case "vulnerable": return `takes ${pct(e.mult)} ${type(e.element)} damage`;
+    case "frail": return `takes ${pct(e.mult)} damage from everything`;
     case "ward": {
       const n = def.charges ?? 0;
       return `absorbs ${n === 1 ? "one" : n > 1 ? String(n) : "every"} ${type(e.element)} hit${n === 1 ? "" : "s"}${n > 0 ? " a battle" : ""}`;
@@ -310,6 +314,9 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
     case "grant-item": return `finds ${e.count} ${cap(e.item)}`;
     case "cleanse": return `clears ${who.their} ${e.polarity} statuses`;
     case "clear-status": return `takes ${statusName(e.status)} off ${scopeOf(e.on).noun || "itself"}`;
+    case "undo-round": return `puts ${scopeOf(e.on).noun || "itself"} back at the end of the round`;
+    case "rewind": return `winds the battle back ${turns(e.turns)}`;
+    case "travel": return `goes back ${turns(e.turns)} and plays them again`;
     case "raise": return `raises ${scopeOf(e.who).noun || "itself"} as a Pawn`;
     case "copy-marks":
       return `passes ${who.their} statuses to ${def.trigger.on === "death" ? "whoever struck it down" : "whoever set it off"}`;
@@ -410,6 +417,7 @@ function join(pieces: Piece[]): string {
 export function describeStatus(id: string, opts: StatusOpts = {}): string {
   const def = (opts.statuses ?? STATUSES)[id];
   if (!def) return "";
+  if (def.text !== undefined) return def.text;
   if (def.hand) {
     return `The cards it is holding. Landing on exactly ${BLACKJACK}, with an Ace counting 1 or 11,`
       + " pays out against it at once, and going over clears the hand for nothing.";
@@ -530,7 +538,7 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       const side = e.scope === "both" ? "both sides" : e.scope === "allies" ? "its side" : "the enemy side";
       return [{ text: `Gives ${side} ${f ? fieldClauses(f).join(", ") : e.field}.`, triggered: false }];
     }
-    case "motion": case "throw": case "show": case "sound": case "wait": case "wear": case "say":
+    case "motion": case "throw": case "show": case "sound": case "flash": case "wait": case "wear": case "say":
     case "draw-card":
       return [];
     case "transfer": {
@@ -554,6 +562,20 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
     case "clear-status": {
       const t = who(e.on);
       return [{ text: `Takes ${statusName(e.status)} off ${t.noun || "itself"}.`, triggered: false }];
+    }
+    case "rewind":
+      return [{ text: `Winds the whole battle back ${turns(e.turns)}.`, triggered: false }];
+    case "travel":
+      return [{
+        text: `Goes back ${turns(e.turns)}, casts the other spell there, and plays those turns again.`,
+        triggered: false,
+      }];
+    case "undo-round": {
+      const t = who(e.on);
+      return [{
+        text: `Undoes the damage and statuses ${t.noun || "it"} takes this round, at the end of it.`,
+        triggered: false,
+      }];
     }
     case "raise": {
       const t = who(e.who);

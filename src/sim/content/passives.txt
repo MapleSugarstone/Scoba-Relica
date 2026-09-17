@@ -217,3 +217,25 @@ passive coral-bloom "Coral Bloom"
   text "On landing an ability, grow an extra [status:coraled|coral] on the enemy."
   when it lands a spell:
     inflict coraled on other
+
+passive accelerated "Accelerated"
+  text "At the end of each turn, gain 10% mana. Takes 25% more damage from everything."
+  icon accelerated
+  while carried:
+    takes x1.25 from everything
+  when a turn ends:
+    give holder 10 mana
+
+passive timelock "Timelock"
+  text "On entry, gain [status:deathlock|Deathlock] for 3 turns. Fainting while it holds winds the battle back 3 turns, and Unwind comes back weaker, without Deathlock, without Hyper-Mode, and with Time Shatter in its fourth slot."
+  once per battle
+  when it takes the field:
+    inflict deathlock on holder
+
+passive time-travel "Time Travel"
+  text "Every ability is cast a second time, worth 25% of the first. A status the second cast leaves stands beside the first one, at 25% of it, even where that status does not stack. Deathlock goes, and Time Shatter takes the fourth slot."
+  while carried:
+    casts again at 25%
+  when it takes the field:
+    clear deathlock from holder
+    give holder time-shatter in slot 4

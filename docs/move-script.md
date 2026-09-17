@@ -19,6 +19,7 @@ The four script files live in `src/sim/content`:
 | `statuses.txt` | Every status a move or a passive can leave on a Scoba. |
 | `passives.txt` | Every passive, with what it does written inside it. |
 | `fields.txt` | Every field that can be laid over a side of the battle. |
+| `hobbies.txt` | Every hobby a Scoba can take up, and what it does to its stats. |
 
 The Scoba lines themselves (stats, which four moves they know, which passives
 they roll) stay in `src/sim/content/species.json`, which is plain JSON and is
@@ -207,6 +208,7 @@ status slowed "Slowed"
 | Line | Required | What it does |
 | --- | --- | --- |
 | `good` or `bad` | Yes | Which half of a cleanse removes it. |
+| `text "<words>"` | No | The line a player reads. With none, the game builds a sentence from what the status does, which is enough for all but a mark that only says something else is coming. |
 | `icon <name>` | No | The sigil it is shown as, by file name in `assets/Sigils`. With none, or with a name that has no file, it shows the placeholder sigil. |
 | `sound <name>` | No | A sound that plays as it lands, by file name in `assets/Sounds`. |
 | `lasts <n> turns` | No | How many turns it stands. Leave it out and it stands until something takes it off. |
@@ -246,8 +248,13 @@ turn, and there is never a status that stands for HP already lost.
 
 A passive is carried as a status with the same id, hung on the Scoba as a battle
 opens. That status is always good, stands for the whole battle, stays through a
-switch, is never cleansed or copied, and is not shown in the sigil row, since the
-Scoba's card already names its passives.
+switch, and is never cleansed or copied.
+
+A passive with a `while carried:` block is read in the sigil row like any other
+mark, because what it is doing is true of the Scoba right now. One that only
+waits for a trigger is not, and stays with the abilities on the card. Give every
+passive that holds a sigil of its own with an `icon` line: one without shows the
+placeholder, which says a mark is there but not which.
 
 ```
 passive roll-the-wheel "Roll the Wheel"
@@ -269,6 +276,7 @@ passive roll-the-wheel "Roll the Wheel"
 | Line | Required | What it does |
 | --- | --- | --- |
 | `text "<words>"` | No | The line a player reads. With none, the game builds a sentence from what the passive does. |
+| `icon <name>` | No | The sigil it shows in the row, from `assets/Sigils`. Only a passive with a `while carried:` block is shown there, so only one of those takes this line. |
 | `wears <name>` | No | Art worn over a Scoba that inherited this passive from another line, by file name in `assets/AccessoryScoba`. A line with the passive in its own pool already has it drawn in and wears nothing. |
 | `grants move <move>` | No | A move the Scoba can cast without holding it in a slot. It is offered after the four it knows and costs what the move says. |
 | `once per battle` | No | It goes off once a battle. The same as `charges 1`, and a passive takes one of the two lines rather than both. |
@@ -281,6 +289,36 @@ grants a move, is carried as no status at all.
 
 A passive can be bred onto another line, so write the secondary passives of a
 line so they still make sense on a Scoba that is not this one.
+
+## Hobbies
+
+A hobby is what a Scoba does with its time. Every Scoba has exactly one, it is
+rolled when the Scoba is, and it changes only at the hut. It is part of the
+Scoba rather than something it is carrying, so it counts in a battle and out of
+one, nothing can take it off, and it never shows as a mark.
+
+```
+hobby crochet "Crochet"
+  doing "Crocheting"
+  text "A creative act of weaving yarn with a hook. It is a powerful hobby, often underestimated."
+  while carried:
+    strength x1.5
+    defense x0.75
+```
+
+| Line | Required | What it does |
+| --- | --- | --- |
+| `doing "<words>"` | Yes | What the Scoba is doing, for its own card: "Crocheting". |
+| `text "<words>"` | Yes | The line the hut reads out when it is offered. |
+| `while carried:` | No | What it does to the stat line. See [Standing effects](#standing-effects). A hobby with none, like Unmotivated, changes nothing. |
+
+A hobby only ever changes stats: it takes no `when` block and leaves no mark.
+The shipped ones never touch HP, which is what keeps them a choice about how a
+Scoba fights rather than about how long it lives.
+
+A hobby's changes are folded in before a Scoba's passives and before any tea it
+has drunk, so a hobby multiplies the line the species and the level gave it and
+nothing else multiplies what a hobby gave.
 
 ## Fields
 
@@ -321,6 +359,7 @@ caster. A status or a passive runs its steps as the Scoba carrying it.
 | `source` | Not used. | Whoever left the status. A passive has no source, so this reaches nobody. |
 | `other` | Not used. | Whoever was on the far side of the trigger: the attacker for `when hit`, the Scoba struck for `when it lands a hit`, the victim for `when it kills`, and the killer for `when it faints`. |
 | `raised` | The Pawn a `raise` step above it put on the field. Nobody, where the step raised nothing. | Not used. |
+| `traveller` | The Scoba a `travel back` step above it left standing in another time. Nobody, where no journey is in progress. | Not used. |
 | `allies` | Every Scoba on the caster's team that has not fainted, benched ones and the caster included. | The same, for the holder's team. |
 | `enemies` | Every Scoba on the other team that has not fainted, benched ones included. | The same, for the holder's other team. |
 | `everyone` | Every Scoba on both teams that has not fainted. | The same. |
@@ -423,12 +462,29 @@ You can write `over` instead of `on`, and the two mean the same thing.
 | Way | What it looks like | How long the scene waits |
 | --- | --- | --- |
 | `wheel` | Spins over the Scoba's head and slows to a stop. Add `, pointer <art>` for art drawn still over it. | 0.9 seconds |
+| `clock` | Appears over the Scoba's head and climbs as it fades. Add a `, pointer <art>` clause per hand that turns on it. | 1.3 seconds |
 | `glow` | A halo on the Scoba. | 0.45 seconds |
 | `burst` | A burst on the Scoba. | 0.3 seconds |
+| `ghost` | Swells out past its own size and thins away with it, so it reads as something spreading from the Scoba rather than landing on it. | Nothing: it plays beside the steps after it |
 | `flames` | Licking flames on the Scoba. | 0.45 seconds |
+| `liftoff` | The Scoba fades into the art and it carries them off the top of the screen. | 1.1 seconds |
+| `landing` | The art comes down out of the sky onto the Scoba's mark and leaves them standing there. | 1.0 seconds |
+
+A hand is drawn on the same sheet the face is and is left exactly where it was
+drawn. It turns about the point it is fixed at, which the game reads off the art:
+a hand drawn as a thin sliver turns about its foot, and anything squarer, like a
+cross over a face, turns about its middle. Hands turn in the order they are
+written, each one faster than the one above it, which is an hour hand, a minute
+hand and a second hand written in that order.
+
+A `ghost` holds the scene for nothing, unlike every other way of showing
+something. It is the flourish on a blow rather than a beat of its own, so the
+steps after it run while it is still spreading and the damage lands with it.
 
 ```
 show spin as wheel over holder, pointer spintop
+show cogworkzap as ghost on target
+show undoclock as clock over target, pointer undohourhand, pointer undominutehand, pointer undosecondhand
 ```
 
 **`sound <name>`** plays a sound, by file name in `assets/Sounds`. Four names are
@@ -436,6 +492,15 @@ tones the game makes itself: `confirm`, `tap`, `back` and `summon`.
 
 ```
 sound confirm
+```
+
+**`flash <color> for <n> seconds`** washes the whole screen in that color and
+fades it out. What happens behind it is over by the time it clears, which is
+what it is for: a rewind or a journey changes the whole board at once, and the
+flash is what the change happens behind.
+
+```
+flash #ffffff for 0.5 seconds
 ```
 
 **`wait <n> seconds`** holds the scene for that long before the next step.
@@ -570,6 +635,37 @@ inflict sticky on others, for 2 turns
 | --- | --- |
 | `, for <n> turns` | The status stands this many turns instead of its own `lasts`. |
 
+**`undo what <who> takes this round, marked <status>`** remembers the HP and the
+statuses each Scoba in `<who>` is carrying, and puts them back at the end of the
+round. One that falls in the meantime stays fallen: what is undone is damage that
+was survived. The mark is what the board shows while it is held, so a player can
+see who is covered, and it comes off with the putting back. It is optional, and a
+step without one holds the round just the same.
+
+```
+undo what target takes this round, marked undoing
+```
+
+**`rewind <n> turns`** puts the whole battle back the way it stood that many
+rounds ago. The round it runs in stops there, since everything after it in that
+round happened in a past that is gone. Where the battle has not run that many
+rounds, it goes back as far as it has.
+
+**`travel back <n> turns, <n> mana off`** goes back the same way and stands the
+caster there as a visitor on a spare mark. The round it ran in ends there. The
+next round, the visitor picks a move in the past like anybody else while
+everyone around it repeats what they chose, and the rounds after that play
+themselves out. A choice the new past has made impossible simply does not
+happen. The visitor pays the named discount on everything it casts while it is
+back there, everything on the field reaches it, and what becomes of it becomes
+of the Scoba it came from. Only a move uses it, and the mana off is optional.
+The steps after it can name the visitor as `traveller`.
+
+```
+travel back 3 turns, 30 mana off
+show timemachine as landing on traveller
+```
+
 **`clear <status> from <who>`** takes one named status off each Scoba in
 `<who>`, however many stacks it holds.
 
@@ -605,6 +701,10 @@ Pawn as `raised`. A side with no free Pawn mark raises nothing.
 raise target as a pawn at 75% level, as moon flux
 inflict decaying-coral on raised
 ```
+
+**`give <who> <move> in slot <n>`** puts a named move in that slot for the rest
+of the battle, the same way `give <who> picked move in slot <n>` puts the move a
+`pick` turned up. `as extra` hands it over beside the four instead.
 
 **`summon <species> at level <n>`** calls a Scoba to the side of the one running
 the step. A Pawn species takes a Pawn slot and comes out at its summoner's level,
@@ -755,6 +855,9 @@ status.
 | `takes x<n> from <element>` | Damage of that element to the holder is multiplied. |
 | `blocks <element> hits` | The next hit of that element is stopped outright and spends one of the status's charges. |
 | `cannot switch out` | The holder cannot be called back. |
+| `cannot enter hyper-mode` | The holder can no longer enter Hyper-Mode. |
+| `casts again at <share>` | Everything the holder casts is cast a second time, worth that share of the first. What the second cast leaves stands beside what the first left rather than refreshing it, even where that status does not stack, and is worth the same share. |
+| `takes x<n> from everything` | Everything hurts the holder that much more, whatever element it is. |
 | `cuts the next hit by <share>` | The next instance of damage the holder takes is cut by that share, and it spends one of the status's charges. |
 | `marks it leaves hit x<n> if they last <n> turns or more` | Every status the holder leaves that stands at least that many turns measures its `power`, and its `fixed when applied` damage, that many times over. |
 

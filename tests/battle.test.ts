@@ -26,7 +26,10 @@ import { MOVES, SPECIES } from "../src/sim/species";
 import { rngFrom } from "../src/sim/rng";
 import { TYPES, effectiveness } from "../src/sim/types";
 
-const wild = (species: string, level: number, seed: string) => makeWild(species, level, rngFrom(seed));
+const wild = (species: string, level: number, seed: string): ScobaInstance =>
+  // Unmotivated changes no stat, so these read the line itself rather than
+  // whichever hobby the seed happened to roll.
+  ({ ...makeWild(species, level, rngFrom(seed)), hobby: "unmotivated" });
 const owned = (s: ScobaInstance, owner: "A" | "B"): ScobaInstance => ({ ...s, owner });
 /** The team index standing in a slot, which is how a choice names a target. */
 const at = (st: BattleState, side: 0 | 1, slot: number) => ({ side, index: st.active[side][slot]! });

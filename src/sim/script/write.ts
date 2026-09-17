@@ -4,7 +4,7 @@
 // what `tests/script.test.ts` holds it to.
 import type { Ability, Move } from "../species";
 import type {
-  Basis, FieldDef, MoveChange, Standing, StatusDef, StatusEffect, StatusTrigger, Step, Who,
+  Basis, FieldDef, HobbyDef, MoveChange, Standing, StatusDef, StatusEffect, StatusTrigger, Step, Who,
 } from "../status";
 import { isContinuous } from "../status";
 import { STAT_NAMES } from "../types";
@@ -135,6 +135,13 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
         + `${s.turns !== undefined ? `, for ${num(s.turns)} turn${s.turns === 1 ? "" : "s"}` : ""}`);
     case "cleanse": return line(`cleanse ${s.polarity} marks from ${who(s.on, names)}`);
     case "clear-status": return line(`clear ${s.status} from ${who(s.on, names)}`);
+    case "undo-round":
+      return line(`undo what ${who(s.on, names)} takes this round${s.mark ? `, marked ${s.mark}` : ""}`);
+    case "rewind": return line(`rewind ${num(s.turns)} turn${s.turns === 1 ? "" : "s"}`);
+    case "travel":
+      return line(`travel back ${num(s.turns)} turn${s.turns === 1 ? "" : "s"}`
+        + `${s.discount > 0 ? `, ${num(s.discount)} mana off` : ""}`
+        + `${s.art !== undefined ? `, riding ${bare(s.art)}` : ""}`);
     case "raise": {
       const as = s.types !== undefined ? `, as ${s.types.join(" ")}` : "";
       return line(`raise ${who(s.who, names)} as a pawn at ${pct(s.levelShare)} level${as}`);
@@ -164,7 +171,8 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
     case "change-move":
       return [`${pad}change picked move:`, ...s.changes.map((c) => `${pad}${INDENT}${change(c)}`)];
     case "give-move":
-      return line(`give ${who(s.to, names)} picked move ${s.slot === null ? "as extra" : `in slot ${s.slot + 1}`}`);
+      return line(`give ${who(s.to, names)} ${s.move ?? "picked move"}`
+        + ` ${s.slot === null ? "as extra" : `in slot ${s.slot + 1}`}`);
     case "say": return line(`say ${quote(s.text)}`);
     case "wear": return line(`${who(s.who, names)} wears ${bare(s.form)}`);
     case "motion": return line(`${who(s.who, names)} ${s.anim}`);
@@ -175,11 +183,13 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
       return line(`throw${art} as ${s.path}${from} to ${who(s.to, names)}${sound}`);
     }
     case "show": {
-      const place = s.path === "wheel" ? "over" : "on";
-      const pointer = s.pointer !== undefined ? `, pointer ${bare(s.pointer)}` : "";
-      return line(`show ${bare(s.art)} as ${s.path} ${place} ${who(s.on, names)}${pointer}`);
+      const place = s.path === "wheel" || s.path === "clock" ? "over" : "on";
+      const hands = (s.pointers ?? []).map((h) => `, pointer ${bare(h)}`).join("");
+      return line(`show ${bare(s.art)} as ${s.path} ${place} ${who(s.on, names)}${hands}`);
     }
     case "sound": return line(`sound ${bare(s.name)}`);
+    case "flash":
+      return line(`flash ${s.color} for ${num(s.seconds)} second${s.seconds === 1 ? "" : "s"}`);
     case "wait": return line(`wait ${num(s.seconds)} second${s.seconds === 1 ? "" : "s"}`);
   }
 }
@@ -198,8 +208,11 @@ function standingLine(e: Standing): string {
     }
     case "immune": return `immune to ${e.element}`;
     case "vulnerable": return `takes ${times(e.mult)} from ${e.element}`;
+    case "frail": return `takes ${times(e.mult)} from everything`;
     case "element-power": return `${e.element} moves ${times(e.mult)}`;
     case "root": return "cannot switch out";
+    case "no-hyper": return "cannot enter hyper-mode";
+    case "echo": return `casts again at ${pct(e.frac)}`;
     case "ward": return `blocks ${e.element} hits`;
     case "soften": return `cuts the next hit by ${pct(e.frac)}`;
     case "mark-power": return `marks it leaves hit ${times(e.mult)} if they last ${num(e.minTurns)} turns or more`;
@@ -270,6 +283,7 @@ export function writeMove(m: Move, aimNames?: string[]): string {
 export function writeStatus(s: StatusDef): string {
   const out = [`status ${s.id} ${quote(s.name)}`];
   out.push(`${INDENT}${s.polarity}`);
+  if (s.text !== undefined) out.push(`${INDENT}text ${quote(s.text)}`);
   if (s.icon !== undefined) out.push(`${INDENT}icon ${bare(s.icon)}`);
   if (s.sound !== undefined) out.push(`${INDENT}sound ${bare(s.sound)}`);
   if (s.duration !== null) out.push(`${INDENT}lasts ${num(s.duration)} turn${s.duration === 1 ? "" : "s"}`);
@@ -289,6 +303,7 @@ export function writeStatus(s: StatusDef): string {
 export function writePassive(a: Ability, status: StatusDef | null): string {
   const out = [`passive ${a.id} ${quote(a.name)}`];
   if (a.text !== undefined) out.push(`${INDENT}text ${quote(a.text)}`);
+  if (status?.icon !== undefined) out.push(`${INDENT}icon ${bare(status.icon)}`);
   if (a.accessory !== undefined) out.push(`${INDENT}wears ${bare(a.accessory)}`);
   if (a.grantsMove !== undefined) out.push(`${INDENT}grants move ${a.grantsMove}`);
   if (status) {
@@ -296,6 +311,14 @@ export function writePassive(a: Ability, status: StatusDef | null): string {
     else if (status.charges !== null) out.push(`${INDENT}charges ${num(status.charges)}`);
     out.push(...behaviourLines(status));
   }
+  return out.join("\n");
+}
+
+export function writeHobby(h: HobbyDef): string {
+  const out = [`hobby ${h.id} ${quote(h.name)}`];
+  out.push(`${INDENT}doing ${quote(h.doing)}`);
+  out.push(`${INDENT}text ${quote(h.text)}`);
+  if (h.effects.length > 0) out.push(`${INDENT}while carried:`, ...standingLines(h.effects, 2));
   return out.join("\n");
 }
 

@@ -1,6 +1,44 @@
 /* Scoba Relica: the battle screen, its readouts and its action block. */
 /* The readouts ride under their Scobas rather than sitting in a bar. */
 .bplates { position: absolute; inset: 0; z-index: 2; }
+/* The scene is split across two canvases with the far readouts between them,
+   so the row standing nearest the viewer is drawn over those readouts rather
+   than behind them. The near row's own readouts go over this in turn. */
+.bfront {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  image-rendering: pixelated;
+}
+html.soft .bfront { image-rendering: auto; }
+.bplates.near { z-index: 4; }
+/* A screen flash covers the fight and everything drawn over it, so a rewind
+   happens behind a screen that is already white rather than behind a white
+   field with the readouts still hanging in front of it. */
+.bflash { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
+/*
+ * The replay export, in the corner of a dev build's battle screen. Over the
+ * flash, because the point of it is that it can be pressed at any moment,
+ * including the one where something went wrong behind a white screen.
+ */
+.brec {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 10;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 6px;
+  color: var(--p-text);
+  background: var(--p-ink);
+  border: 1px solid var(--p-dim);
+  cursor: pointer;
+  opacity: 0.45;
+}
+.brec:hover { opacity: 1; }
 /* Compounded with .bcard, which is defined later and would otherwise win
    on source order at equal specificity. */
 /*
@@ -77,13 +115,13 @@
 .baim { position: absolute; inset: 0; z-index: 1; }
 .screen.stage > * { pointer-events: auto; }
 /*
- * The two overlay layers span the whole screen and, being positioned,
- * paint above the buttons below them. Left clickable they swallow every
- * press, so they are switched off here and only the parts that need a
- * pointer are switched back on. These beat the blanket rule above on
- * specificity as well as order.
+ * The overlay layers span the whole screen and, being positioned, paint above
+ * the buttons below them. Left clickable they swallow every press, so they are
+ * switched off here and only the parts that need a pointer are switched back
+ * on. These beat the blanket rule above on specificity as well as order.
  */
 .screen.stage > .bplates,
+.screen.stage > .bfront,
 .screen.stage > .baim { pointer-events: none; }
 .screen.stage .bcard.bplate { pointer-events: auto; }
 .screen.stage > .baim.on { pointer-events: auto; cursor: crosshair; }
@@ -98,7 +136,7 @@
  */
 .screen.stage > .bbottom {
   position: relative;
-  z-index: 3;
+  z-index: 6;
   background:
     linear-gradient(var(--p-raised) 0 0) 0 0 / 100% 3px no-repeat,
     linear-gradient(color-mix(in srgb, var(--p-ink) 93%, transparent) 0 0) 0 3px / 100% calc(100% - 3px) no-repeat;
@@ -244,10 +282,10 @@
   padding: 4px 8px;
 }
 /*
- * Statuses a Scoba is carrying, under its bars: drawn sigils, never scaled,
- * the same rule the type badges keep. They sit ghosted, because what the
- * row is for is knowing at a glance that something is on a Scoba; the one
- * under the pointer comes up to full and opens a window saying what it is.
+ * Statuses a Scoba is carrying, under its bars: drawn sigils at half scale,
+ * the same step a battle plate's type badge takes. They sit ghosted, because
+ * what the row is for is knowing at a glance that something is on a Scoba; the
+ * one under the pointer comes up to full and opens a window saying what it is.
  */
 .bcard .marks {
   /* Hung under the card rather than sitting in it: out of flow, so the
@@ -273,13 +311,13 @@
 .bcard .mark .sig {
   image-rendering: pixelated;
   display: block;
-  width: 27px;
-  height: 26px;
+  width: 13.5px;
+  height: 13px;
 }
 /* A status with no sigil drawn yet, so it can still be hovered. */
 .bcard .mark .sig.txt {
-  font-size: 12px;
-  line-height: 26px;
+  font-size: 7px;
+  line-height: 13px;
   text-align: center;
   text-transform: uppercase;
   color: var(--p-ink);
@@ -290,9 +328,9 @@
   position: absolute;
   right: -1px;
   bottom: -2px;
-  font-size: 10px;
+  font-size: 8px;
   line-height: 1;
-  padding: 0 2px;
+  padding: 0 1px;
   color: var(--p-text);
   background: var(--p-ink);
 }
@@ -332,6 +370,14 @@
     linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
 }
 .bcard .mark:hover .sigtip, .bcard .mark:focus-within .sigtip { display: flex; }
+/*
+ * A readout with a window open comes over the rest of the row. The readouts
+ * are laid out overlapping and paint in the order they were built, so without
+ * this the window opens behind whichever readout happens to come after it,
+ * and the one thing it is for is being read.
+ */
+.screen.stage .bcard.bplate:hover,
+.screen.stage .bcard.bplate:focus-within { z-index: 5; }
 .bcard .mark .sigtip strong { font-size: 12px; color: var(--p-highlight); }
 .bcard .mark .sigtip span { font-size: 12px; }
 .bcard .mark .sigtip .dim { color: var(--p-dim); }

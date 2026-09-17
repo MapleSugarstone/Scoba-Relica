@@ -900,7 +900,7 @@ describe("the shape of a file", () => {
 
   it("reports a second record that claims an id the first one took", () => {
     const twice = [MOONLIGHT, MOONLIGHT].join("\n\n");
-    const read = readContent({ moves: twice, statuses: "", passives: "", fields: "" });
+    const read = readContent({ moves: twice, statuses: "", passives: "", fields: "", hobbies: "" });
     expect(read.problems.map((p) => p.says)).toEqual([
       "\"probe-moonlight\" is already used by a record in moves",
     ]);

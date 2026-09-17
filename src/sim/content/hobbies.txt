@@ -1,0 +1,461 @@
+# Every hobby a Scoba can take up, and what it does to them.
+# The language this file is written in is described in docs/move-script.md.
+
+hobby crochet "Crochet"
+  doing "Crocheting"
+  text "A creative act of weaving yarn with a hook. It is a powerful hobby, often underestimated."
+  while carried:
+    strength x1.5
+    defense x0.75
+
+hobby skepticism "Skepticism"
+  doing "Skeptical"
+  text "A fervorous hobby that seeks truth against common notion. Though often misperception can create unintended realities."
+  while carried:
+    strength x1.5
+    resistance x0.75
+
+hobby tauntcraft "Tauntcraft"
+  doing "Taunting"
+  text "A witful craft requiring a strong understanding of how to get under someone's nerves."
+  while carried:
+    strength x1.5
+    speed x0.75
+
+hobby watching-sports "Watching Sports"
+  doing "Watching sports"
+  text "The abstract has strangely melted all sports into a single game, 'Sports.' It is universally entertaining."
+  while carried:
+    strength x1.5
+    magic x0.75
+
+hobby bubble-wrap "Bubble Wrap"
+  doing "Covered in bubble wrap"
+  text "An excellent hobby. You simply press down the little bubbles and feel immense joy."
+  while carried:
+    defense x1.5
+    strength x0.75
+
+hobby optimism "Optimism"
+  doing "Optimistic"
+  text "A worldview that seeks to find the good in all paths."
+  while carried:
+    defense x1.5
+    resistance x0.75
+
+hobby charity "Charity"
+  doing "Charitable"
+  text "A hobby focused on helping others. Though equally helpful for someone looking to get rid of an old T-Shirt."
+  while carried:
+    defense x1.5
+    speed x0.75
+
+hobby weights "Weights"
+  doing "Bench pressing"
+  text "Bulk that Goomble up."
+  while carried:
+    defense x1.5
+    magic x0.75
+
+hobby art-of-war "The Art of War"
+  doing "Studying their enemies"
+  text "That's right. The entire hobby is just reading the Art of War."
+  while carried:
+    resistance x1.5
+    strength x0.75
+
+hobby ghosts "Ghosts"
+  doing "Dressed like a ghost"
+  text "A myth from eons ago. A substitute for Fish. They're just kind of cool."
+  while carried:
+    resistance x1.5
+    defense x0.75
+
+hobby bubblemancy "Bubblemancy"
+  doing "Trapped in a magic bubble"
+  text "Powerful shields of magic can be created to defend yourself. Just try not get trapped inside!"
+  while carried:
+    resistance x1.5
+    speed x0.75
+
+hobby epee "Epee"
+  doing "On guard"
+  text "Prepare for any outcome. -Rather, prepare for any outcome that requires fencing"
+  while carried:
+    resistance x1.5
+    magic x0.75
+
+hobby parkour "Parkour"
+  doing "Running away"
+  text "The mastery over running through cool obstacles and landing big jumps."
+  while carried:
+    speed x1.5
+    strength x0.75
+
+hobby glass "Glass"
+  doing "Made of glass"
+  text "A fascination over glass. Either making it, looking at it, or becoming it."
+  while carried:
+    speed x1.5
+    defense x0.75
+
+hobby climate-research "Climate Research"
+  doing "Anxious of the future"
+  text "Learn all about the nature of the world, and try not to get too scared of what you find out."
+  while carried:
+    speed x1.5
+    resistance x0.75
+
+hobby roller-skating "Roller Skating"
+  doing "Roller skating"
+  text "A wonderful mode of transport. Glide through the park and feel the wind on your face."
+  while carried:
+    speed x1.5
+    magic x0.75
+
+hobby mathematics "Mathematics"
+  doing "Solving equations"
+  text "Focus on learning the calculus of life. Solve integrals, vector multiply, and have no time to go outside."
+  while carried:
+    magic x1.5
+    strength x0.75
+
+hobby old-gods "Study the Old Gods"
+  doing "Hubritic"
+  text "Learn what they did, become appalled, and believe you can do better."
+  while carried:
+    magic x1.5
+    defense x0.75
+
+hobby unhinged-magic "Unhinged Magic"
+  doing "Mad wizard"
+  text "Focus so much on the destructive power of Pepper, but lose all resistance to it."
+  while carried:
+    magic x1.5
+    resistance x0.75
+
+hobby cleaning "Cleaning"
+  doing "Preparing to sweep"
+  text "A meditative hobby focused on improving the space around you."
+  while carried:
+    magic x1.5
+    speed x0.75
+
+hobby unmotivated "Unmotivated"
+  doing "Unmotivated"
+  text "Maybe you don't really need a hobby right now."
+
+hobby hylic "Hylic"
+  doing "Blank-headed"
+  text "A hobby built around a complete lack of spirituality."
+  while carried:
+    strength x1.35
+    defense x1.35
+    strength +15 after scaling
+    defense +15 after scaling
+    resistance x0.8
+
+hobby tanks "Tanks"
+  doing "Tanking"
+  text "The collecting and research of tanks. I guess they look pretty cool."
+  while carried:
+    strength x1.35
+    defense x1.35
+    strength +15 after scaling
+    defense +15 after scaling
+    speed x0.8
+
+hobby stationary-biking "Stationary Biking"
+  doing "Peddling"
+  text "A great hobby for self-improvement and health."
+  while carried:
+    strength x1.35
+    defense x1.35
+    strength +15 after scaling
+    defense +15 after scaling
+    magic x0.8
+
+hobby martial-arts "Martial Arts"
+  doing "Doing cool poses"
+  text "Hone your mind against all attacks!"
+  while carried:
+    strength x1.35
+    resistance x1.35
+    strength +15 after scaling
+    resistance +15 after scaling
+    defense x0.8
+
+hobby shaved-ice "Shaved Ice"
+  doing "Eating Ice"
+  text "Eating Shaved Ice can also be a hobby!"
+  while carried:
+    strength x1.35
+    resistance x1.35
+    strength +15 after scaling
+    resistance +15 after scaling
+    speed x0.8
+
+hobby bubble-bath "Bubble Bath"
+  doing "Slapping Bubbles"
+  text "An excellent hobby with low stakes."
+  while carried:
+    strength x1.35
+    resistance x1.35
+    strength +15 after scaling
+    resistance +15 after scaling
+    magic x0.8
+
+hobby slingshots "Slingshots"
+  doing "Preparing to shoot"
+  text "An excellent hobby for hitting cans at a distance."
+  while carried:
+    strength x1.35
+    speed x1.35
+    strength +15 after scaling
+    speed +15 after scaling
+    defense x0.8
+
+hobby surfing "Surfing"
+  doing "Doing knife tricks"
+  text "A hobby around sliding strange obstacles while you play with a knife."
+  while carried:
+    strength x1.35
+    speed x1.35
+    strength +15 after scaling
+    speed +15 after scaling
+    resistance x0.8
+
+hobby juggling "Juggling"
+  doing "Juggling"
+  text "A great hobby that has unlimited potential for growth (just add another ball)"
+  while carried:
+    strength x1.35
+    speed x1.35
+    strength +15 after scaling
+    speed +15 after scaling
+    magic x0.8
+
+hobby fake-taxidermy "Fake Taxidermy"
+  doing "Stuffing a pelt"
+  text "Since all life turns to fish, it seems unclear how a body could shed its skin. But if it did, you could fill it with styrofoam for sure."
+  while carried:
+    strength x1.35
+    magic x1.35
+    strength +15 after scaling
+    magic +15 after scaling
+    defense x0.8
+
+hobby curses "Curses"
+  doing "Cursing"
+  text "Hexing other people for the fun of it is kind of rude, but pretty cool."
+  while carried:
+    strength x1.35
+    magic x1.35
+    strength +15 after scaling
+    magic +15 after scaling
+    resistance x0.8
+
+hobby weapon-making "Weapon Making"
+  doing "Making weapons"
+  text "Not many Goombles wield weapons, but this could still be fun."
+  while carried:
+    strength x1.35
+    magic x1.35
+    strength +15 after scaling
+    magic +15 after scaling
+    speed x0.8
+
+hobby pacifism "Pacifism"
+  doing "Giving peace a chance"
+  text "Just give peace a chance!"
+  while carried:
+    defense x1.35
+    resistance x1.35
+    defense +15 after scaling
+    resistance +15 after scaling
+    strength x0.8
+
+hobby wall "Wall"
+  doing "Standing perfectly still"
+  text "Be the most important brick in the least important wall."
+  while carried:
+    defense x1.35
+    resistance x1.35
+    defense +15 after scaling
+    resistance +15 after scaling
+    speed x0.8
+
+hobby fork-lift "Fork Lift Certifications"
+  doing "Getting certified"
+  text "Some people do this for work, but you're just in it for the love of the game."
+  while carried:
+    defense x1.35
+    resistance x1.35
+    defense +15 after scaling
+    resistance +15 after scaling
+    magic x0.8
+
+hobby crolla-research "Crolla Research"
+  doing "Looking at Crollas"
+  text "Look into the correlation between defense and speed found in nature."
+  while carried:
+    defense x1.35
+    speed x1.35
+    defense +15 after scaling
+    speed +15 after scaling
+    strength x0.8
+
+hobby sculpting "Sculpting"
+  doing "Sculpting the foe losing"
+  text "Make some silly little claymen!"
+  while carried:
+    defense x1.35
+    speed x1.35
+    defense +15 after scaling
+    speed +15 after scaling
+    resistance x0.8
+
+hobby spaceships "Spaceships"
+  doing "Making space sounds"
+  text "Head to the stars!"
+  while carried:
+    defense x1.35
+    speed x1.35
+    defense +15 after scaling
+    speed +15 after scaling
+    magic x0.8
+
+hobby runecarving "Runecarving"
+  doing "Carving runes"
+  text "Inscribe magic into the physical world. Great for making whisks."
+  while carried:
+    defense x1.35
+    magic x1.35
+    defense +15 after scaling
+    magic +15 after scaling
+    strength x0.8
+
+hobby archery "Archery"
+  doing "Pulling their bowstring"
+  text "Hone your body and soul to land devastating blows."
+  while carried:
+    defense x1.35
+    magic x1.35
+    defense +15 after scaling
+    magic +15 after scaling
+    resistance x0.8
+
+hobby volcanoes "Volcanoes"
+  doing "Heating up"
+  text "They're just kind of cool, right?"
+  while carried:
+    defense x1.35
+    magic x1.35
+    defense +15 after scaling
+    magic +15 after scaling
+    speed x0.8
+
+hobby wax-wings "Wax Wings"
+  doing "Flying too close to the sun"
+  text "Strictly not for flight! Just an awesome hobby around making fake wings."
+  while carried:
+    resistance x1.35
+    speed x1.35
+    resistance +15 after scaling
+    speed +15 after scaling
+    strength x0.8
+
+hobby bird-watching "Bird Watching"
+  doing "Watching birds"
+  text "Hey check it out!"
+  while carried:
+    resistance x1.35
+    speed x1.35
+    resistance +15 after scaling
+    speed +15 after scaling
+    defense x0.8
+
+hobby astronomy "Astronomy"
+  doing "Looking at the stars"
+  text "Peer into the beautiful night sky."
+  while carried:
+    resistance x1.35
+    speed x1.35
+    resistance +15 after scaling
+    speed +15 after scaling
+    magic x0.8
+
+hobby proper-wizarding "Proper Wizarding"
+  doing "Posing with an orb"
+  text "Defense is just as important as offense! Hone all arcane secrets responsibly."
+  while carried:
+    resistance x1.35
+    magic x1.35
+    resistance +15 after scaling
+    magic +15 after scaling
+    strength x0.8
+
+hobby medicine "Medicine"
+  doing "Making medicine"
+  text "The study of healing reagents. A very helpful hobby to know."
+  while carried:
+    resistance x1.35
+    magic x1.35
+    resistance +15 after scaling
+    magic +15 after scaling
+    defense x0.8
+
+hobby conjuring "Conjuring"
+  doing "Conjuring an evil skeleton"
+  text "Summon powerful skeletons from a world beyond!"
+  while carried:
+    resistance x1.35
+    magic x1.35
+    resistance +15 after scaling
+    magic +15 after scaling
+    speed x0.8
+
+hobby drinking-tea "Drinking Tea"
+  doing "Drinking tea"
+  text "Tea is actually quite delicious! Why not invest into drinking it all the time?"
+  while carried:
+    magic x1.35
+    speed x1.35
+    magic +15 after scaling
+    speed +15 after scaling
+    strength x0.8
+
+hobby cliff-jumping "Cliff Jumping"
+  doing "Jumping off a cliff"
+  text "Maybe this hobby should just be \"seeking adrenaline rushes.\""
+  while carried:
+    magic x1.35
+    speed x1.35
+    magic +15 after scaling
+    speed +15 after scaling
+    defense x0.8
+
+hobby entomology "Entomology"
+  doing "Looking at bugs"
+  text "Check out those bugs man! The little bugs!"
+  while carried:
+    magic x1.35
+    speed x1.35
+    magic +15 after scaling
+    speed +15 after scaling
+    resistance x0.8
+
+hobby jack-of-all-trades "Jack of all Trades"
+  doing "Jack of all trades"
+  text "Master of none, but still better than a master of one!"
+  while carried:
+    strength x1.25
+    defense x1.25
+    resistance x1.25
+    magic x1.25
+    speed x1.25
+    strength +10 after scaling
+    defense +10 after scaling
+    resistance +10 after scaling
+    magic +10 after scaling
+    speed +10 after scaling

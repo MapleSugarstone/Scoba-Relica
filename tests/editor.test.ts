@@ -45,10 +45,9 @@ describe("the templates a new record starts from", () => {
         const text = t.text("brand-new", "Brand \"New\"");
         expect(wrong(file, text), `${file}: ${t.label}`).toEqual([]);
         const read = readScript(text, FILE_RECORD[file]);
-        const ids = [...read.moves, ...read.abilities, ...read.fields, ...read.statuses].map((r) => r.id);
-        expect(ids, `${file}: ${t.label}`).toContain("brand-new");
-        const names = [...read.moves, ...read.abilities, ...read.fields, ...read.statuses].map((r) => r.name);
-        expect(names, `${file}: ${t.label}`).toContain("Brand \"New\"");
+        const made = [...read.moves, ...read.abilities, ...read.fields, ...read.statuses, ...read.hobbies];
+        expect(made.map((r) => r.id), `${file}: ${t.label}`).toContain("brand-new");
+        expect(made.map((r) => r.name), `${file}: ${t.label}`).toContain("Brand \"New\"");
       }
     });
   }

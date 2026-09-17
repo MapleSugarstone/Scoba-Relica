@@ -19,6 +19,7 @@ import { openBounceGame } from "./ui/minigame";
 import { SPECIAL, SPECIES } from "./sim/species";
 import { advanceCare, play } from "./sim/care";
 import { makeWild } from "./sim/scoba";
+import { sparringScoba } from "./sim/kit";
 import { rngFrom } from "./sim/rng";
 import { loadDevContent, normalizeContent, saveDevContent, type WorldContent } from "./game/content";
 import bundledContent from "./game/content/world.json";
@@ -33,6 +34,8 @@ import { relayUrl } from "./net/relay";
 import { disableReminders, enableReminders, reminderState } from "./net/push";
 import type { DiagnosticsControl, ReminderControl } from "./ui/screens";
 import { collectDiagnostics, diagnosticsText } from "./net/diagnostics";
+import { parseReplay, takeReplay } from "./sim/replay";
+import { replayLog } from "./dev/replay";
 import {
   clearStampedGrowth,
   loadSave,
@@ -439,14 +442,28 @@ function buildGame(save: SaveData): void {
       const trainer = npc.trainer;
       if (!trainer) return;
       const rng = rngFrom(`${save.worldSeed}:trainer:${npc.id}:${Date.now().toString(36)}`);
-      const enemies = trainer.team
+      const written = trainer.team
         .filter((m) => SPECIES[m.species])
         .map((m) => makeWild(m.species, m.level, rng));
+      // A sparring partner brings whatever the roster turns up, fresh each
+      // time: grown lines, half of them hybrids, each with a hobby and teas
+      // picked to suit whatever it came out as.
+      const rolled = Array.from({ length: trainer.rolled?.count ?? 0 },
+        () => sparringScoba(trainer.rolled!.level, rng));
+      const enemies = [...written, ...rolled];
       if (enemies.length === 0) return;
       void ui.transition(() => {
         const trainerBattleId = freshBattleId();
         announce(trainerBattleId, { x: npc.x, y: npc.y });
-        stand(trainerBattleId, { x: npc.x, y: npc.y }, openTrainerBattle(ui, art, save, { name: npc.name, enemies, reward: trainer.reward }, (res) => {
+        stand(trainerBattleId, { x: npc.x, y: npc.y }, openTrainerBattle(ui, art, save, {
+          name: npc.name,
+          enemies,
+          reward: trainer.reward,
+          ...(trainer.levelCap !== undefined ? { levelCap: trainer.levelCap } : {}),
+          // Whoever fights them is kitted the same way, so the bout is two
+          // finished teams rather than one against a pile of what turned up.
+          ...(trainer.rolled ? { kit: true } : {}),
+        }, (res) => {
           leftBattle(trainerBattleId);
           scene?.encounterGrace();
           scene?.refreshCompanions();
@@ -782,6 +799,19 @@ async function boot(): Promise<void> {
     },
     /** The live save, for setting up a state worth testing from. */
     save: (): SaveData | null => currentSave,
+    /**
+     * The running scene itself, for watching what an event does to it. `stage`
+     * reads it, this one is it: a dynamic import of the battle module gives a
+     * second copy that never holds the running fight.
+     */
+    live: (): object | null => battleStage(),
+    /** The fight being recorded, as the export button would write it out. */
+    replay: (): object | null => takeReplay(),
+    /**
+     * Runs a replay file back and hands over the events each round produced,
+     * which is how a fight somebody else played is looked at here.
+     */
+    runReplay: (json: string): string[] => replayLog(parseReplay(json)),
     /** Relay and co-op battle state, for testing two clients against each other. */
     net: (): object => ({
       status: relayStatus,

@@ -104,7 +104,9 @@ export function npcAction(content: WorldContent, save: QuestSave, npc: NpcDef): 
       return { kind: "quest-battle", questId: quest.id, intro: step.intro };
     }
   }
-  if (npc.trainer && !trainerBeaten(save, npc.id)) {
+  // A sparring partner is always up for another go, so their chat never turns
+  // into the line a beaten trainer says.
+  if (npc.trainer && (npc.trainer.rematch || !trainerBeaten(save, npc.id))) {
     return { kind: "battle", intro: npc.trainer.intro };
   }
   if (npc.trainer && trainerBeaten(save, npc.id) && npc.trainer.beaten.length > 0) {

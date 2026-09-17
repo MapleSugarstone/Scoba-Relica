@@ -71,7 +71,7 @@ function actFor(st: BattleState, side: 0 | 1, slot: Slot, c: Combatant, rng: Rng
 
   const usable = heldMoves(c)
     .map((id) => MOVES[id])
-    .filter((m): m is Move => !!m && moveReady(c, m.id).ok);
+.filter((m): m is Move => !!m && moveReady(c, m.id).ok);
 
   // Healing is never held back for a bigger spell later: an ally about to fall
   // is worth the bar.

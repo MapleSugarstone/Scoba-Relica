@@ -1,11 +1,13 @@
-import type { ElementType, Stats } from "./types";
+import type { ElementType, StatName, Stats } from "./types";
 import { STAT_NAMES, capStats, statTotal } from "./types";
 import { blendNames } from "./blend";
 import HYBRID_NAMES from "./content/hybrid-names.json";
 import {
   ABILITIES, abilityStatuses, evolutionOf, grantedMoves, MOVES, SPECIES, speciesMoves,
 } from "./species";
-import { continuousEffects, foldStatEffects, newStatus, type StatusInstance } from "./status";
+import {
+  HOBBY_IDS, continuousEffects, foldStatEffects, hobbyEffects, newStatus, type StatusInstance,
+} from "./status";
 import type { Rng } from "./rng";
 import { pick } from "./rng";
 
@@ -66,6 +68,20 @@ export interface ScobaInstance {
   moves: string[]; // 1-4 move ids
   secondaryAbility: string;
   /**
+   * What it does with its time, from `content/hobbies.txt`. Every Scoba has
+   * one, it is rolled when the Scoba is and changed only at the hut, and it is
+   * part of the Scoba rather than something it carries: it counts in a battle
+   * and out of one, and nothing can take it off.
+   */
+  hobby?: string;
+  /**
+   * Teas it has drunk, one stat each, at most `TEAS_MAX` of them. A tea is
+   * worth `TEA_AT_CEILING` to that stat at the level ceiling and a share of it
+   * below, the same way the rest of the line scales. Two of the same stat is
+   * twice as much: what matters is how many of each are in the list.
+   */
+  teas?: StatName[];
+  /**
    * Bred from two different lines. It goes by a name blended from its mother's
    * species and its father's, and it cannot breed.
    */
@@ -104,6 +120,17 @@ export interface ScobaInstance {
 /** Nobody grows past this, by xp or by Aetus. Base stat lines are measured
  * here, so a Scoba at the ceiling has exactly the line its species was given. */
 export const MAX_LEVEL = 30;
+
+/** Most teas one Scoba can hold. */
+export const TEAS_MAX = 3;
+
+/** What one tea gives its stat at the level ceiling. */
+export const TEA_AT_CEILING = 15;
+
+/** What one tea is worth at a level, scaled the way the rest of the line is. */
+export function teaWorth(level: number): number {
+  return Math.round((TEA_AT_CEILING * Math.max(1, Math.min(MAX_LEVEL, level))) / MAX_LEVEL);
+}
 
 /** The level a baby form grows out of. Every baby line evolves on reaching it. */
 export const BABY_EVOLVE_LEVEL = 15;
@@ -174,8 +201,16 @@ export function statsAt(s: ScobaInstance, withAbility = true): Stats {
   const out = scaleToLevel(s.genes, s.level);
   const common = commonStat(s.level);
   for (const name of STAT_NAMES) out[name] += common;
-  if (!withAbility) return out;
-  return foldStatEffects(out, continuousEffects(passiveStatuses(s)));
+  // A hobby is part of the Scoba rather than a mark it is carrying, so it is
+  // folded in before the abilities and counts whether or not they do. In a
+  // battle the passives are hung on the combatant instead and read from there.
+  const own = foldStatEffects(out, hobbyEffects(s.hobby));
+  // Poured on top of what the hobby left, so a hobby never multiplies what a
+  // tea gave: what a tea is worth is the same whoever drinks it.
+  const worth = teaWorth(s.level);
+  for (const stat of (s.teas ?? []).slice(0, TEAS_MAX)) own[stat] += worth;
+  if (!withAbility) return own;
+  return foldStatEffects(own, continuousEffects(passiveStatuses(s)));
 }
 
 /** Effective HP pool: HP stat x 2.8. Def/Res mitigate damage instead of
@@ -198,6 +233,7 @@ export function makeWild(speciesId: string, level: number, rng: Rng): ScobaInsta
     // A line with no secondary pool has one passive and no second: Pawns are
     // built that way on purpose, and an empty string names no ability at all.
     secondaryAbility: sp.secondaryPool.length > 0 ? pick(rng, sp.secondaryPool) : "",
+    hobby: pick(rng, HOBBY_IDS),
     hp: 0,
   };
   if (rng() < SHINY_CHANCE) inst.shiny = true;

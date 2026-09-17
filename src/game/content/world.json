@@ -3,6 +3,38 @@
   "maps": [],
   "startMap": "",
   "tileRules": {},
-  "npcs": [],
+  "npcs": [
+    {
+      "id": "sparring-partner",
+      "name": "Sparring Partner",
+      "map": "",
+      "x": 0,
+      "y": 0,
+      "skin": {
+        "kind": "villager",
+        "look": {}
+      },
+      "lines": [
+        "Come back whenever you want another round."
+      ],
+      "wander": 0,
+      "trainer": {
+        "team": [],
+        "rolled": {
+          "count": 6,
+          "level": 30
+        },
+        "rematch": true,
+        "levelCap": 30,
+        "reward": 0,
+        "intro": [
+          "Fancy a practice bout?",
+          "I bring a full party of whoever turns up, and we both fight at level 30."
+        ],
+        "beaten": []
+      },
+      "stands": "away"
+    }
+  ],
   "quests": []
 }

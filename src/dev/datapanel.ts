@@ -78,6 +78,7 @@ const KIND_NAME: Record<Kind, string> = {
   statuses: "Status",
   passives: "Passive",
   fields: "Field",
+  hobbies: "Hobby",
   species: "Scoba",
 };
 

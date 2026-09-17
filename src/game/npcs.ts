@@ -5,7 +5,8 @@
 import type { Art } from "../engine/assets";
 import { worldSprite } from "../engine/paperdoll";
 import { DEFAULT_LOOK, type Look } from "../engine/recolor";
-import type { TileMap } from "../engine/tilemap";
+import { TILE, type TileMap } from "../engine/tilemap";
+import type { Island } from "./islands";
 import { SPECIES } from "../sim/species";
 import { Actor } from "./actors";
 import { critterSkin, personSkin } from "./critters";
@@ -38,14 +39,66 @@ function makeActor(art: Art, def: NpcDef): Actor {
   return new Actor(def.x, def.y, personSkin(art, npcLook(def)));
 }
 
-export function buildNpcs(art: Art, content: WorldContent, mapId: string): NpcRuntime[] {
-  return content.npcs.filter((def) => def.map === mapId).map((def) => ({
-    def,
-    actor: makeActor(art, def),
-    wanderT: Math.random() * 2,
-    dx: 0,
-    dy: 0,
-  }));
+/**
+ * A free spot near a point, found by trying rings outward from it. Used for an
+ * NPC with no written position, which is every NPC on a generated map: an
+ * island is laid out fresh for every save, so a written spot is as likely to be
+ * water as ground.
+ */
+function clearOf(map: TileMap, at: { x: number; y: number }): { x: number; y: number } {
+  for (let ring = 1; ring <= SPOT_RINGS; ring++) {
+    for (let i = 0; i < SPOT_TRIES; i++) {
+      const a = (i / SPOT_TRIES) * Math.PI * 2;
+      const spot = { x: at.x + Math.cos(a) * ring * SPOT_STEP, y: at.y + Math.sin(a) * ring * SPOT_STEP };
+      if (!map.circleHits(spot.x, spot.y, NPC_RADIUS)) return spot;
+    }
+  }
+  return at;
+}
+
+/**
+ * The middle of an island the pair do not start on, so somebody stood there is
+ * a trip away rather than a step. The furthest one from home, which on a map of
+ * two islands is simply the other one. Null where there is only home.
+ */
+function awayIsland(world: WorldWithIslands): { x: number; y: number } | null {
+  const set = world.islands;
+  if (!set) return null;
+  const far = set.all
+    .filter((i) => i !== set.home)
+    .sort((a, b) => Math.hypot(b.cx - set.home.cx, b.cy - set.home.cy)
+      - Math.hypot(a.cx - set.home.cx, a.cy - set.home.cy))[0];
+  return far ? { x: far.cx * TILE + TILE / 2, y: far.cy * TILE + TILE / 2 } : null;
+}
+
+/** How far out each ring sits, how many rings are tried, and how many spots on each. */
+const SPOT_STEP = 18;
+const SPOT_RINGS = 8;
+const SPOT_TRIES = 12;
+/** What an NPC has to fit in, matching the body the overworld walks about. */
+const NPC_RADIUS = 4;
+
+type WorldWithIslands = {
+  map: TileMap;
+  spawn: { x: number; y: number };
+  islands?: { all: Island[]; home: Island };
+};
+
+export function buildNpcs(
+  art: Art, content: WorldContent, mapId: string, world?: WorldWithIslands,
+): NpcRuntime[] {
+  return content.npcs.filter((def) => def.map === mapId).map((def) => {
+    const actor = makeActor(art, def);
+    if (def.stands && world) {
+      // An island to itself where one was asked for and there is one to be had,
+      // and the spawn otherwise, so they are always somewhere reachable.
+      const want = def.stands === "away" ? awayIsland(world) ?? world.spawn : world.spawn;
+      const at = clearOf(world.map, want);
+      actor.x = at.x;
+      actor.y = at.y;
+    }
+    return { def, actor, wanderT: Math.random() * 2, dx: 0, dy: 0 };
+  });
 }
 
 export function updateNpcs(npcs: NpcRuntime[], dt: number, map: TileMap, frozen: boolean): void {

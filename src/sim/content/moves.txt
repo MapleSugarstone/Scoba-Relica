@@ -549,3 +549,61 @@ move coral-ritual "Coral Ritual"
     show coral-ritual as glow over caster
     raise target as a pawn at 75% level
     inflict decaying-coral on raised
+
+move cogwork "Cogwork"
+  type fortuna, cipher
+  costs 15 mana
+  aim any enemy
+  text "Strikes an enemy twice. Deals [damage] damage, then [damage:2] damage."
+  cast:
+    caster lunge
+    throw cogwork as toss to target
+    hit target 30% magic, as fortuna physical
+    caster focus
+    show cogworkzap as ghost on target
+    hit target 80% magic, as cipher magic
+
+move chrono-bolt "Chrono Bolt"
+  type cipher
+  costs 30 mana
+  aim any enemy
+  text "Deals [damage] damage to an enemy and leaves them [status:chrono-slow|slowed], taking [power:chrono-slow] off their speed for 3 turns."
+  cast:
+    caster shake
+    throw chronobolt as bolt to target
+    hit target 50% magic, as cipher magic
+    inflict chrono-slow on target
+
+move time-shatter "Time Shatter"
+  type cipher
+  costs 70 mana
+  aim any enemy
+  text "Deals [damage] damage to an enemy."
+  cast:
+    caster focus
+    show timeshatter as ghost on target
+    hit target 300% magic, as cipher magic
+
+move undo "Undo"
+  type cipher
+  costs 50 mana
+  priority 1
+  aim all allies "Everyone"
+  text "Leaves every ally [status:undoing|undoing], and at the end of the round puts back the damage and statuses they took. One that faints stays down."
+  cast:
+    caster focus
+    show undoclock as clock over target, pointer undohourhand, pointer undominutehand, pointer undosecondhand
+    undo what target takes this round, marked undoing
+
+move time-machine "Time Machine"
+  type fortuna, cipher
+  costs 100 mana
+  priority -1
+  aim self "Step back"
+  text "Goes back 3 turns. Next round you act there, paying 50 mana less, and then ride away. Those turns play again with everyone else repeating what they did, and anything that is no longer possible does not happen. Once a battle, for either side, and Time Shatter takes its place afterwards."
+  cast:
+    caster focus
+    show timemachine as liftoff on caster
+    flash #ffffff for 0.5 seconds
+    travel back 3 turns, 50 mana off, riding timemachine
+    show timemachine as landing on traveller

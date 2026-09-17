@@ -20,13 +20,23 @@ import type { Rng } from "./rng";
  */
 export const SCOBA_SLOTS = 2;
 export const PAWN_SLOTS = 3;
-export const FIELD_SLOTS = SCOBA_SLOTS + PAWN_SLOTS;
+/**
+ * One more mark, for a Scoba standing in a time it does not belong to. It is
+ * its own rather than a spare Pawn mark, because a side with a full court has
+ * no spare one and a traveller still has to stand somewhere.
+ */
+export const TRAVEL_SLOT = SCOBA_SLOTS + PAWN_SLOTS;
+export const FIELD_SLOTS = TRAVEL_SLOT + 1;
 
 /** Every mark on one side, Scoba slots first. */
 export const ALL_SLOTS: number[] = Array.from({ length: FIELD_SLOTS }, (_v, i) => i);
 
 export function isPawnSlot(slot: number): boolean {
-  return slot >= SCOBA_SLOTS && slot < FIELD_SLOTS;
+  return slot >= SCOBA_SLOTS && slot < TRAVEL_SLOT;
+}
+
+export function isTravelSlot(slot: number): boolean {
+  return slot === TRAVEL_SLOT;
 }
 
 export type TargetMode =
@@ -118,7 +128,8 @@ function standing(st: BattleState, side: 0 | 1): number[] {
   const out: number[] = [];
   for (const slot of ALL_SLOTS) {
     const idx = st.active[side][slot] ?? -1;
-    if (idx >= 0 && !st.teams[side][idx]?.fainted) out.push(idx);
+    const c = idx >= 0 ? st.teams[side][idx] : undefined;
+    if (c && !c.fainted) out.push(idx);
   }
   return out;
 }

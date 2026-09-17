@@ -902,6 +902,57 @@ export function critterPortrait(
 }
 
 /**
+ * Where a clock hand is fixed, in the art's own pixels. Read off the drawing
+ * once and kept against the image, the way everything else here is.
+ */
+const handPivots = new WeakMap<CanvasImageSource, { x: number; y: number }>();
+
+/**
+ * How many times taller than it is wide a drawing has to be to read as a hand
+ * rather than as a mark. A hand is a sliver fixed at its foot and turns about
+ * that foot; anything squarer, like a cross over a face, turns about its middle.
+ */
+const HAND_SLIVER = 2;
+
+/**
+ * Where a hand turns. Everything drawn on the sheet is left where the artist
+ * put it, so this is a point in the sheet's own pixels rather than an offset.
+ */
+export function handPivot(img: CanvasImageSource): { x: number; y: number } | null {
+  const found = handPivots.get(img);
+  if (found) return found;
+  const w = (img as HTMLImageElement).naturalWidth || (img as HTMLCanvasElement).width;
+  const h = (img as HTMLImageElement).naturalHeight || (img as HTMLCanvasElement).height;
+  if (!w || !h) return null;
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext("2d", { willReadFrequently: true })!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  let left = w, right = -1, top = h, bottom = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (px[(y * w + x) * 4 + 3]! <= 200) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+  if (right < 0) return null;
+  const across = right - left + 1;
+  const down = bottom - top + 1;
+  const pivot = {
+    x: (left + right + 1) / 2,
+    y: down > across * HAND_SLIVER ? bottom + 1 : (top + bottom + 1) / 2,
+  };
+  handPivots.set(img, pivot);
+  return pivot;
+}
+
+/**
  * Where something can grow out of a body: its own drawn pixels, on a coarse
  * grid so a big sprite does not hand back thousands of them. Read off the art
  * once and kept against the image, which is what the drawing is keyed by

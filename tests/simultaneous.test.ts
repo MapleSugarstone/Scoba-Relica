@@ -6,7 +6,7 @@ import { rngFrom } from "../src/sim/rng";
 import { MOVES } from "../src/sim/species";
 
 const wild = (id: string, lv: number, seed: string): ScobaInstance =>
-  makeWild(id, lv, rngFrom(seed));
+  ({ ...makeWild(id, lv, rngFrom(seed)), hobby: "unmotivated" });
 const owned = (s: ScobaInstance): ScobaInstance => ({ ...s, owner: "A" });
 
 /** A caster with a move that reaches the whole enemy line, against two of them. */

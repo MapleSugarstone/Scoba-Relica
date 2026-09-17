@@ -13,6 +13,7 @@ import { displayName } from "../sim/battle";
 import { START_MANA } from "../sim/battle";
 import { STATUSES } from "../sim/status";
 import { moveCost, passiveStatuses, scobaTypes, speciesName, statsAt, maxHp, type ScobaInstance } from "../sim/scoba";
+import { hobbyDoing } from "../sim/status";
 import { ABILITIES, MOVES, SPECIES, moveTypes, typesOf, type Move } from "../sim/species";
 import { abilityText, moveText } from "../game/texts";
 import { proseBox } from "./prose";
@@ -424,6 +425,9 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       const who = el("div", "bxWho");
       who.appendChild(el("div", "bxCardName", displayName(s)));
       who.appendChild(el("div", undefined, `HP: ${s.hp}/${maxHp(s)}`));
+      // What it does with its time, which is where its stat line comes from.
+      const doing = hobbyDoing(s.hobby);
+      if (doing !== "") who.appendChild(el("div", "dim bxDoing", doing));
       top.appendChild(who);
       const corner = el("div", "bxCorner");
       corner.appendChild(el("div", undefined, `lv. ${s.level}`));

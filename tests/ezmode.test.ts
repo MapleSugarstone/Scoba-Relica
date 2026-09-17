@@ -11,11 +11,11 @@ import { EZ_STAT_BONUS } from "../src/sim/status";
  * which is the only way to read what EZ mode itself is worth.
  */
 function mine(level: number): ScobaInstance {
-  return { ...makeWild("catsquito", level, rngFrom("mine")), level, owner: "A" };
+  return { ...({ ...makeWild("catsquito", level, rngFrom("mine")), hobby: "unmotivated" }), level, owner: "A" };
 }
 
 function fight(team: ScobaInstance[], ez: boolean) {
-  const foes = [makeWild("catsquito", 5, rngFrom("foe"))];
+  const foes = [({ ...makeWild("catsquito", 5, rngFrom("foe")), hobby: "unmotivated" })];
   return startBattle("seed", team, foes, { slots: 1, wild: true, ez });
 }
 
@@ -75,7 +75,7 @@ describe("EZ mode in battle", () => {
   });
 
   it("passes over a Scoba on the players' side that nobody owns", () => {
-    const stray = makeWild("catsquito", 5, rngFrom("stray"));
+    const stray = ({ ...makeWild("catsquito", 5, rngFrom("stray")), hobby: "unmotivated" });
     const st = fight([stray], true);
     expect(st.teams[0][0]!.statuses.some((s) => s.id === "ez")).toBe(false);
   });

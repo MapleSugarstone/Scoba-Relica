@@ -27,6 +27,24 @@ function rival(): NpcDef {
   };
 }
 
+/** A sparring partner: rolled Scobas, fought as often as you like, both sides capped. */
+function partner(): NpcDef {
+  return {
+    id: "partner", name: "Sparring Partner", map: "m", x: 0, y: 0, stands: "away",
+    skin: { kind: "villager", look: {} as never },
+    lines: ["Any time."], wander: 0,
+    trainer: {
+      team: [],
+      rolled: { count: 2, level: 30 },
+      rematch: true,
+      levelCap: 30,
+      reward: 0,
+      intro: ["Fancy a practice bout?"],
+      beaten: [],
+    },
+  };
+}
+
 function fixture(): { content: WorldContent; save: QuestSave } {
   const content = emptyContent();
   content.npcs = [guide(), rival()];
@@ -48,6 +66,31 @@ function fixture(): { content: WorldContent; save: QuestSave } {
   const save: QuestSave = { quests: {}, story: { chapter: 0, flags: {} }, money: 0, bag: {} };
   return { content, save };
 }
+
+describe("a trainer you can rematch", () => {
+  const set = (): { content: WorldContent; save: QuestSave } => {
+    const { content, save } = fixture();
+    content.npcs.push(partner());
+    return { content, save };
+  };
+
+  it("offers the bout again after it has been beaten", () => {
+    const { content, save } = set();
+    const npc = content.npcs.find((n) => n.id === "partner")!;
+    expect(npcAction(content, save, npc).kind).toBe("battle");
+    markTrainerBeaten(save, npc.id);
+    // A trainer fought once would chat here instead.
+    expect(npcAction(content, save, npc).kind).toBe("battle");
+  });
+
+  it("still lets an ordinary trainer be fought only once", () => {
+    const { content, save } = set();
+    const npc = content.npcs.find((n) => n.id === "rival")!;
+    expect(npcAction(content, save, npc).kind).toBe("battle");
+    markTrainerBeaten(save, npc.id);
+    expect(npcAction(content, save, npc).kind).toBe("chat");
+  });
+});
 
 describe("quest progression", () => {
   it("walks a talk-reach-defeat chain to completion", () => {

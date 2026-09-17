@@ -423,7 +423,12 @@ export function speciesMoves(sp: Species): string[] {
     seen.add(id);
     ids.push(id);
   }
-  return sortByCost(ids).slice(0, MAX_MOVES);
+  // The order written is the order held. A line's four slots read left to
+  // right and top to bottom on the board, so the file decides where each one
+  // lands rather than the game shuffling them by price. The convention the
+  // shipped lines follow is cheapest, second cheapest, second dearest,
+  // dearest, which puts the heaviest move in the bottom right.
+  return ids.slice(0, MAX_MOVES);
 }
 
 /** Move slots a Scoba can ever hold. */
