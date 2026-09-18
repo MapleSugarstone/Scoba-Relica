@@ -650,6 +650,14 @@ export function applyStatus(
     if (inst.power !== undefined) first.power = inst.power;
     return "refreshed";
   }
+  // A hand is one hand. Its stacks are the count of the cards in it, which
+  // whatever deals the card sets, rather than how many times it was dealt, so
+  // another landing never starts a second hand beside it.
+  if (def.hand) {
+    const first = held[0]!;
+    first.turnsLeft = Math.max(first.turnsLeft, inst.turnsLeft);
+    return "refreshed";
+  }
   // Stacking statuses count either as separate instances or as stacks on one,
   // whichever the cap allows; both read the same way everywhere else.
   const total = held.reduce((n, s) => n + s.stacks, 0);

@@ -60,6 +60,7 @@ import { BattleStage } from "../game/battlestage";
 import { frameRect, uiZoom, viewport } from "../engine/renderer";
 import { typeIcon, typeIcons } from "./typeicon";
 import { actButton, moveSub, type ActOpts } from "./actbutton";
+import { countMark } from "./countmark";
 import { workRows } from "./working";
 import { critterPortrait, lookOf } from "../game/critters";
 import type { SaveData } from "../save/save";
@@ -329,7 +330,7 @@ function runBattle(
     } else {
       mark.appendChild(el("span", "sig txt", said.name.slice(0, 2)));
     }
-    if (stacks > 1) mark.appendChild(el("b", "sx", String(stacks)));
+    if (stacks > 1) mark.appendChild(countMark(stacks));
     const tip = el("span", "sigtip");
     tip.appendChild(el("strong", undefined, said.name));
     if (said.desc) {

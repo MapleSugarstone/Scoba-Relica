@@ -2703,6 +2703,21 @@ function dealCard(
     });
     return;
   }
+  if (held) {
+    // The card joins the hand already there. Inflicting it again would read
+    // the old count out as the new one before the card was added to it.
+    held.stacks = settled.hand.count;
+    if (settled.hand.ace) held.ace = true;
+    held.faces = cards;
+    ctx.events.push({
+      text: `${displayName(target.scoba)} is holding ${settled.best}.`,
+      kind: "status",
+      at,
+      by: userRef,
+      status: hand,
+    });
+    return;
+  }
   inflict(ctx, at, hand, userRef);
   const now = target.statuses.find((s) => s.id === hand);
   if (now) {

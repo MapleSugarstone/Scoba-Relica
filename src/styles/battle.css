@@ -331,16 +331,15 @@ html.soft .bfront { image-rendering: auto; }
   color: var(--p-ink);
   background: var(--p-dim);
 }
-/* Stacks, in the corner of the sigil rather than beside it. */
+/* Stacks, in the corner of the sigil rather than beside it: pixel digits
+   drawn by `countMark` on a backdrop that follows their shape. Half a pixel
+   is one art pixel, so the digits land on the sprites' own grid. */
 .bcard .mark .sx {
   position: absolute;
-  right: -1px;
-  bottom: -2px;
-  font-size: 12px;
-  line-height: 1;
-  padding: 0 1px;
-  color: var(--p-text);
-  background: var(--p-ink);
+  right: -1.5px;
+  bottom: -1.5px;
+  display: block;
+  image-rendering: pixelated;
 }
 /*
  * The window over a sigil. It hangs off the mark, so it travels with the

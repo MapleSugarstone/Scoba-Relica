@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   castCost, castableMoves, drawCard, heldMoves, movePool, startBattle, resolveTurn, stateHash,
-  combatantStats, mitigation, type BattleState,
+  combatantStats, mitigation, statusSummary, type BattleState,
 } from "../src/sim/battle";
 import { MOVES, SPECIES, firstStep, grantedMoves } from "../src/sim/species";
 import { deriveMove, deriveStatus } from "../src/sim/rewrite";
@@ -246,6 +246,29 @@ describe("the hand", () => {
     const ev = cast(st, "card-throw");
     expect(held(st, "dealt")).toBeUndefined();
     expect(ev.some((e) => e.text.includes("busts"))).toBe(true);
+  });
+
+  // A hand's stacks are its count rather than how many times it was dealt. Each
+  // card that held used to leave a stray one-stack hand beside the real one, so
+  // the sigil, which adds a status's instances together, read a Five, a Five
+  // and a King as 22 while the hand was 20 and rightly held.
+  it("keeps one hand however many cards land on it", () => {
+    const st = table();
+    for (let n = 0; n < 3; n++) {
+      // Hold the count at nothing between throws, so every card holds.
+      const hand = held(st, "dealt");
+      if (hand) {
+        hand.stacks = 0;
+        delete hand.ace;
+      }
+      st.teams[0][0]!.mana = 100;
+      st.teams[0][0]!.cds = {};
+      cast(st, "card-throw");
+    }
+    const hands = st.teams[1][0]!.statuses.filter((s) => s.id === "dealt");
+    expect(hands).toHaveLength(1);
+    const mark = statusSummary(st.teams[1][0]!).find((m) => m.id === "dealt");
+    expect(mark?.stacks).toBe(hands[0]!.stacks);
   });
 
   it("rides a switch, because the hand is against the Scoba", () => {
