@@ -43,7 +43,7 @@ import { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
 import { mountInstallCard } from "./install";
 import { PACES, setStagePace, stagePace } from "../game/pace";
 import { crispPixels, setCrispPixels } from "../engine/crisp";
-import { holdUiScale } from "../engine/renderer";
+import { ART, holdUiScale, viewport } from "../engine/renderer";
 
 export interface DialogLine {
   who?: string;
@@ -1543,6 +1543,24 @@ export function settingsScreen(
     look.appendChild(el("div", "dim",
       "Sharp holds the game to whole pixels, which can leave a border round it."
       + " Filling uses the whole window and softens the art and the writing."));
+    // What the window is actually getting. Whether writing can be sharp at all
+    // is a number, and without it on the screen it is a matter of opinion.
+    const reading = el("div", "dim");
+    const readScale = (): void => {
+      const v = viewport();
+      const per = v.k / ART;
+      const whole = Number.isInteger(per);
+      reading.textContent = whole
+        ? `${per} screen pixels to each drawn pixel. Sharp.`
+        : `${per.toFixed(2)} screen pixels to each drawn pixel, so everything is resampled.`
+          + (per < 1
+            ? " The window is smaller than the game is drawn, which is the one case sharp cannot help."
+            : " A larger window reaches the next whole step.");
+    };
+    readScale();
+    look.appendChild(reading);
+    crispB.addEventListener("click", () => readScale());
+    window.addEventListener("resize", readScale);
     grid.appendChild(look);
 
     const saveCard = el("div", "card");
