@@ -999,7 +999,11 @@ label.custom input[type="color"] {
   display: none;
   width: 168px;
   padding: 8px;
-  font-size: 12px;
+  /* Named rather than inherited for the same reason as the frame above: the
+     battle's message box is set in the 18 face, and a window shown under a
+     word in there drew its 12 px lines in that face, which reads as bold. */
+  font-size: 12px; font-family: "Relica 12";
+  font-weight: 400;
   line-height: 1.25;
   text-align: left;
   color: var(--p-text);

@@ -9,6 +9,9 @@ import { uiZoom } from "../engine/renderer";
 import { fitWindow } from "./fit";
 import { workRows } from "./working";
 
+/** What takes each window on the screen down if its word leaves the page. */
+const watching = new WeakMap<HTMLElement, MutationObserver>();
+
 /**
  * Puts a window on the screen rather than inside whatever is holding the word.
  *
@@ -31,10 +34,24 @@ function lift(span: HTMLElement, tip: HTMLElement): void {
   tip.style.left = `${(word.left + word.width / 2 - box.left) / zoom}px`;
   tip.style.bottom = `${(box.bottom - word.top + 4) / zoom}px`;
   fitWindow(tip);
+  if (!watching.has(tip)) {
+    // The line holding a word can be rewritten while its window is out, and a
+    // window whose word has gone would otherwise stay up with nothing to close it.
+    const watch = new MutationObserver(() => {
+      if (span.isConnected) return;
+      watch.disconnect();
+      watching.delete(tip);
+      tip.remove();
+    });
+    watch.observe(host, { childList: true, subtree: true });
+    watching.set(tip, watch);
+  }
 }
 
 /** Puts it back under its word, so the line owns it again. */
 function drop(span: HTMLElement, tip: HTMLElement): void {
+  watching.get(tip)?.disconnect();
+  watching.delete(tip);
   if (!tip.classList.contains("loose")) return;
   tip.classList.remove("loose");
   tip.style.left = "";
@@ -58,12 +75,22 @@ function tokenSpan(part: Part & { kind: "token" }): HTMLElement {
   const work = workRows(part.work ?? []);
   if (work) tip.appendChild(work);
   span.appendChild(tip);
-  const open = (): void => lift(span, tip);
-  const shut = (): void => drop(span, tip);
-  span.addEventListener("pointerenter", open);
-  span.addEventListener("focus", open);
-  span.addEventListener("pointerleave", shut);
-  span.addEventListener("blur", shut);
+  // Open while the word is under the pointer or has been clicked, and on the
+  // screen for all of that time. Put back under a word it was still open for,
+  // it was drawn in whatever face the line around the word was set in.
+  let hovered = false;
+  span.addEventListener("pointerenter", () => {
+    hovered = true;
+    lift(span, tip);
+  });
+  span.addEventListener("focus", () => lift(span, tip));
+  span.addEventListener("pointerleave", () => {
+    hovered = false;
+    if (document.activeElement !== span) drop(span, tip);
+  });
+  span.addEventListener("blur", () => {
+    if (!hovered) drop(span, tip);
+  });
   return span;
 }
 
