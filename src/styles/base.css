@@ -152,8 +152,10 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  /* Bundled, so every machine spaces a label the same way. */
-  font-family: "Relica 12", "Nunito Variable", ui-rounded, system-ui, sans-serif;
+  /* Bundled, so every machine spaces a label the same way. The size goes with
+     the face: left out, anything that sets no size of its own came out at the
+     browser's 16 px in the face sampled for 12, a third too large. */
+  font-size: 12px; font-family: "Relica 12", "Nunito Variable", ui-rounded, system-ui, sans-serif;
   color: var(--p-text);
   /*
    * Left to the rasterizer, which is what keeps writing sharp.
@@ -361,8 +363,8 @@ html.portrait #rotate { display: flex; }
 #bagBtn, #bagMenu, #actBtn, #dialog, .bcard, .bmsg, .mgbar, .dollWrap, #toast,
 .list .item, #stick, #stickKnob, .card input[type="text"], .card input[type="password"],
 label.custom input[type="color"],
-.bxPanel, .bxCell, .bxName, .bxChip, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
-.bxSwap, .bxCard, .bxPortrait, .bxNote, .bxCardBack, .bxGrid,
+.bxPanel, .bxCell, .bxName, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
+.bxSwap, .bxCard, .bxPortrait, .bxNote, .bxCardBack, .bxGrid, .bxHex,
 .plinth, button.starter .stage, .pickStage, .ixRow, .ixFace, .pface, .partyCard, .partyActions, .partyMsg,
 .xsay, .ptip, .bcard .mark .sigtip {
   --ink: var(--p-ink);
@@ -1082,6 +1084,10 @@ label.custom input[type="color"] {
     "search grid side"
     "info   foot side";
 }
+/* Badges at half, the step a battle readout takes, so their outline is the
+   same weight as the faces beside them and every frame on the screen. */
+.browser .tico { width: 20.5px; height: 8.5px; }
+.browser .ticos { gap: 2px; }
 /* Packed tighter than a panel: it has to fit beside the grid with the
    readout under it, all inside one screen. */
 .bxSearch { grid-area: search; }
@@ -1107,12 +1113,15 @@ label.custom input[type="color"] {
   --lit: var(--fill);
   --shade: var(--fill);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Five across: a face at the size it stands in a fight is at most 47 px
+     wide, and four columns left each one alone in a cell twice its width. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   align-content: start;
-  /* As tall as the search panel beside it leaves once the readout and the
-     foot are under it, so the whole box fits the frame without scrolling. */
-  height: 168px;
+  /* Three rows of cells exactly, three 72 px cells and two 8 px gaps inside
+     8 px of padding, so a row is never cut through the middle. It is what the
+     search panel beside it leaves room for. */
+  height: 248px;
   overflow-y: auto;
   --fill: var(--p-ground);
   padding: 8px;
@@ -1123,14 +1132,18 @@ label.custom input[type="color"] {
 .bxCell {
   font: inherit;
   --fill: var(--p-raised);
-  height: 84px;
+  /* The tallest face outside Hyper-Mode, 64 px, with 4 px above and below. */
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
 }
-.bxCell.sel { outline: 1.5px solid var(--p-text); outline-offset: -1.5px; }
+/* The frame's own stepped outline in the highlight, the way a fight marks
+   the readout under the pointer. A square line drawn over a stepped frame
+   cut across its corners and read as a second, different weight of line. */
+.bxCell.sel { outline: none; --ink: var(--p-highlight); }
 .bxCell:disabled { cursor: default; }
 .bxFace { display: flex; align-items: flex-end; justify-content: center; }
 .bxFace canvas { image-rendering: pixelated; display: block; }
@@ -1148,15 +1161,22 @@ label.custom input[type="color"] {
   color: var(--p-text);
   text-align: center;
 }
-.bxTypes { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.bxTypes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+/* A badge and nothing round it: the badge carries its own outline, and a frame
+   drawn round one that small came out as a second line. Lit when it is part
+   of the search, dimmed when it is not. The padding is only there to make it
+   a target a finger can hit. */
 .bxChip {
-  --fill: var(--p-ground);
-  padding: 0;
+  background: none;
+  border: 0;
+  padding: 4px 0;
   line-height: 0;
+  display: flex;
+  justify-content: center;
   cursor: pointer;
-  opacity: 0.55;
+  opacity: 0.45;
 }
-.bxChip.sel { opacity: 1; outline: 1.5px solid var(--p-text); outline-offset: -1.5px; }
+.bxChip.sel { opacity: 1; outline: none; }
 .bxStat { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .bxSearchOps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
 .bxStatName { width: 30px; color: var(--p-text); }
@@ -1198,9 +1218,24 @@ label.custom input[type="color"] {
 }
 .bxWide:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: default; }
 
-/* Readout under the search panel. */
-.bxRead { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 40px; justify-content: center; }
-.bxReadName { font-size: 12px; color: var(--p-text); }
+/* Readout under the search panel: who it is on one line and its types under
+   that, or the hint, in a box that holds one height either way. Given only a
+   floor, it grew by a whole face when something was picked and took the row
+   and the strip beside it down with it. */
+.bxRead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 40px;
+  min-width: 0;
+  text-align: center;
+}
+.bxRead .dim { color: var(--p-dim); }
+.bxReadTop { display: flex; align-items: baseline; justify-content: center; gap: 8px; max-width: 100%; }
+.bxReadTop .dim { flex: none; }
+.bxReadName { color: var(--p-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Whose party the strip is showing, and the scroll column. */
 .bxOwner { display: flex; flex-direction: column; gap: 4px; width: 84px; }
@@ -1214,7 +1249,9 @@ label.custom input[type="color"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.bxOwnerBtn.sel { --fill: var(--p-confirm); color: var(--p-ink); }
+/* The fill says which one is showing; the square line `.sel` adds elsewhere
+   would cut across this frame's stepped corners. */
+.bxOwnerBtn.sel { --fill: var(--p-confirm); color: var(--p-ink); outline: none; }
 .bxArrow {
   font: inherit;
   font-size: 12px;
@@ -1234,7 +1271,9 @@ label.custom input[type="color"] {
   touch-action: none;
   cursor: pointer;
 }
-.bxThumb { position: absolute; left: 2px; right: 2px; top: 0; height: 100%; background: var(--p-dim); }
+/* Inside the frame, clear of its 1.5 px outline and its stepped corners. */
+.bxRail { position: absolute; inset: 4px; }
+.bxThumb { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: var(--p-dim); }
 .bxThumb.held { background: var(--p-text); }
 
 /* The strip under the grid. */
@@ -1272,39 +1311,70 @@ label.custom input[type="color"] {
   gap: 8px;
 }
 .bxCardHead { display: flex; gap: 12px; align-items: stretch; }
+/* The face on a stage with a floor under it: a specimen in its case rather
+   than a picture on a panel. */
 .bxPortrait {
   --lit: var(--fill);
   --shade: var(--fill);
-  width: 100px;
-  min-height: 100px;
+  position: relative;
+  /* The widest and tallest face outside Hyper-Mode, 47 by 64, with room round
+     it for the frame. */
+  width: 72px;
+  min-height: 76px;
   --fill: var(--p-ground);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: 4px;
+  padding-bottom: 8px;
   flex: none;
 }
-.bxFacts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+/* Clear of the frame's outline and its stepped corners, and under the face,
+   whose feet stand in it. */
+.bxPortrait::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  height: 12px;
+  background: var(--p-quiet);
+}
+.bxPortrait .bxFace { position: relative; }
+.bxFacts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .bxFactsTop { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
-.bxWho { min-width: 0; }
-.bxCardName { font-size: 18px; font-family: "Relica 18"; overflow-wrap: anywhere; }
-.bxCorner { text-align: right; font-size: 12px; color: var(--p-dim); flex: none; }
-/* Five readings in two columns, three lines deep instead of five, so the head fits the frame. */
-.bxStatList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; font-size: 12px; color: var(--p-text); }
-.bxCardTail { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
-.bxCardWhere { font-size: 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.bxWho { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.bxWho .dim { color: var(--p-dim); flex: none; }
+.bxCardName { font-size: 18px; font-family: "Relica 18"; color: var(--p-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bxCardKinds { display: flex; align-items: center; gap: 8px; min-height: 17px; min-width: 0; }
+.bxCardKinds .dim { color: var(--p-dim); }
+.bxCardKinds .bxDoing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What the line is like, in the words the starter picker uses for it. The
+   longest runs to five lines, which is what the head has room for beside the
+   hexagon. */
+.bxBio { color: var(--p-dim2); margin: 0; }
 .bxCardBack {
   font: inherit;
   font-size: 12px;
   padding: 4px 16px;
-  --fill: var(--p-raised);
+  --fill: var(--p-action);
   color: var(--p-text);
   cursor: pointer;
   flex: none;
 }
 
+/* The stat hexagon is a reading, so it takes a readout's ink and outline. */
+.bxHex { --fill: var(--p-ink); --ink: var(--p-raised); padding: 8px; flex: none; }
+.bxHexArt { position: relative; }
+.bxHexArt canvas { display: block; image-rendering: pixelated; }
+.bxHexLab { position: absolute; white-space: nowrap; color: var(--p-text); }
+.bxHexStat { color: var(--p-dim); }
+
 .bxSlots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bxSlots > button.act { width: 100%; min-height: 44px; }
+/* A passive has no element to take its fill from, and the plain fill a fight
+   gives it is this card's own panel, so it was an outline with nothing in it.
+   The quiet fill sets it into the card instead. */
+.bxSlots > button.act.alt { --fill: var(--p-quiet); }
 /* What a move does, in the same box the fight says it in: ink behind it and
    the panel's own outline around it, so a highlighted word in it reads the way
    it reads in a fight rather than shouting off a lit panel. */

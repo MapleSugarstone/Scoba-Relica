@@ -5,6 +5,8 @@
 // move board that is nearly the same as the fight's own board reads as a
 // different kind of thing rather than as the same board somewhere else.
 import { sfx } from "../engine/sfx";
+import type { Move } from "../sim/species";
+import { TARGET_LABELS } from "../sim/targeting";
 import { TYPE_COLORS, type ElementType } from "../sim/types";
 import { typeIcon } from "./typeicon";
 
@@ -26,6 +28,21 @@ export interface ActOpts {
   type2?: ElementType;
   /** One more badge beside the elements, for what a basic attack lands as. */
   badge?: ElementType;
+}
+
+/**
+ * The line under a move's name: what it costs, how long it rests after, and
+ * what it aims at. `waiting` is a rest still running, which only a fight has.
+ * A `short` line is the cost and the wait alone, for a button with a row to
+ * share.
+ */
+export function moveSub(move: Move, cost: number, opts: { waiting?: number; short?: boolean } = {}): string {
+  const waiting = opts.waiting ?? 0;
+  const wait = waiting > 0 ? ` · wait ${waiting}` : "";
+  if (opts.short) return `${cost}% mana${wait}`;
+  const rest = move.cooldown ? ` · cd${move.cooldown}` : "";
+  const aim = move.targets.map((t) => TARGET_LABELS[t.mode]).join(" + ");
+  return `${cost}% mana${rest}${wait}${aim ? ` · ${aim}` : ""}`;
 }
 
 /** One button: a name, a line under it, and the badges it wears at its end. */

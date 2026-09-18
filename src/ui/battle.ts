@@ -59,7 +59,7 @@ import { ABILITIES, abilityStatuses, MAX_MOVES, MOVES, SPECIES, type Move } from
 import { BattleStage } from "../game/battlestage";
 import { frameRect, uiZoom, viewport } from "../engine/renderer";
 import { typeIcon, typeIcons } from "./typeicon";
-import { actButton, type ActOpts } from "./actbutton";
+import { actButton, moveSub, type ActOpts } from "./actbutton";
 import { workRows } from "./working";
 import { critterPortrait, lookOf } from "../game/critters";
 import type { SaveData } from "../save/save";
@@ -1183,18 +1183,13 @@ function runBattle(
   ): HTMLButtonElement => {
     const ready = moveReady(me, move.id);
     const cd = me.cds[move.id] ?? 0;
-    const aimNote = move.targets.map((t) => TARGET_LABELS[t.mode]).join(" + ");
     const cost = castCost(me, move.id);
     // A move that is gone for the rest of the battle says so instead of its
     // price: what it would have cost is no longer the reason it cannot be cast.
     const gone = move.oncePerBattle && me.spent.includes(move.id);
     // A small button has a row to share, so it says what it costs and leaves
     // what it aims at to the full-sized one.
-    const sub = gone
-      ? "spent"
-      : opts.small
-        ? `${cost}% mana${cd > 0 ? ` · wait ${cd}` : ""}`
-        : `${cost}% mana${move.cooldown ? ` · cd${move.cooldown}` : ""}${cd > 0 ? ` · wait ${cd}` : ""} · ${aimNote}`;
+    const sub = gone ? "spent" : moveSub(move, cost, { waiting: cd, short: opts.small === true });
     const b = act(move.name, sub, onPick, {
       disabled: !ready.ok, type: move.type, small: opts.small,
       ...(move.type2 ? { type2: move.type2 } : {}),

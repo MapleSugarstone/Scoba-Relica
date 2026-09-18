@@ -7,20 +7,20 @@
 // picking a face all touch only the part they change, because rebuilding the
 // screen would take the caret out of the field the player is typing in.
 import type { Art } from "../engine/assets";
+import { ART, UI_PER_UNIT } from "../engine/renderer";
 import { sfx } from "../engine/sfx";
 import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
-import { START_MANA } from "../sim/battle";
-import { STATUSES } from "../sim/status";
-import { moveCost, passiveStatuses, scobaTypes, speciesName, statsAt, maxHp, type ScobaInstance } from "../sim/scoba";
+import { moveCost, scobaTypes, speciesName, statsAt, type ScobaInstance } from "../sim/scoba";
 import { hobbyDoing } from "../sim/status";
 import { ABILITIES, MOVES, SPECIES, moveTypes, typesOf, type Move } from "../sim/species";
-import { abilityText, moveText } from "../game/texts";
+import { abilityText, moveText, scobaText } from "../game/texts";
 import { proseBox } from "./prose";
-import { STAT_LABELS, TYPES, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
+import { STAT_LABELS, TYPES, TYPE_COLORS, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
 import type { UI } from "./screens";
 import { typeIcon, typeIcons } from "./typeicon";
-import { actButton } from "./actbutton";
+import { actButton, moveSub } from "./actbutton";
+import { statHex } from "./stathex";
 
 /**
  * Where each browser was left scrolled, kept between opens so coming back to
@@ -59,15 +59,25 @@ const button = (cls: string, label: string, onClick: () => void): HTMLButtonElem
 };
 
 /**
- * A cropped face, wearing whatever mask it inherited, at the size it was drawn.
- * Never scaled: the art is drawn with a three pixel outline, and stretching it
- * to fill a frame would thicken that line past everything around it.
+ * Art pixels per interface pixel at the size a Scoba stands in a fight. The
+ * art's three pixel outline comes out as wide as a panel's frame at this size
+ * and no other, so it is the one size a face is shown at.
+ */
+const FIELD = ART / UI_PER_UNIT;
+
+/**
+ * A cropped face, wearing whatever mask it inherited, at the size it stands in
+ * a fight. Shown at the size it was drawn, its outline came out twice the
+ * weight of every frame on the screen and the tallest face overflowed its cell.
  */
 export function face(art: Art, s: ScobaInstance): HTMLElement {
   const wrap = el("div", "bxFace");
   const sp = SPECIES[s.speciesId];
   if (!sp) return wrap;
-  wrap.appendChild(critterPortrait(art, sp, s.sire, s.shiny, lookOf(sp, s)));
+  const cv = critterPortrait(art, sp, s.sire, s.shiny, lookOf(sp, s));
+  cv.style.width = `${cv.width / FIELD}px`;
+  cv.style.height = `${cv.height / FIELD}px`;
+  wrap.appendChild(cv);
   return wrap;
 }
 
@@ -170,6 +180,9 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
     footWrap.appendChild(cfg.foot(ctx));
   };
 
+  // Words and badges only, in a box that holds its height: the picked face is
+  // already lit in the grid or the strip, and a second copy of it here made the
+  // panel twice as tall and pushed the whole browser off the bottom of the frame.
   const fillReadout = (): void => {
     readout.innerHTML = "";
     const s = selected();
@@ -177,11 +190,11 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       readout.appendChild(el("div", "dim", cfg.hint ?? "Pick one."));
       return;
     }
-    const sp = SPECIES[s.speciesId];
-    readout.appendChild(el("div", "bxReadName", displayName(s)));
-    readout.appendChild(face(art, s));
-    readout.appendChild(el("div", "dim", `Lv ${s.level}`));
-    if (sp) readout.appendChild(typeIcons(s));
+    const top = el("div", "bxReadTop");
+    top.appendChild(el("span", "bxReadName", displayName(s)));
+    top.appendChild(el("span", "dim", `Lv ${s.level}`));
+    readout.appendChild(top);
+    if (SPECIES[s.speciesId]) readout.appendChild(typeIcons(s));
   };
 
   const pick = (s: ScobaInstance): void => {
@@ -247,28 +260,40 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
     syncThumb();
   });
 
+  /** One row of faces, read off the grid so it follows the cells' size. */
+  const rowStep = (): number => {
+    const cell = grid.querySelector<HTMLElement>(".bxCell");
+    if (!cell) return grid.clientHeight;
+    return cell.offsetHeight + (parseFloat(getComputedStyle(grid).rowGap) || 0);
+  };
+
   const scrollBy = (dir: -1 | 1): void => {
-    grid.scrollBy({ top: dir * 68, behavior: "auto" });
+    grid.scrollBy({ top: dir * rowStep(), behavior: "auto" });
     syncThumb();
   };
 
   const track = el("div", "bxTrack");
-  track.appendChild(thumb);
+  // The thumb runs inside the track's frame rather than across it, which is
+  // what it did when it was the track's own child: laid over the frame, it
+  // covered the outline along the top and the bottom.
+  const rail = el("div", "bxRail");
+  rail.appendChild(thumb);
+  track.appendChild(rail);
 
   /** Dragging the thumb: the grab point stays under the finger the whole way. */
   thumb.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     const room = grid.scrollHeight - grid.clientHeight;
     if (room <= 0) return;
-    const rail = track.clientHeight - thumb.offsetHeight;
-    if (rail <= 0) return;
+    const travel = rail.clientHeight - thumb.offsetHeight;
+    if (travel <= 0) return;
     const grabbed = e.clientY - thumb.getBoundingClientRect().top;
     thumb.classList.add("held");
     // Tracked on the window rather than the thumb, so a finger that slides off
     // the bar keeps dragging it instead of dropping it.
     const move = (m: PointerEvent): void => {
-      const at = m.clientY - track.getBoundingClientRect().top - grabbed;
-      grid.scrollTop = (Math.min(Math.max(at, 0), rail) / rail) * room;
+      const at = m.clientY - rail.getBoundingClientRect().top - grabbed;
+      grid.scrollTop = (Math.min(Math.max(at, 0), travel) / travel) * room;
       syncThumb();
     };
     const drop = (): void => {
@@ -416,6 +441,8 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       screen.classList.add("tight");
       const card = el("div", "bxCard");
 
+      // The face on its stage, who it is and what its line is like, and its
+      // six stats as a shape rather than as a list of numbers.
       const head = el("div", "bxCardHead");
       const port = el("div", "bxPortrait");
       port.appendChild(face(art, s));
@@ -424,32 +451,27 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       const facts = el("div", "bxFacts");
       const top = el("div", "bxFactsTop");
       const who = el("div", "bxWho");
-      who.appendChild(el("div", "bxCardName", displayName(s)));
-      who.appendChild(el("div", undefined, `HP: ${s.hp}/${maxHp(s)}`));
-      // What it does with its time, which is where its stat line comes from.
-      const doing = hobbyDoing(s.hobby);
-      if (doing !== "") who.appendChild(el("div", "dim bxDoing", doing));
+      who.appendChild(el("span", "bxCardName", displayName(s)));
+      who.appendChild(el("span", "dim", `Lv ${s.level}`));
       top.appendChild(who);
-      const corner = el("div", "bxCorner");
-      corner.appendChild(el("div", undefined, `lv. ${s.level}`));
-      corner.appendChild(el("div", undefined, `Mana: ${openingMana(s)}%`));
-      top.appendChild(corner);
+      top.appendChild(button("bxCardBack", "Back", build));
       facts.appendChild(top);
 
-      const list = el("div", "bxStatList");
-      for (const name of ["str", "def", "res", "spd", "mag"] as StatName[]) {
-        list.appendChild(el("div", undefined, `- ${SHORT[name]}: ${stats[name]}`));
-      }
-      facts.appendChild(list);
+      // Its elements, and on the same line what it does with its time, which is
+      // where its stat line comes from, so the line under them is the bio's.
+      const kinds = el("div", "bxCardKinds");
+      if (sp) kinds.appendChild(typeIcons(s));
+      if (s.hybrid) kinds.appendChild(el("span", "dim", "Hybrid"));
+      const doing = hobbyDoing(s.hobby);
+      if (doing !== "") kinds.appendChild(el("span", "dim bxDoing", doing));
+      facts.appendChild(kinds);
 
-      const tail = el("div", "bxCardTail");
-      const where = el("div", "bxCardWhere");
-      if (sp) where.appendChild(typeIcons(s));
-      if (s.hybrid) where.appendChild(el("div", "dim", "Hybrid"));
-      tail.appendChild(where);
-      tail.appendChild(button("bxCardBack", "Back", build));
-      facts.appendChild(tail);
+      const bio = scobaText(s);
+      if (bio !== "") facts.appendChild(el("p", "bxBio", bio));
       head.appendChild(facts);
+
+      const [first] = scobaTypes(s);
+      head.appendChild(statHex(stats, first ? TYPE_COLORS[first] : "var(--p-dim)"));
       card.appendChild(head);
 
       // Two passives on the first row, then the moves, as in the mock-up.
@@ -506,7 +528,9 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
         const move = MOVES[id];
         if (!move) continue;
         const cost = moveCost(s, id);
-        slot(move.name, `${cost}%`, {
+        // The same line the fight puts under it, less the rest still running,
+        // which only a fight has.
+        slot(move.name, moveSub(move, cost), {
           name: move.name,
           note: cost > move.manaCost ? `${move.kind} · worked` : move.kind,
           desc: moveLine(move), move,
@@ -526,19 +550,5 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
 /** What a move does. The cost is on the slot beside it, so the line leaves it off. */
 function moveLine(move: Move): string {
   return moveText(move);
-}
-
-/**
- * The mana a Scoba opens a battle on: everyone starts the same, and a passive
- * carrying a mana effect (Meepa's Moonwell) tops that up.
- */
-function openingMana(s: ScobaInstance): number {
-  let mana = START_MANA;
-  for (const inst of passiveStatuses(s)) {
-    for (const effect of STATUSES[inst.id]?.effects ?? []) {
-      if (effect.kind === "mana") mana += effect.amount;
-    }
-  }
-  return mana;
 }
 

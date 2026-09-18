@@ -128,6 +128,15 @@ describe("writing at a size it was sampled for", () => {
     expect(wrong).toEqual([]);
   });
 
+  // Everything above lets a 12 px rule go without naming a face because the
+  // page is set in it. The page once named the face and not the size, and
+  // text with no size of its own came out at the browser's 16 px instead.
+  it("sets the page in the size and face a bare rule relies on", () => {
+    const page = all.find((r) => r.sel === "body");
+    expect(page?.size).toBe(`${BODY}px`);
+    expect(faceOf(page?.fam ?? null)).toBe(BODY);
+  });
+
   it("reads every stylesheet", () => {
     expect(Object.keys(STYLES).length).toBeGreaterThanOrEqual(3);
     expect(all.length).toBeGreaterThan(50);
