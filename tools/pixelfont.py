@@ -43,6 +43,9 @@ ART_PER_CSS = 2
 # number and the em a size every rasterizer is happy with.
 UNIT = 64
 
+# Written out rather than escaped, so the feature text below stays readable.
+NL = chr(10)
+
 # Everything the game writes. Sampling the whole of Latin would be a file ten
 # times the size for glyphs no screen ever shows.
 CHARS = (
@@ -68,19 +71,17 @@ def instance(path: str, weight: int, to: str) -> str:
 
 def pixels(font: ImageFont.FreeTypeFont, ch: str) -> tuple[list[tuple[int, int]], int, int, int]:
     """Which pixels a character lights, its advance, and where the ink sits:
-    how far in from the pen and how far down from the top of the line."""
-    mask = font.getmask(ch, mode="L")
+    how far in from the pen and how far down from the top of the line.
+
+    Asked for in monochrome rather than taken as a threshold of grey. The
+    rasterizer grid-fits a stem when it has no greys to spend, so every upright
+    of a letter comes out the same width; thresholding its greyscale instead
+    left one stem two pixels wide and the next three, by where each happened to
+    fall between pixels.
+    """
+    mask, (left, top) = font.getmask2(ch, mode="1")
     w, h = mask.size
-    # Where the ink starts, which is not the pen: a letter is set in from it by
-    # its own bearing, and ignoring that runs every letter into the last.
-    left, top = font.getbbox(ch)[:2]
-    lit = []
-    for y in range(h):
-        for x in range(w):
-            # Half coverage or more is a pixel, which is the same call a
-            # rasterizer makes when it has no greys to spend.
-            if mask.getpixel((x, y)) >= 128:
-                lit.append((x, y))
+    lit = [(x, y) for y in range(h) for x in range(w) if mask.getpixel((x, y))]
     return lit, round(font.getlength(ch)), left, top
 
 
@@ -94,7 +95,46 @@ def square(pen: TTGlyphPen, x: int, y: int) -> None:
     pen.closePath()
 
 
-def build(ttf: str, out: str, name: str, em: int) -> None:
+def kerning(src: TTFont, em: int, names: dict[str, str]) -> str:
+    """The source font's own kerning, rounded onto the pixel grid.
+
+    Read off its GPOS rather than measured: the layout engine behind the
+    rasterizer sets a pair at its plain advances and never sees this, so a pair
+    the typeface tightens by hand is otherwise set as wide as one that needs no
+    help.
+
+    A pair worth less than half a pixel rounds to nothing, which is most of
+    them. What is left is the handful a reader would notice.
+    """
+    gpos = src["GPOS"].table if "GPOS" in src else None
+    if gpos is None:
+        return ""
+    upem = src["head"].unitsPerEm
+    cmap = src.getBestCmap()
+    # Which of the font's own glyph names carry the characters being sampled.
+    mine = {cmap[ord(ch)]: name for ch, name in names.items() if ord(ch) in cmap}
+    pairs = []
+    for lookup in gpos.LookupList.Lookup:
+        if lookup.LookupType != 2:
+            continue
+        for st in lookup.SubTable:
+            if getattr(st, "Format", None) != 1 or not hasattr(st, "PairSet"):
+                continue
+            for i, first in enumerate(st.Coverage.glyphs):
+                if first not in mine:
+                    continue
+                for rec in st.PairSet[i].PairValueRecord:
+                    if rec.SecondGlyph not in mine:
+                        continue
+                    step = round(getattr(rec.Value1, "XAdvance", 0) / upem * em)
+                    if step != 0:
+                        pairs.append(f"    pos {mine[first]} {mine[rec.SecondGlyph]} {step * UNIT};")
+    if not pairs:
+        return ""
+    return "feature kern {" + NL + NL.join(pairs) + NL + "} kern;" + NL
+
+
+def build(ttf: str, out: str, name: str, em: int, src: TTFont) -> None:
     pil = ImageFont.truetype(ttf, em)
     ascent, descent = pil.getmetrics()
 
@@ -133,6 +173,9 @@ def build(ttf: str, out: str, name: str, em: int) -> None:
     })
     fb.setupOS2(sTypoAscender=ascent * UNIT, sTypoDescender=-descent * UNIT, usWinAscent=ascent * UNIT, usWinDescent=descent * UNIT)
     fb.setupPost()
+    fea = kerning(src, em, {ch: f"u{ord(ch):04X}" for ch in CHARS})
+    if fea:
+        fb.addOpenTypeFeatures(fea)
     fb.font.flavor = "woff2"
     fb.save(out)
 
@@ -145,9 +188,10 @@ def main() -> int:
     for weight, tag in ((400, "regular"), (700, "bold")):
         tmp = os.path.join(OUT, f"_nunito-{weight}.ttf")
         instance(SRC, weight, tmp)
+        shaped = TTFont(tmp)
         for size in SIZES:
             out = os.path.join(OUT, f"relica-{size}-{tag}.woff2")
-            build(tmp, out, f"Relica {size}", size * ART_PER_CSS)
+            build(tmp, out, f"Relica {size}", size * ART_PER_CSS, shaped)
             print(f"wrote {out}  (sampled at {size * ART_PER_CSS} art px, shown at {size} CSS px)")
         os.remove(tmp)
     return 0
