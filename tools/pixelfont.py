@@ -262,7 +262,10 @@ def build(ttf: str, out: str, name: str, em: int, src: TTFont) -> None:
     for ch in CHARS:
         gname = f"u{ord(ch):04X}"
         pen = TTGlyphPen(None)
-        for x, y in mend(drawn[ch]):
+        # Top row first and left to right within a row. A glyph's points are
+        # stored as steps from the point before, so squares written in a
+        # scrambled order cost four times the file.
+        for x, y in sorted(mend(drawn[ch]), key=lambda cell: (-cell[1], cell[0])):
             # The ink starts one gap in, so a letter has the same room on its
             # left as it leaves on its right.
             square(pen, track + x, y)
