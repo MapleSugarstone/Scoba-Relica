@@ -19,6 +19,8 @@ from __future__ import annotations
 import os
 import sys
 
+from collections import Counter
+
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
 from fontTools.pens.ttGlyphPen import TTGlyphPen
@@ -83,9 +85,11 @@ def instance(path: str, weight: int, to: str) -> str:
     return to
 
 
-def pixels(font: ImageFont.FreeTypeFont, ch: str, em: int) -> tuple[list[tuple[int, int]], int, int]:
-    """A character's ink, its width, and how far down from the top of the line
-    it sits.
+def pixels(font: ImageFont.FreeTypeFont, ch: str, em: int) -> tuple[set[tuple[int, int]], int]:
+    """A character's ink and its width, in art pixels.
+
+    The cells come back with x counted from the letter's own left edge and y
+    counted up from the baseline, which is where the rest of this works.
 
     Asked for in monochrome rather than taken as a threshold of grey. The
     rasterizer grid-fits a stem when it has no greys to spend, so every upright
@@ -101,13 +105,85 @@ def pixels(font: ImageFont.FreeTypeFont, ch: str, em: int) -> tuple[list[tuple[i
     """
     mask, (_, top) = font.getmask2(ch, mode="1")
     w, h = mask.size
+    ascent, _ = font.getmetrics()
     cols = [x for x in range(w) if any(mask.getpixel((x, y)) for y in range(h))]
     if not cols:
         # A space carries no ink, so its width is the one thing it is.
-        return [], round(em * SPACE), top
+        return set(), round(em * SPACE)
     x0, x1 = cols[0], cols[-1]
-    lit = [(x - x0, y) for y in range(h) for x in range(x0, x1 + 1) if mask.getpixel((x, y))]
-    return lit, x1 - x0 + 1, top
+    lit = {
+        (x - x0, ascent - top - y - 1)
+        for y in range(h)
+        for x in range(x0, x1 + 1)
+        if mask.getpixel((x, y))
+    }
+    return lit, x1 - x0 + 1
+
+
+def rests(src: TTFont, ch: str, em: int) -> bool:
+    """Whether the character is drawn sitting on the baseline.
+
+    Read off the outline rather than guessed from the sample, so a descender
+    and a quote mark are never mistaken for one. The tolerance is the overshoot
+    a round letter is drawn with, which the rasterizer pulls back onto the line
+    anyway.
+    """
+    cmap = src.getBestCmap()
+    if ord(ch) not in cmap:
+        return False
+    glyph = src["glyf"][cmap[ord(ch)]]
+    if glyph.numberOfContours == 0:
+        return False
+    return abs(glyph.yMin) <= src["head"].unitsPerEm * 0.02
+
+
+def level(drawn: dict[str, set[tuple[int, int]]], sitting: set[str]) -> int:
+    """Pulls a letter that missed the baseline by one pixel back onto it.
+
+    The rasterizer aligns each letter to the grid on its own, and now and then
+    it puts one a pixel off: the bold r sat a pixel above the line at every
+    size, over the x-height at the top and off the line at the bottom, which is
+    visible in a word. What the others agree on is the line.
+    """
+    feet = Counter(min(y for _, y in drawn[ch]) for ch in sitting if drawn[ch])
+    if not feet:
+        return 0
+    line, _ = feet.most_common(1)[0]
+    moved = 0
+    for ch in sitting:
+        lit = drawn[ch]
+        if not lit:
+            continue
+        foot = min(y for _, y in lit)
+        # Only ever a pixel: anything further off is the letter, not a slip.
+        if abs(foot - line) == 1:
+            drawn[ch] = {(x, y + line - foot) for x, y in lit}
+            moved += 1
+    return moved
+
+
+def mend(lit: set[tuple[int, int]]) -> set[tuple[int, int]]:
+    """Lights a cell that is dark with ink on three of its four sides.
+
+    A letter drawn three pixels wide has places where the rasterizer leaves a
+    single cell out, and a single cell out reads as a nick rather than as a
+    shape: the arm of the bold r hung off its stem by a corner, and the bowl of
+    the a had a pixel missing from its foot. A counter is never this narrow, so
+    nothing that should be open is closed.
+    """
+    if not lit:
+        return lit
+    xs = [x for x, _ in lit]
+    ys = [y for _, y in lit]
+    add = set()
+    for x in range(min(xs), max(xs) + 1):
+        for y in range(min(ys), max(ys) + 1):
+            if (x, y) in lit:
+                continue
+            sides = sum(1 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)) if (x + dx, y + dy) in lit)
+            if sides >= 3:
+                add.add((x, y))
+    return lit | add
 
 
 def square(pen: TTGlyphPen, x: int, y: int) -> None:
@@ -175,17 +251,23 @@ def build(ttf: str, out: str, name: str, em: int, src: TTFont) -> None:
     glyphs[".notdef"] = pen.glyph()
     widths[".notdef"] = em // 2 * UNIT
 
+    # Every letter is sampled before any is drawn, because where the baseline
+    # actually came out is whatever most of them agree on.
+    drawn = {}
+    spans = {}
+    for ch in CHARS:
+        drawn[ch], spans[ch] = pixels(pil, ch, em)
+    level(drawn, {ch for ch in CHARS if rests(src, ch, em)})
+
     for ch in CHARS:
         gname = f"u{ord(ch):04X}"
-        lit, width, top = pixels(pil, ch, em)
         pen = TTGlyphPen(None)
-        for x, y in lit:
-            # PIL counts rows down from the top of the drawn box; a font counts
-            # up from the baseline. The ink starts one gap in, so a letter has
-            # the same room on its left as it leaves on its right.
-            square(pen, track + x, ascent - top - y - 1)
+        for x, y in mend(drawn[ch]):
+            # The ink starts one gap in, so a letter has the same room on its
+            # left as it leaves on its right.
+            square(pen, track + x, y)
         glyphs[gname] = pen.glyph()
-        widths[gname] = (width + track * 2) * UNIT
+        widths[gname] = (spans[ch] + track * 2) * UNIT
         order.append(gname)
         cmap[ord(ch)] = gname
 
