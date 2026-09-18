@@ -13,8 +13,13 @@ import { describe, expect, it } from "vitest";
  * the other, and these tests are what makes that hold.
  */
 
-const STYLES = fileURLToPath(new URL("../src/styles", import.meta.url));
-const FONTS = fileURLToPath(new URL("../assets/Fonts", import.meta.url));
+const STYLE_DIR = fileURLToPath(new URL("../src/styles", import.meta.url));
+const STYLES: Record<string, string> = Object.fromEntries(
+  readdirSync(STYLE_DIR)
+    .filter((f) => f.endsWith(".css"))
+    .map((f) => [f, readFileSync(`${STYLE_DIR}/${f}`, "utf8")]),
+);
+const FONTS = readdirSync(fileURLToPath(new URL("../assets/Fonts", import.meta.url)));
 
 /** What the body is set in, so a rule at this size needs no face of its own. */
 const BODY = 12;
@@ -33,18 +38,16 @@ interface Rule {
  */
 function rules(): Rule[] {
   const out: Rule[] = [];
-  for (const file of readdirSync(STYLES).filter((f) => f.endsWith(".css"))) {
-    const css = readFileSync(`${STYLES}/${file}`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-    const block = /([^{}]+)\{([^{}]*)\}/g;
-    let m: RegExpExecArray | null;
-    while ((m = block.exec(css))) {
-      const size = /font-size:\s*([^;]+)/.exec(m[2]);
-      const fam = /font-family:\s*([^;]+)/.exec(m[2]);
+  for (const [where, text] of Object.entries(STYLES)) {
+    const css = text.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const [, head = "", body = ""] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const size = /font-size:\s*([^;]+)/.exec(body)?.[1]?.trim() ?? null;
+      const fam = /font-family:\s*([^;]+)/.exec(body)?.[1]?.trim() ?? null;
       if (!size && !fam) continue;
-      for (const sel of m[1].split(",")) {
+      for (const sel of head.split(",")) {
         const one = sel.trim().replace(/\s+/g, " ");
         if (one.startsWith("@")) continue;
-        out.push({ where: file, sel: one, size: size?.[1].trim() ?? null, fam: fam?.[1].trim() ?? null });
+        out.push({ where, sel: one, size, fam });
       }
     }
   }
@@ -76,7 +79,8 @@ function reaches(outer: string, inner: string): boolean {
   const b = compounds(inner);
   let i = 0;
   for (const bc of b) {
-    if (i < a.length && a[i].every((part) => bc.includes(part))) i++;
+    const ac = a[i];
+    if (ac && ac.every((part) => bc.includes(part))) i++;
   }
   return i === a.length;
 }
@@ -124,12 +128,16 @@ describe("writing at a size it was sampled for", () => {
     expect(wrong).toEqual([]);
   });
 
+  it("reads every stylesheet", () => {
+    expect(Object.keys(STYLES).length).toBeGreaterThanOrEqual(3);
+    expect(all.length).toBeGreaterThan(50);
+  });
+
   it("has a sampled file behind every face it names", () => {
-    const files = readdirSync(FONTS);
     const named = new Set(all.map((r) => faceOf(r.fam)).filter((n): n is number => n !== null));
     expect(named.size).toBeGreaterThan(0);
     for (const size of named) {
-      expect(files.some((f) => f.startsWith(`relica-${size}-`))).toBe(true);
+      expect(FONTS.some((f) => f.startsWith(`relica-${size}-`))).toBe(true);
     }
   });
 });
