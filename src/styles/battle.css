@@ -29,7 +29,7 @@ html.soft .bfront { image-rendering: auto; }
   right: 4px;
   z-index: 10;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
   padding: 4px 6px;
   color: var(--p-text);
@@ -78,9 +78,9 @@ html.soft .bfront { image-rendering: auto; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.bcard.bplate .nm .lv { font-size: 10px; flex: none; }
-.bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 10px; }
-.bcard.bplate .own { font-size: 10px; }
+.bcard.bplate .nm .lv { font-size: 12px; flex: none; }
+.bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 12px; }
+.bcard.bplate .own { font-size: 12px; }
 .bcard.bplate .bbar { height: 8px; }
 .bcard.bplate .bbar.mp { height: 6px; }
 .bcard.bplate .bfoot { min-height: 1em; }
@@ -103,7 +103,7 @@ html.soft .bfront { image-rendering: auto; }
   gap: 2px;
 }
 .bcard.bpawn .nm {
-  font-size: 10px;
+  font-size: 12px;
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -176,7 +176,7 @@ html.soft .bfront { image-rendering: auto; }
 .bcard.empty { --ink: var(--p-quiet); justify-content: center; min-height: 62px; }
 .bcard.empty .sub { color: var(--p-dim); font-size: 12px; }
 .bcard canvas { image-rendering: pixelated; }
-.bcard .nm { font-size: 16px; display: flex; gap: 8px; align-items: baseline; }
+.bcard .nm { font-size: 18px; font-family: "Relica 18"; display: flex; gap: 8px; align-items: baseline; }
 .bcard .nm .lv { color: var(--p-dim); font-size: 12px; }
 /* Too short for stepped corners: a square 2 px frame stays just as sharp. */
 .bbar { position: relative; width: 100%; height: 14px; border: 1.5px solid var(--p-deep); background: var(--p-deep); overflow: hidden; }
@@ -253,12 +253,12 @@ html.soft .bfront { image-rendering: auto; }
   justify-content: flex-start;
   text-align: left;
   padding: 12px 16px;
-  font-size: 16px;
+  font-size: 18px; font-family: "Relica 18";
   line-height: 1.3;
   overflow: hidden;
 }
 /* A move's whole line is a paragraph: a step down, so it fits the box. */
-.bmsg.long { font-size: 14px; }
+.bmsg.long { font-size: 12px; }
 .bmsg.prompt { color: var(--p-highlight); }
 .bmsg.ev-win { color: var(--p-highlight); }
 .bmsg.ev-faint { color: var(--p-danger-text); }
@@ -316,7 +316,7 @@ html.soft .bfront { image-rendering: auto; }
 }
 /* A status with no sigil drawn yet, so it can still be hovered. */
 .bcard .mark .sig.txt {
-  font-size: 7px;
+  font-size: 12px;
   line-height: 13px;
   text-align: center;
   text-transform: uppercase;
@@ -328,7 +328,7 @@ html.soft .bfront { image-rendering: auto; }
   position: absolute;
   right: -1px;
   bottom: -2px;
-  font-size: 8px;
+  font-size: 12px;
   line-height: 1;
   padding: 0 1px;
   color: var(--p-text);
@@ -506,7 +506,7 @@ button.act .tcol {
   min-width: 0;
 }
 button.act .tlabel {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: bold;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -527,7 +527,7 @@ button.act .sub {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--p-dim2);
 }
 .bgrid > button.act .sub { min-height: 1.2em; }

@@ -12,6 +12,56 @@
  * edge, so a swatch carrying a player's own colour is drawn the same way the
  * confirm button is.
  */
+/*
+ * The writing, sampled onto the grid the art is drawn on.
+ * `tools/pixelfont.py` makes these from the same Nunito the game used as an
+ * outline font: every lit pixel became a square, so there is nothing left for
+ * a browser to antialias.
+ *
+ * One face per size, each sampled at the number of art pixels that size covers.
+ * A face shown at a whole multiple of its own size is still sharp, but each of
+ * its pixels becomes a block of that many and reads as crunchy rather than as
+ * writing, so a size gets a face rather than a scale factor. Writing at a size
+ * with no face of its own falls back to the outline font and goes soft, which
+ * is why every size in this sheet is 12, 18 or 24.
+ */
+@font-face {
+  font-family: "Relica 12";
+  src: url("../../assets/Fonts/relica-12-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Relica 12";
+  src: url("../../assets/Fonts/relica-12-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: block;
+}
+@font-face {
+  font-family: "Relica 18";
+  src: url("../../assets/Fonts/relica-18-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Relica 18";
+  src: url("../../assets/Fonts/relica-18-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: block;
+}
+@font-face {
+  font-family: "Relica 24";
+  src: url("../../assets/Fonts/relica-24-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: "Relica 24";
+  src: url("../../assets/Fonts/relica-24-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: block;
+}
+
 :root {
   --p-ink: #171b2c;
   /* What a shaded face mixes toward. Cool rather than black, so a shadow
@@ -76,7 +126,7 @@ html, body {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   /* Bundled, so every machine spaces a label the same way. */
-  font-family: "Nunito Variable", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  font-family: "Relica 12", "Nunito Variable", ui-rounded, system-ui, sans-serif;
   color: var(--p-text);
   /*
    * Left to the rasterizer, which is what keeps writing sharp.
@@ -141,8 +191,8 @@ html.soft #game { image-rendering: auto; }
 }
 html.portrait #rotate { display: flex; }
 #rotate svg { width: 96px; height: 96px; fill: currentColor; color: var(--p-highlight); }
-#rotate strong { font-size: 24px; color: var(--p-highlight); }
-#rotate span { font-size: 14px; color: var(--p-dim); }
+#rotate strong { font-size: 24px; font-family: "Relica 24"; color: var(--p-highlight); }
+#rotate span { font-size: 12px; color: var(--p-dim); }
 #ui {
   position: absolute;
   inset: 0;
@@ -204,7 +254,7 @@ html.portrait #rotate { display: flex; }
  * a rule the width of the block, and the line of explanation under both.
  */
 .screen h2 {
-  font-size: 20px;
+  font-size: 18px; font-family: "Relica 18";
   letter-spacing: 2px;
   text-transform: uppercase;
   text-align: center;
@@ -221,7 +271,7 @@ html.portrait #rotate { display: flex; }
   background: var(--p-ink);
   box-shadow: 0 3px 0 var(--p-raised);
 }
-.screen .sub { color: var(--p-dim); font-size: 14px; text-align: center; }
+.screen .sub { color: var(--p-dim); font-size: 12px; text-align: center; }
 /* The pair reads as one block, so the rule belongs to the line under it. */
 .screen h2 + .sub { margin-top: -8px; }
 
@@ -438,7 +488,7 @@ button.thumb:active,
 
 button.big {
   font: inherit;
-  font-size: 16px;
+  font-size: 18px; font-family: "Relica 18";
   padding: 12px 24px;
   width: min(100%, 260px);
   --fill: var(--p-action);
@@ -499,7 +549,7 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
 /* The same band, for a card whose name has something standing beside it. */
 .card > .cardHead:first-child { display: flex; align-items: center; gap: 8px; }
 .card label {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--p-dim);
   align-self: flex-start;
   letter-spacing: 1px;
@@ -507,7 +557,7 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
 }
 .card input[type="text"], .card input[type="password"] {
   font: inherit;
-  font-size: 16px;
+  font-size: 18px; font-family: "Relica 18";
   width: 100%;
   padding: 8px 8px;
   --fill: var(--p-ground);
@@ -524,7 +574,7 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
   padding: 0;
 }
 .pill {
-  font: inherit; font-size: 14px;
+  font: inherit; font-size: 12px;
   padding: 8px 16px;
   --fill: var(--p-ground);
   color: var(--p-text);
@@ -674,13 +724,13 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
   overflow: hidden;
 }
 .ixFace canvas { image-rendering: pixelated; display: block; }
-.ixQ { align-self: center; font-size: 24px; color: var(--p-dead-text); }
+.ixQ { align-self: center; font-size: 24px; font-family: "Relica 24"; color: var(--p-dead-text); }
 .ixBody { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 /* The name is what the row is looked up by, so it is the largest thing in
    it by two steps rather than by weight alone. */
 .ixName { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ixWho {
-  font-size: 20px;
+  font-size: 18px; font-family: "Relica 18";
   line-height: 1.1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -716,7 +766,7 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
   overflow: hidden;
   padding-bottom: 4px;
 }
-.pickName { font-size: 20px; color: var(--p-text); }
+.pickName { font-size: 18px; font-family: "Relica 18"; color: var(--p-text); }
 
 /*
  * Debug controls. Dashed and muted throughout, so nothing here is mistaken
@@ -742,7 +792,7 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
 .dbgHits { display: flex; flex-direction: column; gap: 3px; }
 .dbgHit {
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--p-text);
   background: var(--p-panel);
   border: 1px dashed var(--p-dead-text);
@@ -968,7 +1018,7 @@ label.custom input[type="color"] {
   padding-top: 4px;
   border-top: 1px solid var(--p-dim);
 }
-.pwork .wrow { display: flex; justify-content: space-between; gap: 8px; font-size: 8px; line-height: 1.45; }
+.pwork .wrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; line-height: 1.45; }
 /* One row, one line: a label that wraps breaks the column of numbers beside it. */
 .pwork .wlabel, .pwork .wval { white-space: nowrap; }
 .pwork .wlabel { overflow: hidden; text-overflow: ellipsis; color: var(--p-dim); }
@@ -1060,7 +1110,7 @@ label.custom input[type="color"] {
   --lit: var(--fill);
   --shade: var(--fill);
   font: inherit;
-  font-size: 14px;
+  font-size: 12px;
   width: 100%;
   padding: 8px 8px;
   --fill: var(--p-ground);
@@ -1080,7 +1130,7 @@ label.custom input[type="color"] {
 .bxSearchOps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
 .bxStatName { width: 30px; color: var(--p-text); }
 .bxStatNum { width: 26px; text-align: right; color: var(--p-dim); }
-.setBar { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.setBar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .setBarName { width: 62px; color: var(--p-text); }
 .setBarNum { width: 42px; text-align: right; color: var(--p-dim); }
 .bxStat input[type="range"], .setBar input[type="range"] {
@@ -1108,7 +1158,7 @@ label.custom input[type="color"] {
 }
 .bxWide {
   font: inherit;
-  font-size: 14px;
+  font-size: 12px;
   padding: 8px 8px;
   --fill: var(--p-action);
   color: var(--p-text);
@@ -1119,7 +1169,7 @@ label.custom input[type="color"] {
 
 /* Readout under the search panel. */
 .bxRead { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 40px; justify-content: center; }
-.bxReadName { font-size: 14px; color: var(--p-text); }
+.bxReadName { font-size: 12px; color: var(--p-text); }
 
 /* Whose party the strip is showing, and the scroll column. */
 .bxOwner { display: flex; flex-direction: column; gap: 4px; width: 84px; }
@@ -1136,7 +1186,7 @@ label.custom input[type="color"] {
 .bxOwnerBtn.sel { --fill: var(--p-confirm); color: var(--p-ink); }
 .bxArrow {
   font: inherit;
-  font-size: 14px;
+  font-size: 12px;
   padding: 8px 0;
   --fill: var(--p-raised);
   color: var(--p-text);
@@ -1165,7 +1215,7 @@ label.custom input[type="color"] {
 .bxParty .bxCell { width: 64px; position: relative; }
 .bxPanel.bxParty { padding: 4px 8px; }
 /* Says a Scoba on the other character's strip is one of yours, on loan. */
-.bxLent { position: absolute; top: 2px; right: 3px; font-size: 10px; color: var(--p-text); }
+.bxLent { position: absolute; top: 2px; right: 3px; font-size: 12px; color: var(--p-text); }
 .bxLendNote { flex-basis: 100%; text-align: center; font-size: 12px; }
 .bxSwap {
   font: inherit;
@@ -1203,13 +1253,13 @@ label.custom input[type="color"] {
   padding-bottom: 4px;
   flex: none;
 }
-.bxFacts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.bxFacts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
 .bxFactsTop { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
 .bxWho { min-width: 0; }
-.bxCardName { font-size: 20px; overflow-wrap: anywhere; }
+.bxCardName { font-size: 18px; font-family: "Relica 18"; overflow-wrap: anywhere; }
 .bxCorner { text-align: right; font-size: 12px; color: var(--p-dim); flex: none; }
 /* Five readings in two columns, three lines deep instead of five, so the head fits the frame. */
-.bxStatList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; font-size: 14px; color: var(--p-text); }
+.bxStatList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; font-size: 12px; color: var(--p-text); }
 .bxCardTail { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
 .bxCardWhere { font-size: 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .bxCardBack {
@@ -1232,7 +1282,7 @@ label.custom input[type="color"] {
   --fill: var(--p-ink);
   padding: 10px 12px;
   min-height: 62px;
-  font-size: 14px;
+  font-size: 12px;
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -1284,7 +1334,7 @@ label.custom input[type="color"] {
   align-items: baseline;
   flex-wrap: wrap;
 }
-.card.xscoba > .cardHead strong { font-size: 16px; color: var(--p-text); }
+.card.xscoba > .cardHead strong { font-size: 18px; font-family: "Relica 18"; color: var(--p-text); }
 .xscoba .nm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 /*
  * The Scoba itself, at the head of its own panel. A fixed box so a tall line
@@ -1476,7 +1526,7 @@ html.soft .xface canvas { image-rendering: auto; }
   --ink: var(--p-action);
   --fill: var(--p-ink);
   padding: 8px 16px;
-  font-size: 14px;
+  font-size: 12px;
   opacity: 0;
   white-space: nowrap;
 }

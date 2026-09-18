@@ -46,7 +46,7 @@
   #bagMenu { animation: none; }
 }
 .code {
-  font: inherit; font-size: 20px;
+  font: inherit; font-size: 18px; font-family: "Relica 18";
   letter-spacing: 0.22em;
   color: var(--p-highlight);
   padding: 8px 4px;
@@ -65,7 +65,7 @@
   border: 0;
   background: transparent;
   font: inherit;
-  font-size: 16px;
+  font-size: 18px; font-family: "Relica 18";
   letter-spacing: 1px;
   color: var(--p-text);
   text-align: left;
@@ -111,7 +111,7 @@
   width: 74px; height: 74px;
   --fill: var(--p-confirm);
   color: var(--p-text);
-  font: inherit; font-size: 16px;
+  font: inherit; font-size: 18px; font-family: "Relica 18";
   display: none;
 }
 body.touch #actBtn { display: block; }
@@ -141,7 +141,7 @@ body.touch #actBtn { display: block; }
   --ink: var(--p-action);
   --fill: var(--p-ink);
   padding: 16px 16px;
-  font-size: 16px;
+  font-size: 18px; font-family: "Relica 18";
   line-height: 1.45;
   display: none;
 }
@@ -150,7 +150,7 @@ body.touch #actBtn { display: block; }
 
 .list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .list .item {
-  display: flex; justify-content: space-between; font-size: 14px;
+  display: flex; justify-content: space-between; font-size: 12px;
   --fill: var(--p-ink);
   --ink: var(--p-raised);
   padding: 8px 12px;
@@ -214,7 +214,7 @@ body.touch #actBtn { display: block; }
 .partyCard.sel { outline: 1.5px solid var(--p-text); outline-offset: -1.5px; }
 .partyBody { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; flex: 1; min-width: 0; }
 .partyTop { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.partyName { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.partyName { font-size: 18px; font-family: "Relica 18"; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .partyBottom { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--p-dim); }
 .hpRow { display: flex; align-items: center; gap: 8px; }
 /* Bars under 16px stay a plain square frame rather than the stepped one,
@@ -235,7 +235,7 @@ body.touch #actBtn { display: block; }
   flex-direction: column;
   gap: 2px;
 }
-.partyActions .doorRow { padding: 8px 8px 8px 24px; font-size: 14px; }
+.partyActions .doorRow { padding: 8px 8px 8px 24px; font-size: 12px; }
 .partyActions .doorRow::before { left: 8px; }
 /* The prompt readout along the bottom: what Aetus is on hand, or which
    Scoba the open action list belongs to. */
@@ -244,7 +244,7 @@ body.touch #actBtn { display: block; }
   --ink: var(--p-raised);
   width: 100%;
   padding: 12px 16px;
-  font-size: 16px;
+  font-size: 18px; font-family: "Relica 18";
 }
 
 /*
@@ -269,7 +269,7 @@ body.touch #actBtn { display: block; }
 }
 .creatorLeft .dollWrap { padding: 0 16px; }
 .creatorLeft .card { padding: 4px 8px; gap: 4px; }
-.creatorLeft .card input[type="text"] { padding: 4px 8px; font-size: 14px; }
+.creatorLeft .card input[type="text"] { padding: 4px 8px; font-size: 12px; }
 /* A compact pronoun pill: three of them read fine at a caption size. */
 .pill.sm { font-size: 12px; padding: 2px 8px; }
 .creatorRight {
