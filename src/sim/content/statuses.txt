@@ -197,7 +197,7 @@ status deathlock "Deathlock"
   lasts 3 turns
   when it faints:
     show deathclock as clock over holder, pointer deathclockhand
-    flash #ffffff for 0.5 seconds
+    flash #fff4dd for 0.5 seconds
     rewind 3 turns
     clear deathlock from holder
     inflict unwound on holder

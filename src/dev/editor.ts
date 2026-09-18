@@ -721,7 +721,7 @@ export class DevEditor {
     ctx.lineWidth = 1;
     ctx.strokeRect(-camX, -camY, cols * TILE, rows * TILE);
 
-    ctx.fillStyle = "rgba(255,255,255,0.07)";
+    ctx.fillStyle = "rgba(255,244,221,0.07)";
     for (let cx = x0; cx <= x1 + 1; cx++) ctx.fillRect(cx * TILE - camX, y0 * TILE - camY, 0.25, (y1 - y0 + 1) * TILE);
     for (let cy = y0; cy <= y1 + 1; cy++) ctx.fillRect(x0 * TILE - camX, cy * TILE - camY, (x1 - x0 + 1) * TILE, 0.25);
 
@@ -755,7 +755,7 @@ export class DevEditor {
             if (rim & 8) ctx.fillRect(px, py, RIM_PX, TILE);
           }
           // Subcell guides, so a rail can be aimed before it is painted.
-          ctx.fillStyle = "rgba(255,255,255,0.12)";
+          ctx.fillStyle = "rgba(255,244,221,0.12)";
           for (let k = 1; k < SUB; k++) {
             ctx.fillRect(px + k * step, py, 0.25, TILE);
             ctx.fillRect(px, py + k * step, TILE, 0.25);

@@ -1,5 +1,6 @@
 import { ART } from "./renderer";
 import type { WorldSprite } from "./paperdoll";
+import { CREAM } from "./recolor";
 
 // Characters are one front-facing sprite with no back or side art: direction
 // reads through the horizontal mirror, and movement reads as a hop, the way a
@@ -116,7 +117,7 @@ export interface Spark {
   z: number;
   life: number;
   max: number;
-  /** Cream or white, so a flurry is not all one colour. */
+  /** One of two creams, so a flurry is not all one colour. */
   warm: boolean;
 }
 
@@ -168,7 +169,7 @@ export function drawSparks(
     const px = Math.round((sp.x - camX) * ART) / ART;
     const py = Math.round((sp.y - sp.z - camY) * ART) / ART;
     const arm = Math.max(1, Math.round(0.6 + grow * 4));
-    ctx.fillStyle = sp.warm ? "#fff6c4" : "#ffffff";
+    ctx.fillStyle = sp.warm ? "#fff6c4" : CREAM;
     ctx.globalAlpha = alpha * grow;
     ctx.fillRect(px - arm * u, py - u / 2, arm * 2 * u, u);
     ctx.fillRect(px - u / 2, py - arm * u, u, arm * 2 * u);
@@ -232,7 +233,7 @@ export function shedSparks(list: Spark[], x: number, y: number, carry: number, d
 //   life: number;
 //   /** Seconds since it touched down, or -1 while it is still in the air. */
 //   down: number;
-//   /** Cream or white, so a flurry is not all one colour. */
+//   /** One of two creams, so a flurry is not all one colour. */
 //   warm: boolean;
 // }
 //
@@ -310,7 +311,7 @@ export function shedSparks(list: Spark[], x: number, y: number, carry: number, d
 //   for (const sp of list) {
 //     const px = Math.round((sp.x - camX) * ART) / ART;
 //     const py = Math.round((sp.y - sp.z - camY) * ART) / ART;
-//     ctx.fillStyle = sp.warm ? "#fff6c4" : "#ffffff";
+//     ctx.fillStyle = sp.warm ? "#fff6c4" : CREAM;
 //     if (sp.down >= 0) {
 //       const left = 1 - sp.down / MARK_LIFE;
 //       ctx.globalAlpha = alpha * left * 0.9;

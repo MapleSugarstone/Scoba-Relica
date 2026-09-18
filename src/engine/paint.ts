@@ -39,13 +39,14 @@ export const MAX_PAINT_COLORS = HEADS.length - 1;
 export type BrushSize = 1 | 2 | 3;
 
 /**
- * The painter's own swatches. Pure black and pure white lead, since they are
- * the two a pixel artist reaches for first and neither is anywhere else in the
- * game's palette: black is the line art, and white is the highlight over it.
+ * The painter's own swatches. Black and cream lead, since they are the two a
+ * pixel artist reaches for first and neither is anywhere else in the game's
+ * palette: black is the line art, and cream is the highlight over it. The cream
+ * is `CREAM` written out, because `recolor.ts` imports this file.
  * The rest run neutrals, flesh, warms and cools, eight to a row.
  */
 export const PAINT_COLORS: string[] = [
-  "#000000", "#ffffff", "#171b2c", "#3f4a66", "#6b7196", "#9aa0c3", "#c8cdd6", "#ded9ee",
+  "#000000", "#fff4dd", "#171b2c", "#3f4a66", "#6b7196", "#9aa0c3", "#c8cdd6", "#ded9ee",
   "#2a2530", "#5a3520", "#7d4a2c", "#a9663f", "#cd8552", "#e8a06a", "#ffab82", "#ffe0c4",
   "#d9553f", "#b4553d", "#e7a03c", "#eae178", "#f3f2c0", "#5f843a", "#7aa74a", "#b9c98a",
   "#8fd0c4", "#4f8fba", "#7c9df0", "#5c4e92", "#8d63c0", "#dba7d6", "#e58ab8", "#d977b8",

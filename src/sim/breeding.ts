@@ -1,7 +1,7 @@
 import type { ScobaInstance, Tint } from "./scoba";
 import { costOf, freshUid, makeWild, maxHp, sireOf, unnaturalMoves, MAX_MANA, SHINY_CHANCE } from "./scoba";
 import { SPECIES, babyOf, firstFormOf, sameLine, type Species } from "./species";
-import { greyOf, hexToRgb, hueOf, hueShift } from "../engine/recolor";
+import { EYE_KEY, greyOf, hexToRgb, hueOf, hueShift } from "../engine/recolor";
 import { rescaleLine } from "./scoba";
 import { BABY_SCALE, STAT_NAMES, capStats, type Stats } from "./types";
 import type { Rng } from "./rng";
@@ -190,11 +190,10 @@ export interface ColorCount {
 }
 
 /**
- * Line art, in every sprite and never swapped. White is left alone because a
- * child that is mostly white has nothing else to mark, and black because it is
- * the outline holding the drawing together.
+ * Colours no swap ever touches: black because it is the outline holding the
+ * drawing together, and the eye key because it is every eye.
  */
-const LINE_ART = new Set(["#000000", "#ffffff"]);
+export const UNSWAPPED = new Set(["#000000", EYE_KEY]);
 
 /**
  * Which of a set of colour swaps a palette can actually wear, in the order they
@@ -261,9 +260,9 @@ export function byCount(a: ColorCount, b: ColorCount): number {
   return b.count - a.count || a.hex.localeCompare(b.hex);
 }
 
-/** Everything a Scoba is drawn in bar the outline holding it together. */
+/** Everything a Scoba is drawn in bar its outline and its eyes. */
 export function bodyColors(palette: readonly ColorCount[]): ColorCount[] {
-  return palette.filter((c) => !LINE_ART.has(c.hex)).sort(byCount);
+  return palette.filter((c) => !UNSWAPPED.has(c.hex)).sort(byCount);
 }
 
 /**

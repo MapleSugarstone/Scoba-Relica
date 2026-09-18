@@ -671,14 +671,14 @@ describe("Time Machine", () => {
     expect(events.slice(rode + 1).some((e) => e.hp !== undefined)).toBe(true);
   });
 
-  it("rides the machine up, whites the screen, then lands in the past", () => {
+  it("rides the machine up, flashes the screen, then lands in the past", () => {
     const st = wound();
     const events = resolveTurn(st, [travel(), block(1), block(0, 1), block(1, 1)]);
     const shown = events.filter((e) => e.kind === "show");
     const paths = shown.map((e) => (e.visual?.kind === "show" ? e.visual.path : e.visual?.kind));
     expect(paths).toEqual(["motion", "liftoff", "flash", "landing"]);
     expect(shown[1]!.visual).toMatchObject({ art: "timemachine", on: "self" });
-    expect(shown[2]!.visual).toMatchObject({ kind: "flash", color: "#ffffff" });
+    expect(shown[2]!.visual).toMatchObject({ kind: "flash", color: "#fff4dd" });
     // The machine comes down on the traveller, which is nobody until it has gone.
     expect(shown[3]!.visual).toMatchObject({ art: "timemachine", on: "traveller" });
     expect(shown[3]!.to).toEqual([st.travelling!.visitor]);

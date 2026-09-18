@@ -23,7 +23,7 @@
 /* Rects only, and crisp edges on them, so the bag never softens a pixel
    the way the rest of the interface never does. */
 #bagBtn svg { display: block; width: 100%; height: 100%; fill: currentColor; }
-#bagBtn.on { --fill: var(--p-confirm); }
+#bagBtn.on { --fill: var(--p-primary); }
 /*
  * The pause menu: a readout down the right side of the frame, nearly full
  * height, rather than a fold-out of separate boxed buttons. Door rows sit
@@ -109,7 +109,7 @@
   bottom: max(26px, env(safe-area-inset-bottom));
   right: max(22px, env(safe-area-inset-right));
   width: 74px; height: 74px;
-  --fill: var(--p-confirm);
+  --fill: var(--p-primary);
   color: var(--p-text);
   font: inherit; font-size: 18px; font-family: "Relica 18";
   display: none;

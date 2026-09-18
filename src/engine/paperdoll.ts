@@ -1,5 +1,5 @@
 import { loadImage } from "./image";
-import { KEY, hexToRgb, paletteSwap, sanitizeLook, type Look, type RGB } from "./recolor";
+import { KEY, hexToRgb, paletteSwap, sanitizeLook, showEyes, type Look, type RGB } from "./recolor";
 import {
   PAINT_SLOTS,
   PaintGrid,
@@ -237,7 +237,8 @@ export function drawPaperdoll(
   // Custom eyes replace the stock pair rather than sitting over them: drawing
   // your own on top of a face that already has eyes only ever gives it four.
   const wearsPainted = opts?.live?.slot === "eyes" || hasPaint(look.paint, "eyes");
-  if (!wearsPainted) put(pick(art.eyes, look.eyeStyle));
+  const eyes = pick(art.eyes, look.eyeStyle);
+  if (!wearsPainted && eyes) put(showEyes(eyes));
   paint("eyes");
   put(pickTinted(art.hairs, look.hairStyle, hair));
   paint("hair");

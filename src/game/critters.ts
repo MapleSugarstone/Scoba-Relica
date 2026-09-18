@@ -2,9 +2,9 @@ import type { Art } from "../engine/assets";
 import { DOLL_H, DOLL_PIVOT, DOLL_W, worldSprite, type WorldSprite } from "../engine/paperdoll";
 import type { Look } from "../engine/recolor";
 import { ART } from "../engine/renderer";
-import { hexToRgb, hueShift, paletteSwap, type RGB } from "../engine/recolor";
+import { CREAM, hexToRgb, hueShift, paletteSwap, showEyes, type RGB } from "../engine/recolor";
 import {
-  bodyColors, hueTurn, pairColors, pickTints, sharedSwaps, type ColorCount,
+  UNSWAPPED, bodyColors, hueTurn, pairColors, pickTints, sharedSwaps, type ColorCount,
 } from "../sim/breeding";
 import { SHINY_TURN, type ScobaInstance, type Sire, type Summoner, type Tint } from "../sim/scoba";
 import {
@@ -49,7 +49,7 @@ function placeholderArt(sp: Species): HTMLCanvasElement {
     ctx.stroke();
   }
   for (const dx of [-9, 9]) {
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = CREAM;
     ctx.beginPath();
     ctx.ellipse(cx + dx, cy - 4, 6, 7, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -426,6 +426,7 @@ const tinted = new Map<string, CritterArt>();
  */
 export function forgetBuiltArt(): void {
   tinted.clear();
+  masked.clear();
   pawnImages.clear();
   palettes.clear();
   // Both are measured off a built drawing, and moving a piece changes the
@@ -529,28 +530,21 @@ function carriedTints(his: ColorCount[], base: ColorCount[], mine: ColorCount[])
 const swaps = new Map<string, Tint[]>();
 
 /**
- * Line art, never turned: white because a shiny that is mostly white has
- * nothing to show for it, black because it is the outline holding the drawing
- * together. The same pair breeding leaves alone.
- */
-const LINE_ART = new Set(["#000000", "#ffffff"]);
-
-/**
  * The colours a shiny turns: every one it is drawn in, each moved the same way
  * round the wheel, so the whole Scoba reads as a recolour rather than one patch
  * of it. They are read off the sprite as it is actually drawn, father's mark
  * and all, so a bred Scoba turns the colours it is wearing rather than the ones
  * its species was born with.
  *
- * Greys have no hue to turn and the outline holds the drawing together, so both
- * are left. A Scoba drawn entirely in greys turns nothing and shows what it is
- * through the glitter and the star alone.
+ * Greys have no hue to turn, and no swap touches the outline or the eyes, so
+ * none of them turn. A Scoba drawn entirely in greys turns nothing and shows
+ * what it is through the glitter and the star alone.
  */
 export function shinyTints(art: Art, sp: Species, sire?: Sire): Tint[] {
   const hex = (n: number): string => n.toString(16).padStart(2, "0");
   const out: Tint[] = [];
   for (const c of spriteColors(art, sp, sire)) {
-    if (LINE_ART.has(c.hex)) continue;
+    if (UNSWAPPED.has(c.hex)) continue;
     const [r, g, b] = hueShift(hexToRgb(c.hex), SHINY_TURN);
     const to = `#${hex(r)}${hex(g)}${hex(b)}`;
     if (to !== c.hex) out.push({ from: c.hex, to });
@@ -563,25 +557,22 @@ export interface CritterArt extends WorldSprite {
   img: ScobaImage;
 }
 
+const masked = new Map<string, ScobaImage>();
+
 /**
- * The drawing a Scoba is made of and where its feet are: the species art with
- * its inherited colour mask painted over it, a shiny's turned colour over that,
- * and anything it wears over the lot. Built once and kept, since a bred line
- * wears the same swap for the rest of the game.
- *
- * The pivot comes back with it because a piece worn off the edge of the sheet
- * grows the canvas, and a line drawn on a bigger sheet than the rest has its
- * own to begin with.
+ * The species art with its inherited colour mask painted over it and a shiny's
+ * turned colour over that, with the eyes still in the eye key. A Scoba's
+ * colours are read off this, so an eye is never counted as one of them.
  */
-export function critterArt(
-  art: Art, sp: Species, sire?: Sire, shiny?: boolean, opts: LookOpts = {},
-): CritterArt {
-  const base = baseArt(art, sp, opts.forms);
-  if (!sire && !shiny && !opts.accessory) return { img: base, ...pivotOf(sizeOf(base)) };
-  const key = tintKey(sp, sire, shiny, opts);
-  const hit = tinted.get(key);
+function maskedArt(
+  art: Art, sp: Species, sire?: Sire, shiny?: boolean, forms: readonly FormTag[] = [],
+): ScobaImage {
+  const base = baseArt(art, sp, forms);
+  if (!sire && !shiny) return base;
+  const key = tintKey(sp, sire, shiny, { forms });
+  const hit = masked.get(key);
   if (hit) return hit;
-  const tints = tintsFor(art, sp, sire, opts.forms);
+  const tints = tintsFor(art, sp, sire, forms);
   // The father's marks all go on in one pass: each pixel takes the first swap
   // that matches it, so a colour he painted on cannot be painted over again by
   // a later one of his own. The shiny turn is a pass of its own after them,
@@ -598,6 +589,26 @@ export function critterArt(
       img = paletteSwap(img, turns.map((t): [RGB, RGB] => [hexToRgb(t.from), hexToRgb(t.to)]));
     }
   }
+  masked.set(key, img);
+  return img;
+}
+
+/**
+ * The drawing a Scoba is made of and where its feet are: its masked art with
+ * the eyes turned cream, and anything it wears over the lot. Built once and
+ * kept, since a bred line wears the same swap for the rest of the game.
+ *
+ * The pivot comes back with it because a piece worn off the edge of the sheet
+ * grows the canvas, and a line drawn on a bigger sheet than the rest has its
+ * own to begin with.
+ */
+export function critterArt(
+  art: Art, sp: Species, sire?: Sire, shiny?: boolean, opts: LookOpts = {},
+): CritterArt {
+  const key = tintKey(sp, sire, shiny, opts);
+  const hit = tinted.get(key);
+  if (hit) return hit;
+  let img: ScobaImage = showEyes(maskedArt(art, sp, sire, shiny, opts.forms));
   let pivot = pivotOf(sizeOf(img));
   if (opts.accessory) {
     const grown = withAccessory(art, formKey(sp, opts.forms), img, opts.accessory);
@@ -771,10 +782,10 @@ export function paintedLike<T extends CanvasImageSource>(img: T, swaps: readonly
 
 const pawnImages = new Map<string, ScobaImage>();
 
-/** A Pawn's art with its summoner's marks painted on, built once and kept. */
+/** A Pawn's art with its summoner's marks painted on and its eyes turned cream, built once and kept. */
 function pawnImage(art: Art, sp: Species, from: Summoner, swaps: Tint[]): ScobaImage {
   const base = baseArt(art, sp);
-  if (swaps.length === 0) return base;
+  if (swaps.length === 0) return showEyes(base);
   const key = `${sp.id}<${from.speciesId}:${swaps.map((t) => `${t.from}>${t.to}`).join(",")}`;
   const hit = pawnImages.get(key);
   if (hit) return hit;
@@ -782,6 +793,7 @@ function pawnImage(art: Art, sp: Species, from: Summoner, swaps: Tint[]): ScobaI
   // it left, the same way a shiny turn reads a father's mark on a bred Scoba.
   let img = base;
   for (const t of swaps) img = paletteSwap(img, [[hexToRgb(t.from), hexToRgb(t.to)]]);
+  img = showEyes(img);
   pawnImages.set(key, img);
   return img;
 }
@@ -853,7 +865,7 @@ export function spriteColors(
   const key = tintKey(sp, sire, shiny, { forms });
   const hit = palettes.get(key);
   if (hit) return hit;
-  const img = critterImage(art, sp, sire, shiny, { forms });
+  const img = maskedArt(art, sp, sire, shiny, forms);
   const { w, h } = sizeOf(img);
   const cv = document.createElement("canvas");
   cv.width = w;

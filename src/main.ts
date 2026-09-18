@@ -658,7 +658,7 @@ function renderFrame(): void {
     scene.draw(renderer);
     renderer.present();
   } else {
-    renderer.ctx.fillStyle = "#2a3049";
+    renderer.ctx.fillStyle = "#f0e8d8";
     renderer.ctx.fillRect(0, 0, renderer.width, renderer.height);
     renderer.present();
   }

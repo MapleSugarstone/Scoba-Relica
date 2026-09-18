@@ -15,13 +15,13 @@
 html.soft .bfront { image-rendering: auto; }
 .bplates.near { z-index: 4; }
 /* A screen flash covers the fight and everything drawn over it, so a rewind
-   happens behind a screen that is already white rather than behind a white
-   field with the readouts still hanging in front of it. */
+   happens behind a screen that is already covered rather than behind a
+   covered field with the readouts still hanging in front of it. */
 .bflash { position: absolute; inset: 0; z-index: 9; pointer-events: none; }
 /*
  * The replay export, in the corner of a dev build's battle screen. Over the
  * flash, because the point of it is that it can be pressed at any moment,
- * including the one where something went wrong behind a white screen.
+ * including the one where something went wrong behind a flash.
  */
 .brec {
   position: absolute;
@@ -173,10 +173,10 @@ html.soft .bfront { image-rendering: auto; }
   align-items: center;
 }
 /* While a move is aimed: a readout that can be picked is pressable, the one
-   under the pointer (on the card or on its Scoba) takes the highlight as its
+   under the pointer (on the card or on its Scoba) takes the primary as its
    own stepped outline, and one that cannot be picked goes dark. */
 .bcard.target { cursor: pointer; }
-.bcard.hot { --ink: var(--p-highlight); }
+.bcard.hot { --ink: var(--p-primary); }
 .bcard.dimmed { filter: brightness(0.45); }
 /* Whose turn it is to pick, so two players never lose track of the order. */
 .bcard.acting { --ink: var(--p-mana); }
@@ -529,10 +529,10 @@ button.act .tmark { display: flex; flex-direction: column; gap: 2px; flex: none;
 button.act.marked { justify-content: space-between; text-align: left; }
 button.act.marked .tcol { align-items: flex-start; }
 button.act:active { --fill: var(--p-action-down); }
-/* The two ways of hitting something take the warm accent, so the row reads
+/* The two ways of hitting something take the hot fill, so the row reads
    as attack, attack, everything else. */
-button.act.hot { --fill: var(--p-danger); }
-button.act.hot:active { --fill: color-mix(in srgb, var(--p-danger) 78%, var(--p-deep)); }
+button.act.hot { --fill: var(--p-hot); }
+button.act.hot:active { --fill: color-mix(in srgb, var(--p-hot) 78%, var(--p-deep)); }
 button.act:disabled { --fill: var(--p-dead); --ink: var(--p-ink); color: var(--p-dead-text); opacity: 1; }
 /* A move slot with nothing in it, which is empty for good rather than
    disabled for the moment a round is playing. Darker than either. */

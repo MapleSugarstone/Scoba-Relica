@@ -500,7 +500,7 @@ what it is for: a rewind or a journey changes the whole board at once, and the
 flash is what the change happens behind.
 
 ```
-flash #ffffff for 0.5 seconds
+flash #fff4dd for 0.5 seconds
 ```
 
 **`wait <n> seconds`** holds the scene for that long before the next step.

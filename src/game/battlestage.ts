@@ -29,7 +29,7 @@ import {
   type BattleEvent, type BattleState, type Combatant, type StatusMark, type VisualStep,
 } from "../sim/battle";
 import { ACE_EXTRA, BLACKJACK, CARD_BACK, CARD_HIGH, cardOfValue, type CardFace } from "../sim/cards";
-import { hexToRgb, paletteSwap } from "../engine/recolor";
+import { CREAM, hexToRgb, paletteSwap } from "../engine/recolor";
 import {
   MOVES, SPECIES,
   type CasterAnim, type Move, type MoveVfx, type Species,
@@ -89,7 +89,7 @@ interface Fighter {
   hurt: number;
   /** A green wash over whatever was just healed, fading as it goes. */
   heal: number;
-  /** A white wash, for a Scoba changing into something else. */
+  /** A cream wash, for a Scoba changing into something else. */
   flare: number;
   /**
    * Whether it is standing on its mark. A readout stays hidden while its
@@ -453,11 +453,11 @@ function stepAlpha(a: number): number {
  * darker tone, which is what the mark under a pair of feet is drawn in.
  */
 const GROUND = {
-  sky: "#2a3049",
-  far: "#232941",
-  farLip: "#2f3450",
-  near: "#363d5e",
-  nearLip: "#3f4767",
+  sky: "#f0e8d8",
+  far: "#e1dacb",
+  farLip: "#eae2d2",
+  near: "#dbd3c5",
+  nearLip: "#e3dccd",
 };
 
 /** How far apart the dither pixels along the horizon stand, in world units. */
@@ -562,7 +562,7 @@ export class BattleStage {
   /**
    * The wash over the whole screen this frame, for the layers that sit over
    * the canvas. A flash covers the fight, readouts and all, rather than
-   * whitening the field and leaving the cards hanging in front of it.
+   * washing over the field and leaving the cards hanging in front of it.
    */
   flashNow(): { color: string; alpha: number } | null {
     if (!this.flash) return null;
@@ -1781,10 +1781,10 @@ export class BattleStage {
             // doing something rather than as the art swapping under it.
             self.shake = k < 0.5 ? 3.4 : 0;
             self.oy = -Math.sin(k * Math.PI) * 5;
-            // White all the way out, and the new costume is put on under it at
-            // its whitest, so what drains back is the Scoba it has become.
-            if (k < HYPER_WHITE) {
-              self.flare = k / HYPER_WHITE;
+            // Cream all the way out, and the new costume is put on under it at
+            // its palest, so what drains back is the Scoba it has become.
+            if (k < HYPER_FLARE) {
+              self.flare = k / HYPER_FLARE;
               return;
             }
             if (!changed) {
@@ -2121,7 +2121,7 @@ export class BattleStage {
         const seconds = Math.max(0.01, step.seconds);
         this.push({
           // Only the stretch it is at full for. Whatever comes next happens
-          // behind a screen that is already white, so the fade uncovers a
+          // behind a flash that is already at full, so the fade uncovers a
           // board that has already changed rather than changing it in view.
           dur: seconds * FLASH_HOLD,
           start: () => { this.flash = { color: step.color, t: 0, dur: seconds }; },
@@ -2640,7 +2640,7 @@ export class BattleStage {
           // it is, so none of them reads as a box sitting over the field.
           if (f.hurt > 0) f.actor.drawTint(c, 0, 0, "#f3f2c0", f.hurt * 0.5);
           if (f.heal > 0) f.actor.drawTint(c, 0, 0, "#7aa74a", f.heal * 0.55);
-          if (f.flare > 0) f.actor.drawTint(c, 0, 0, "#ffffff", f.flare);
+          if (f.flare > 0) f.actor.drawTint(c, 0, 0, CREAM, f.flare);
           c.restore();
           // The hand rides over the head rather than with the body, so a lunge
           // does not take the cards with it.
@@ -2701,7 +2701,7 @@ export class BattleStage {
       }
     }
     // Full for the first blink of it and then fading, so the change it covers
-    // happens behind a screen that is already white.
+    // happens while the screen is hidden.
     const wash = this.flashNow();
     if (wash) {
       ctx.save();
@@ -3011,8 +3011,8 @@ const DROP_HEIGHT = 0.36;
 /** What a hit already landed by the volley ahead of it spends on its log line. */
 const FOLLOW_BEAT = 0.12;
 
-/** How far into the Hyper-Mode step the Scoba is at its whitest. */
-const HYPER_WHITE = 0.45;
+/** How far into the Hyper-Mode step the Scoba is at its palest. */
+const HYPER_FLARE = 0.45;
 
 function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
   const k = Math.min(1, e.t / e.dur);

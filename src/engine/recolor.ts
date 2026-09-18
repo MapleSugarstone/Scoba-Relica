@@ -25,10 +25,20 @@ export interface Look {
 
 export type RGB = [number, number, number];
 
+/**
+ * Every eye in the art is drawn in this purple. No colour swap touches it, and
+ * `showEyes` turns it cream as the last step before a drawing is shown.
+ */
+export const EYE_KEY = "#935e7d";
+
+/** The game's white. Nothing is drawn in pure white, and eyes are shown in this. */
+export const CREAM = "#fff4dd";
+
 /** Keyed colors in the source art. */
 export const KEY = {
   tint: [255, 16, 0] as RGB,
   flesh: [255, 171, 130] as RGB,
+  eye: hexToRgb(EYE_KEY),
 };
 
 export const SKIN_COLORS: string[] = [
@@ -44,7 +54,7 @@ export const HAIR_COLORS: string[] = [
 ];
 
 export const SHIRT_COLORS: string[] = [
-  "#f3f2c0", "#ffffff", "#d9553f", "#e7a03c",
+  "#f3f2c0", CREAM, "#d9553f", "#e7a03c",
   "#eae178", "#7aa74a", "#4f8fba", "#7c9df0",
   "#8d63c0", "#e58ab8", "#5c4e92", "#3f4a66",
 ];
@@ -52,7 +62,7 @@ export const SHIRT_COLORS: string[] = [
 export const DETAIL_COLORS: string[] = [
   "#171b2c", "#3f4a66", "#5c4e92", "#7c9df0",
   "#4f8fba", "#7aa74a", "#eae178", "#e7a03c",
-  "#d9553f", "#e58ab8", "#f3f2c0", "#ffffff",
+  "#d9553f", "#e58ab8", "#f3f2c0", CREAM,
 ];
 
 export const DEFAULT_LOOK: Look = {
@@ -200,4 +210,18 @@ export function paletteSwap(
   }
   ctx.putImageData(data, 0, 0);
   return cv;
+}
+
+const shown = new WeakMap<HTMLImageElement | HTMLCanvasElement, HTMLCanvasElement>();
+
+/**
+ * A drawing with its eyes turned from the eye key to cream. Run after every
+ * other swap, so nothing that recolours the art can reach an eye.
+ */
+export function showEyes(img: HTMLImageElement | HTMLCanvasElement): HTMLCanvasElement {
+  const hit = shown.get(img);
+  if (hit) return hit;
+  const out = paletteSwap(img, [[KEY.eye, hexToRgb(CREAM)]]);
+  shown.set(img, out);
+  return out;
 }

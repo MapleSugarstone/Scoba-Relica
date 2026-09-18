@@ -604,6 +604,6 @@ move time-machine "Time Machine"
   cast:
     caster focus
     show timemachine as liftoff on caster
-    flash #ffffff for 0.5 seconds
+    flash #fff4dd for 0.5 seconds
     travel back 3 turns, 50 mana off, riding timemachine
     show timemachine as landing on traveller

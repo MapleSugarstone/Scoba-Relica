@@ -232,7 +232,7 @@ function ensureStyles(): void {
         var(--fill);
     }
     @media (hover: hover) {
-      .cosPanel button:hover:not(:disabled) { --gloss: #ffffff16; }
+      .cosPanel button:hover:not(:disabled) { --gloss: #fff4dd16; }
     }
     /* A press sinks the box: the two faces swap and the label drops with them. */
     .cosPanel button:active:not(:disabled) {

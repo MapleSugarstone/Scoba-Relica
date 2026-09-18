@@ -75,36 +75,51 @@
 }
 
 :root {
-  --p-ink: #171b2c;
-  /* What a shaded face mixes toward. Cool rather than black, so a shadow
-     stays part of the picture instead of going grey. */
-  --p-deep: #0c0f1c;
-  /* What a lit face mixes toward. Warm, for the same reason inverted. */
-  --p-lit: #fff3d0;
+  --p-ink: #1a1a1a;
+  /* What a shaded face mixes toward. */
+  --p-deep: #000000;
+  /* What a lit face mixes toward. Warm, so a lit edge reads as paper. */
+  --p-lit: #fdfcf9;
 
-  --p-ground: #2a3049;
-  /* The ground with a little light on it, which is what the weave below
-     is drawn in. Derived rather than picked, so it cannot drift away from
-     the ground it belongs to. */
-  --p-ground2: color-mix(in srgb, var(--p-ground) 97%, var(--p-lit));
-  --p-panel: #363d5e;
-  --p-quiet: #2f3556;
-  --p-raised: #46507e;
-  --p-dead: #242a40;
+  /* The paper every screen is laid on. Light, and every panel on it is dark. */
+  --p-page: #f0e8d8;
+  /* The paper with a little light on it, which is what the weave below is
+     drawn in. Derived rather than picked, so it cannot drift away from the
+     paper it belongs to. */
+  --p-page2: color-mix(in srgb, var(--p-page) 97%, var(--p-lit));
+  /* Type that sits straight on the paper: a screen's sub line, a note, the
+     build tag. Everything else sits on a panel and takes `--p-text`. */
+  --p-page-dim: #555555;
 
-  --p-text: #f3f2c0;
-  --p-dim: #9aa0c3;
+  /* The fill of a sunken box: a text field, a meter's trough, the scroll
+     track, the stage behind a portrait. */
+  --p-ground: #232323;
+  --p-panel: #555555;
+  --p-quiet: #323232;
+  --p-raised: #b8b8b8;
+  --p-dead: #262626;
+
+  --p-text: #f0e8d8;
+  --p-dim: #b8b8b8;
   /* Text on a fill that is already light: the sub-label under a coloured
      button, a stat line inside a card. */
-  --p-dim2: #c9c4ee;
-  --p-dead-text: #7a80a6;
+  --p-dim2: #d4d0c8;
+  --p-dead-text: #878787;
 
-  --p-action: #5c4e92;
-  --p-action-down: #473b74;
+  --p-action: #1a1a1a;
+  --p-action-down: #000000;
+  /* The one button on a screen that goes forward, and a chosen pill. */
+  --p-primary: #c62a2a;
+  --p-primary-down: #8a1f1f;
+  /* A usable attack on the battle block. */
+  --p-hot: #8a1f1f;
+  /* The wordmark and every screen's header. */
+  --p-heading: #c62a2a;
+
+  /* Meaning rather than chrome, so a palette leaves these alone: a heal and
+     healthy HP, a highlighted line, mana, true damage, a status, a wound. */
   --p-confirm: #7aa74a;
-  --p-confirm-down: #5f843a;
   --p-highlight: #eae178;
-
   --p-mana: #7c9df0;
   --p-mana-trail: #d3e2ff;
   /* True damage: pale blue, apart from the deeper blue magic takes. */
@@ -114,23 +129,23 @@
   --p-danger: #d9553f;
   --p-danger-text: #e8a0a0;
 
-  --p-doll: #ded9ee;
+  --p-doll: #d4d0c8;
 
   /*
-   * The ground under every menu. Two tones on a 16 px grid, drawn as four
+   * The paper under every menu. Two tones on a 16 px grid, drawn as four
    * axis-aligned hard-stop gradients so no edge is ever a curve or a
    * blend: a flat fill behind a screen of panels reads as an unpainted
    * page, and this is the least that stops it without becoming pattern.
    */
   --weave:
-    repeating-linear-gradient(90deg, var(--p-ground2) 0 2px, #0000 2px 16px),
-    repeating-linear-gradient(0deg, var(--p-ground2) 0 2px, #0000 2px 16px);
+    repeating-linear-gradient(90deg, var(--p-page2) 0 2px, #0000 2px 16px),
+    repeating-linear-gradient(0deg, var(--p-page2) 0 2px, #0000 2px 16px);
 }
 
 html, body {
   height: 100%;
   overflow: hidden;
-  background-color: var(--p-ground);
+  background-color: var(--p-page);
   background-image: var(--weave);
   touch-action: none;
   overscroll-behavior: none;
@@ -157,8 +172,8 @@ html, body {
 /*
  * The frame the game lives in. It is the same box on every screen, 800 by
  * 450 interface px, scaled as a whole by the root zoom that `holdUiScale`
- * sets; a window held upright gets the prompt below instead. The page's
- * ground shows round it where the window is the wrong shape, with an ink
+ * sets; a window held upright gets the prompt below instead. The paper
+ * shows round it where the window is the wrong shape, with an ink
  * line marking where the game ends; against a window it fills exactly, that
  * line falls outside and is never seen.
  */
@@ -169,7 +184,7 @@ html, body {
   width: var(--ui-w, 800px);
   height: var(--ui-h, 450px);
   overflow: hidden;
-  background: var(--p-ground);
+  background: var(--p-page);
   box-shadow: 0 0 0 3px var(--p-ink);
 }
 #game {
@@ -197,14 +212,14 @@ html.soft #game { image-rendering: auto; }
   gap: 12px;
   padding: 24px;
   text-align: center;
-  background-color: var(--p-ground);
+  background-color: var(--p-page);
   background-image: var(--weave);
   color: var(--p-text);
 }
 html.portrait #rotate { display: flex; }
-#rotate svg { width: 96px; height: 96px; fill: currentColor; color: var(--p-highlight); }
-#rotate strong { font-size: 24px; font-family: "Relica 24"; color: var(--p-highlight); }
-#rotate span { font-size: 12px; color: var(--p-dim); }
+#rotate svg { width: 96px; height: 96px; fill: currentColor; color: var(--p-heading); }
+#rotate strong { font-size: 24px; font-family: "Relica 24"; color: var(--p-heading); }
+#rotate span { font-size: 12px; color: var(--p-page-dim); }
 #ui {
   position: absolute;
   inset: 0;
@@ -223,7 +238,7 @@ html.portrait #rotate { display: flex; }
   justify-content: safe center;
   gap: 16px;
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  background-color: var(--p-ground);
+  background-color: var(--p-page);
   background-image: var(--weave);
   overflow-y: auto;
 }
@@ -251,7 +266,7 @@ html.portrait #rotate { display: flex; }
   letter-spacing: 2px;
   line-height: 1.1;
   text-align: center;
-  color: var(--p-highlight);
+  color: var(--p-heading);
   text-shadow:
     3px 0 0 var(--p-ink), -3px 0 0 var(--p-ink),
     0 3px 0 var(--p-ink), 0 -3px 0 var(--p-ink),
@@ -269,7 +284,7 @@ html.portrait #rotate { display: flex; }
   letter-spacing: 2px;
   text-transform: uppercase;
   text-align: center;
-  color: var(--p-highlight);
+  color: var(--p-heading);
   text-shadow: 0 3px 0 var(--p-ink);
 }
 .screen h2::after {
@@ -285,6 +300,8 @@ html.portrait #rotate { display: flex; }
 .screen .sub { color: var(--p-dim); font-size: 12px; text-align: center; }
 /* The pair reads as one block, so the rule belongs to the line under it. */
 .screen h2 + .sub { margin-top: -8px; }
+/* A line or a note laid straight on the paper, with no panel under it. */
+.screen > .sub, .crest .sub, .screen > .dim { color: var(--p-page-dim); }
 
 /*
  * A screen arrives as one object: everything on it is drawn in full from
@@ -507,8 +524,8 @@ button.big {
   cursor: pointer;
 }
 button.big:active { --fill: var(--p-action-down); }
-button.big.primary { --fill: var(--p-confirm); }
-button.big.primary:active { --fill: var(--p-confirm-down); }
+button.big.primary { --fill: var(--p-primary); }
+button.big.primary:active { --fill: var(--p-primary-down); }
 button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: default; }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
@@ -591,8 +608,7 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
   color: var(--p-text);
   cursor: pointer;
 }
-/* Ink on the confirm green: the text colour is too close to it to read. */
-.pill.sel { --fill: var(--p-confirm); color: var(--p-ink); }
+.pill.sel { --fill: var(--p-primary); }
 
 /* Something that stops setting up working, said on the screen rather than
    in a toast: a toast is gone in two seconds and gets overwritten by the
@@ -611,7 +627,7 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
    legible enough to read off a screenshot when something has gone wrong. */
 .buildTag {
   font-size: 12px;
-  color: var(--p-dead-text);
+  color: var(--p-page-dim);
   letter-spacing: 1px;
 }
 

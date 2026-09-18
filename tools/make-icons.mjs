@@ -11,6 +11,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE = resolve(ROOT, "assets/Scobas/Relica.png");
 const OUT_DIR = resolve(ROOT, "public/icons");
 const BG = [0x2a, 0x30, 0x49]; // matches <meta name="theme-color">
+// Eyes are drawn in a key colour and shown in cream, as `showEyes` does in the game.
+const EYE_KEY = [0x93, 0x5e, 0x7d];
+const CREAM = [0xff, 0xf4, 0xdd];
 
 const CRC_TABLE = (() => {
   const t = new Int32Array(256);
@@ -150,6 +153,18 @@ function encodePng(w, h, rgb) {
   ]);
 }
 
+/** Turn every pixel in the eye key cream. */
+function showEyes(img) {
+  for (let i = 0; i < img.px.length; i += 4) {
+    if (img.px[i] === EYE_KEY[0] && img.px[i + 1] === EYE_KEY[1] && img.px[i + 2] === EYE_KEY[2]) {
+      img.px[i] = CREAM[0];
+      img.px[i + 1] = CREAM[1];
+      img.px[i + 2] = CREAM[2];
+    }
+  }
+  return img;
+}
+
 /** Drop fully transparent rows and columns so the sprite fills the icon. */
 function trim(img) {
   let x0 = img.w;
@@ -206,7 +221,7 @@ function render(sprite, size, coverage) {
   return encodePng(size, size, rgb);
 }
 
-const sprite = trim(decodePng(readFileSync(SOURCE)));
+const sprite = trim(showEyes(decodePng(readFileSync(SOURCE))));
 mkdirSync(OUT_DIR, { recursive: true });
 
 // An "any" icon is shown whole, so it can run close to the edge. A maskable

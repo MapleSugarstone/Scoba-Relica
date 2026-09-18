@@ -246,7 +246,8 @@ describe("the father's colour mask", () => {
   const c = (hex: string, count: number) => ({ hex, count });
 
   it("paints the child's colours with his, commonest over commonest", () => {
-    const dad = [c("#000000", 900), c("#1d19ff", 400), c("#1613c1", 90), c("#ffffff", 300)];
+    // His eyes are not a colour he hands on, however much of him they cover.
+    const dad = [c("#000000", 900), c("#1d19ff", 400), c("#1613c1", 90), c("#935e7d", 300)];
     const child = [c("#000000", 800), c("#0e821b", 500), c("#53a367", 120), c("#eeff00", 18)];
     const out = pickTints(dad, child);
     // Its main green takes his main blue, and the one under it takes his second.
@@ -296,10 +297,20 @@ describe("the father's colour mask", () => {
     expect(pickTints(dad, child)).toEqual([{ from: "#808080", to: "#1d19ff" }]);
   });
 
-  it("leaves line art alone, so a black and white child takes no mask", () => {
+  it("leaves the outline and the eyes alone, so a child drawn in nothing else takes no mask", () => {
     const dad = [c("#000000", 900), c("#ff2188", 200)];
-    const child = [c("#000000", 1100), c("#ffffff", 980)];
+    const child = [c("#000000", 1100), c("#935e7d", 980)];
     expect(pickTints(dad, child)).toEqual([]);
+  });
+
+  it("paints cream like any other colour and keeps the eyes, on a Meepa's Catsquito child", () => {
+    // Pixel counts measured off the shipped art.
+    const meepa = [c("#000000", 1134), c("#1d19ff", 1044), c("#935e7d", 384)];
+    const catsquito = [c("#000000", 1178), c("#fff4dd", 886), c("#b9b4a5", 58), c("#935e7d", 38)];
+    const out = pickTints(meepa, catsquito);
+    expect(out).toContainEqual({ from: "#fff4dd", to: "#1d19ff" });
+    expect(out.map((t) => t.from)).not.toContain("#935e7d");
+    expect(out.map((t) => t.to)).not.toContain("#935e7d");
   });
 
   it("paints a child of one colour, since that colour is the whole of it", () => {
@@ -319,7 +330,7 @@ describe("the father's colour mask", () => {
     // Pixel counts measured off the shipped art, so the rule is pinned to a
     // pair that really happens rather than to numbers made up for a test.
     const obera = [c("#000000", 1359), c("#0e821b", 518), c("#53a367", 122), c("#eeff00", 18)];
-    const wispen = [c("#000000", 1089), c("#8914ff", 347), c("#5800aa", 246), c("#ffffff", 10)];
+    const wispen = [c("#000000", 1089), c("#8914ff", 347), c("#5800aa", 246), c("#935e7d", 10)];
     const out = pickTints(obera, wispen);
     expect(out).toContainEqual({ from: "#8914ff", to: "#0e821b" });
     expect(out).toContainEqual({ from: "#5800aa", to: "#53a367" });
