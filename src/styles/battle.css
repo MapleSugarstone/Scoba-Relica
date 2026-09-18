@@ -514,11 +514,17 @@ button.act .tcol {
   min-width: 0;
 }
 button.act .tlabel {
-  font-size: 12px;
+  /* A step up from the line under it, since it is the thing being chosen. The
+     spacing comes off with it: at this size the letters have room of their
+     own and a pixel between each one only pulls a word apart. */
+  font-size: 18px;
+  font-family: "Relica 18";
   font-weight: bold;
-  letter-spacing: 1px;
   text-transform: uppercase;
 }
+/* A small button is short of height rather than of width, so its label takes
+   the same step up and only its line under it stays small. */
+button.act.small .tlabel { font-size: 18px; font-family: "Relica 18"; }
 button.act .tmark { display: flex; flex-direction: column; gap: 2px; flex: none; line-height: 0; }
 button.act.marked { justify-content: space-between; text-align: left; }
 button.act.marked .tcol { align-items: flex-start; }
