@@ -106,8 +106,16 @@ function hexagon(shares: number[]): Pt[] {
   });
 }
 
-/** The hexagon for one Scoba's stats, drawn in the colour of `color`. */
-export function statHex(stats: Stats, color: string): HTMLElement {
+/**
+ * How a hexagon is drawn. `lit` is a Scoba's own stats. `dim` is a line's
+ * stats rather than anyone's, darkened so it does not read as a Scoba you have.
+ * `hidden` draws the rings with no shape and no numbers, for a line whose
+ * numbers have not been earned yet.
+ */
+export type HexLook = "lit" | "dim" | "hidden";
+
+/** The hexagon for a set of stats, drawn in the colour of `color`. */
+export function statHex(stats: Stats, color: string, look: HexLook = "lit"): HTMLElement {
   const box = document.createElement("div");
   box.className = "bxHex";
   // The drawing and its labels share one box of their own, so a label is
@@ -127,12 +135,16 @@ export function statHex(stats: Stats, color: string): HTMLElement {
 
   const bandA = rgbOf("var(--p-quiet)");
   const bandB = rgbOf("var(--p-ground)");
-  const edge = rgbOf(color);
-  const body = mix(edge, rgbOf("var(--p-ink)"), 0.45);
+  const ink = rgbOf("var(--p-ink)");
+  const own = rgbOf(color);
+  const edge = look === "dim" ? mix(own, ink, 0.4) : own;
+  const body = mix(own, ink, look === "dim" ? 0.72 : 0.45);
 
   const rings = Array.from({ length: BANDS }, (_, k) => hexagon(AXES.map(() => 1 - k / BANDS)));
   // Past the mark, a stat sits on the rim rather than off the drawing.
-  const shape = hexagon(AXES.map(({ stat }) => Math.max(0, Math.min(1, stats[stat] / RIMS[stat]))));
+  const shape = look === "hidden"
+    ? []
+    : hexagon(AXES.map(({ stat }) => Math.max(0, Math.min(1, stats[stat] / RIMS[stat]))));
 
   const g = cv.getContext("2d")!;
   const img = g.createImageData(cv.width, cv.height);
@@ -144,7 +156,7 @@ export function statHex(stats: Stats, color: string): HTMLElement {
     for (let x = 0; x < cv.width; x++) {
       const sx = x + 0.5, sy = y + 0.5;
       const at = (y * cv.width + x) * 4;
-      if (inside(shape, sx, sy)) {
+      if (shape.length > 0 && inside(shape, sx, sy)) {
         put(at, toEdge(shape, sx, sy) < RIM ? edge : body);
         continue;
       }
@@ -168,7 +180,7 @@ export function statHex(stats: Stats, color: string): HTMLElement {
     const name = document.createElement("span");
     name.className = "bxHexStat";
     name.textContent = label;
-    lab.append(name, ` ${stats[stat]}`);
+    lab.append(name, ` ${look === "hidden" ? "?" : stats[stat]}`);
     const vx = CX + d.x * (R + LABEL_GAP);
     const vy = CY + d.y * (R + LABEL_GAP);
     if (Math.abs(d.x) < 0.01) {

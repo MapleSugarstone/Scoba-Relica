@@ -22,10 +22,16 @@ import { hasPaint, type PaintSet, type PaintSlot } from "../engine/paint";
 import { PAINT_MENU, SLOT_INFO, paintScreen } from "./paintscreen";
 import { sfx } from "../engine/sfx";
 import { newCareState, advanceCare, feed, wash, careLevel, type CareState } from "../sim/care";
-import { makeWild, moveCost, statsAt, maxHp } from "../sim/scoba";
+import { MAX_LEVEL, makeWild, moveCost, statsAt, maxHp, type ScobaInstance } from "../sim/scoba";
 import { critterPortrait } from "../game/critters";
 import { typeIcons } from "./typeicon";
-import { SPECIAL, SPECIES, STARTER_IDS, rosterSpecies, typeLabel } from "../sim/species";
+import {
+  MOVES, SPECIAL, SPECIES, STARTER_IDS, rosterSpecies, speciesMoves, typeLabel, typesOf, type Species,
+} from "../sim/species";
+import { TYPE_COLORS } from "../sim/types";
+import { speciesText } from "../game/texts";
+import { speciesFace } from "./browser";
+import { moveSlot, openCard, passiveSlot } from "./infocard";
 import type { StarterTurn } from "../net/lobby";
 import { rngFrom } from "../sim/rng";
 import {
@@ -1317,55 +1323,136 @@ export function relicaScreen(
 }
 
 /**
- * The index: every Scoba there is, and how much of each one you have met.
- * Owning one tells you everything; having only run into it gives you its face
- * and its name; the rest are blanks, so the list reads as something to fill.
+ * The index: every Scoba there is, as a grid of cells, and how much of each one
+ * you have met. Keeping one tells you everything; having only run into it gives
+ * you its face and its name but not its numbers; the rest are blanks, so the
+ * grid reads as a set with gaps in it rather than as a list of what you have.
  */
-export function indexScreen(ui: UI, art: Art, save: SaveData, onBack: () => void): void {
+export function indexScreen(
+  ui: UI, art: Art, save: SaveData, onBack: () => void, picked: string | null = null,
+): void {
   // A hybrid shows as a species of its own and is not in the index, so keeping
   // one does not count as keeping its mother's species.
   const owned = new Set([...save.party, ...save.box].filter((s2) => !s2.hybrid).map((s2) => s2.speciesId));
   const seen = new Set([...(save.seen ?? []), ...owned]);
   const all = rosterSpecies();
+  const number = (i: number): string => `No. ${String(i + 1).padStart(3, "0")}`;
+  let pick = picked;
+
   ui.screen((s) => {
+    s.classList.add("tight");
     s.appendChild(el("h2", undefined, "Index"));
     s.appendChild(el("div", "sub", `${owned.size} kept · ${seen.size} met · ${all.length} in all`));
-    const card = el("div", "card");
-    const list = el("div", "ixList");
+    const wrap = el("div", "ixBrowser");
+
+    const panel = el("div", "bxPanel ixGridPanel");
+    const grid = el("div", "bxGrid");
+    panel.appendChild(grid);
+    wrap.appendChild(panel);
+
+    const side = el("div", "bxPanel ixSide");
+    const stage = el("div", "bxPortrait ixStage");
+    side.appendChild(stage);
+    const read = el("div", "ixRead");
+    side.appendChild(read);
+    const ops = el("div", "bxPair");
+    const info = el("button", "bxWide", "Info");
+    const back = el("button", "bxWide", "Back");
+    ops.append(info, back);
+    side.appendChild(ops);
+    wrap.appendChild(side);
+
+    // Words and badges only, in a box that holds its height, the same as the
+    // Box's readout: the picked face is already lit in the grid.
+    const fillRead = (): void => {
+      read.innerHTML = "";
+      stage.innerHTML = "";
+      const at = all.findIndex((sp) => sp.id === pick);
+      const sp = all[at];
+      info.disabled = !sp || !seen.has(sp.id);
+      if (!sp) {
+        read.appendChild(el("div", "dim", "Pick a face to read it."));
+        return;
+      }
+      const met = seen.has(sp.id);
+      stage.appendChild(met ? speciesFace(art, sp) : el("span", "ixQ", "?"));
+      read.appendChild(el("div", "dim", number(at)));
+      read.appendChild(el("div", "ixReadName", met ? sp.name : "??????"));
+      const kinds = el("div", "ixReadKinds");
+      if (met) kinds.appendChild(typeIcons(sp));
+      read.appendChild(kinds);
+      read.appendChild(el("div", "dim", owned.has(sp.id) ? "Kept" : met ? "Met in the wild" : "Not met yet"));
+    };
+
     all.forEach((sp, i) => {
       const met = seen.has(sp.id);
-      const kept = owned.has(sp.id);
-      // Every entry keeps its number and its cell whether or not it has been
-      // met, so the list reads as a set with gaps in it rather than as a short
-      // list of what you happen to have.
-      const row = el("div", `ixRow${met ? "" : " blank"}`);
-      row.appendChild(el("div", "ixNo", String(i + 1).padStart(3, "0")));
-      const face = el("div", "ixFace sunk");
-      if (met) face.appendChild(critterPortrait(art, sp));
-      else face.appendChild(el("span", "ixQ", "?"));
-      row.appendChild(face);
-
-      const body = el("div", "ixBody");
-      const name = el("div", "ixName");
-      name.appendChild(el("span", "ixWho", met ? sp.name : "??????"));
-      if (met) name.appendChild(typeIcons(sp));
-      body.appendChild(name);
-      body.appendChild(el("div", "ixLine", !met
-        ? "Not met yet."
-        : kept
-          ? `Str ${sp.genes.str} · Def ${sp.genes.def} · Res ${sp.genes.res} · Mag ${sp.genes.mag} · Spd ${sp.genes.spd}`
-          : "Met in the wild. Keep one to read its numbers."));
-      row.appendChild(body);
-      // The mark holds its cell empty, so no row is a different height from
-      // its neighbours and the column of faces stays a column.
-      const mark = el("div", "ixMark");
-      if (kept) mark.appendChild(el("span", "badge", "kept"));
-      row.appendChild(mark);
-      list.appendChild(row);
+      const cell = el("button", `bxCell ixCell${met ? "" : " blank"}${owned.has(sp.id) ? " kept" : ""}${sp.id === pick ? " sel" : ""}`);
+      cell.title = met ? sp.name : "Not met yet";
+      cell.appendChild(el("span", "ixNo", String(i + 1).padStart(3, "0")));
+      cell.appendChild(met ? speciesFace(art, sp) : el("span", "ixQ", "?"));
+      cell.addEventListener("click", () => {
+        sfx.tap();
+        pick = sp.id;
+        for (const c of grid.children) c.classList.toggle("sel", c === cell);
+        fillRead();
+      });
+      grid.appendChild(cell);
     });
-    card.appendChild(list);
-    s.appendChild(card);
-    s.appendChild(bigBtn("Back", onBack, true));
+
+    info.addEventListener("click", () => {
+      const at = all.findIndex((sp) => sp.id === pick);
+      const sp = all[at];
+      if (!sp || !seen.has(sp.id)) return;
+      sfx.tap();
+      speciesCard(ui, art, sp, number(at), owned.has(sp.id), () => indexScreen(ui, art, save, onBack, sp.id));
+    });
+    back.addEventListener("click", () => {
+      sfx.back();
+      onBack();
+    });
+
+    fillRead();
+    s.appendChild(wrap);
+  });
+}
+
+/**
+ * A line's card in the index. Its stats are a plain one at the level ceiling,
+ * with no hobby, tea or passive, drawn darker than a Scoba's own so the shape
+ * reads as what the line is rather than as one you have. A line only met in
+ * the wild keeps its numbers hidden, as the index always has, until one is kept.
+ */
+function speciesCard(ui: UI, art: Art, sp: Species, no: string, kept: boolean, onBack: () => void): void {
+  const plain: ScobaInstance = {
+    uid: "", speciesId: sp.id, level: MAX_LEVEL, xp: 0, genes: { ...sp.genes },
+    moves: [], secondaryAbility: "", hp: 0,
+  };
+  const stats = statsAt(plain, false);
+  const types = typesOf(sp);
+  const pool = sp.secondaryPool;
+  openCard(ui, {
+    face: speciesFace(art, sp),
+    name: sp.name,
+    tag: no,
+    kinds: [typeIcons(sp), el("span", "dim", kept ? "Kept" : "Met in the wild")],
+    bio: speciesText(sp),
+    hex: { stats, color: TYPE_COLORS[types[0] ?? sp.type], look: kept ? "dim" : "hidden" },
+    passives: [
+      ...passiveSlot(sp.primaryAbility),
+      // Every one of the line rolls its second passive from here.
+      ...pool.flatMap((id) => passiveSlot(id, pool.length > 1 ? `one of ${pool.length}` : "passive")),
+    ],
+    moves: speciesMoves(sp).flatMap((id) => {
+      const move = MOVES[id];
+      return move ? [moveSlot(move, move.manaCost)] : [];
+    }),
+    hint: kept
+      ? `The shape is a ${sp.name} at level ${MAX_LEVEL}, with no hobby, tea or passive. Pick a passive or a move to read it.`
+      : "Keep one to read its numbers. Pick a passive or a move to read it.",
+    // Without stats a damage line says what it scales with instead of a
+    // number, which is what keeps an unkept line's numbers hidden in its moves.
+    prose: kept ? { stats, level: MAX_LEVEL, types } : { types },
+    onBack,
   });
 }
 

@@ -1,7 +1,7 @@
-// The Scoba browser: a search panel, a grid of faces, a scroll column and a
-// strip along the bottom. The Box uses it to arrange a character's roster and
-// the nest uses it to pick a parent, so the frame is built once here and each
-// caller fills in what sits under the grid.
+// The Scoba browser: a search panel, a grid of faces, and a strip along the
+// bottom. The Box uses it to arrange a character's roster and the nest uses it
+// to pick a parent, so the frame is built once here and each caller fills in
+// what sits under the grid.
 //
 // Nothing re-renders wholesale. Typing in the name field, sliding a stat and
 // picking a face all touch only the part they change, because rebuilding the
@@ -13,14 +13,12 @@ import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
 import { moveCost, scobaTypes, speciesName, statsAt, type ScobaInstance } from "../sim/scoba";
 import { hobbyDoing } from "../sim/status";
-import { ABILITIES, MOVES, SPECIES, moveTypes, typesOf, type Move } from "../sim/species";
-import { abilityText, moveText, scobaText } from "../game/texts";
-import { proseBox } from "./prose";
+import { MOVES, SPECIES, type Species } from "../sim/species";
+import { scobaText } from "../game/texts";
 import { STAT_LABELS, TYPES, TYPE_COLORS, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
 import type { UI } from "./screens";
 import { typeIcon, typeIcons } from "./typeicon";
-import { actButton, moveSub } from "./actbutton";
-import { statHex } from "./stathex";
+import { moveSlot, openCard, passiveSlot } from "./infocard";
 
 /**
  * Where each browser was left scrolled, kept between opens so coming back to
@@ -38,6 +36,8 @@ const SHORT: Record<StatName, string> = {
 };
 /** A filter still has somewhere to travel when the box holds one flat Scoba. */
 const MIN_STAT_RANGE = 5;
+/** How wide a stat slider's handle is, in interface px, which is where its fill has to stop. */
+const HANDLE = 8;
 
 const el = <K extends keyof HTMLElementTagNameMap>(
   tag: K, cls?: string, text?: string,
@@ -71,10 +71,18 @@ const FIELD = ART / UI_PER_UNIT;
  * weight of every frame on the screen and the tallest face overflowed its cell.
  */
 export function face(art: Art, s: ScobaInstance): HTMLElement {
-  const wrap = el("div", "bxFace");
   const sp = SPECIES[s.speciesId];
-  if (!sp) return wrap;
-  const cv = critterPortrait(art, sp, s.sire, s.shiny, lookOf(sp, s));
+  if (!sp) return el("div", "bxFace");
+  return atField(critterPortrait(art, sp, s.sire, s.shiny, lookOf(sp, s)));
+}
+
+/** A line's own face, as it is drawn with nothing inherited, at the same size. */
+export function speciesFace(art: Art, sp: Species): HTMLElement {
+  return atField(critterPortrait(art, sp));
+}
+
+function atField(cv: HTMLCanvasElement): HTMLElement {
+  const wrap = el("div", "bxFace");
   cv.style.width = `${cv.width / FIELD}px`;
   cv.style.height = `${cv.height / FIELD}px`;
   wrap.appendChild(cv);
@@ -158,7 +166,6 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
   const memoryKey = (): string => cfg.memory;
   const readout = el("div", "bxRead");
   const footWrap = el("div", "bxFoot");
-  const thumb = el("i", "bxThumb");
 
   const ctx: FootContext = {
     selected,
@@ -216,7 +223,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       grid.appendChild(el("div", "bxEmpty", cfg.source().length === 0
         ? (cfg.empty ?? "Nothing in here yet.")
         : "Nothing matches that search."));
-      laterThumb();
+      restoreScroll();
       return;
     }
     for (const s of list) {
@@ -227,92 +234,23 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       cell.addEventListener("click", () => pick(s));
       grid.appendChild(cell);
     }
-    laterThumb();
+    restoreScroll();
   };
 
-  /** The bar on the right says how far down a long box the grid is. */
-  const syncThumb = (): void => {
-    const room = grid.scrollHeight;
-    const seen = grid.clientHeight;
-    if (room <= seen + 1) {
-      thumb.style.height = "100%";
-      thumb.style.top = "0";
-      return;
-    }
-    thumb.style.height = `${Math.max(14, (seen / room) * 100)}%`;
-    thumb.style.top = `${(grid.scrollTop / room) * 100}%`;
-  };
   /**
-   * After a refill the grid has not been laid out yet, and on the first build
-   * it is not even in the document, so the measurement waits a tick. A timer
-   * rather than a frame, because a hidden tab stops handing out frames.
+   * A screen that has just been built starts at the top, so this puts the grid
+   * back where this browser was left. After a refill the grid has not been laid
+   * out yet, and on the first build it is not even in the document, so it waits
+   * a tick: a timer rather than a frame, because a hidden tab stops handing out
+   * frames. The grid scrolls under a wheel or a finger with no bar of its own.
    */
-  const laterThumb = (): void => {
+  const restoreScroll = (): void => {
     window.setTimeout(() => {
-      // A screen that has just been built starts at the top; put it back where
-      // this browser was left before measuring the bar against it.
       grid.scrollTop = Math.min(scrolledTo.get(memoryKey()) ?? 0, grid.scrollHeight - grid.clientHeight);
-      syncThumb();
     }, 0);
   };
   grid.addEventListener("scroll", () => {
     scrolledTo.set(memoryKey(), grid.scrollTop);
-    syncThumb();
-  });
-
-  /** One row of faces, read off the grid so it follows the cells' size. */
-  const rowStep = (): number => {
-    const cell = grid.querySelector<HTMLElement>(".bxCell");
-    if (!cell) return grid.clientHeight;
-    return cell.offsetHeight + (parseFloat(getComputedStyle(grid).rowGap) || 0);
-  };
-
-  const scrollBy = (dir: -1 | 1): void => {
-    grid.scrollBy({ top: dir * rowStep(), behavior: "auto" });
-    syncThumb();
-  };
-
-  const track = el("div", "bxTrack");
-  // The thumb runs inside the track's frame rather than across it, which is
-  // what it did when it was the track's own child: laid over the frame, it
-  // covered the outline along the top and the bottom.
-  const rail = el("div", "bxRail");
-  rail.appendChild(thumb);
-  track.appendChild(rail);
-
-  /** Dragging the thumb: the grab point stays under the finger the whole way. */
-  thumb.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    const room = grid.scrollHeight - grid.clientHeight;
-    if (room <= 0) return;
-    const travel = rail.clientHeight - thumb.offsetHeight;
-    if (travel <= 0) return;
-    const grabbed = e.clientY - thumb.getBoundingClientRect().top;
-    thumb.classList.add("held");
-    // Tracked on the window rather than the thumb, so a finger that slides off
-    // the bar keeps dragging it instead of dropping it.
-    const move = (m: PointerEvent): void => {
-      const at = m.clientY - rail.getBoundingClientRect().top - grabbed;
-      grid.scrollTop = (Math.min(Math.max(at, 0), travel) / travel) * room;
-      syncThumb();
-    };
-    const drop = (): void => {
-      thumb.classList.remove("held");
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", drop);
-      window.removeEventListener("pointercancel", drop);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", drop);
-    window.addEventListener("pointercancel", drop);
-  });
-
-  /** Pressing the rail above or below the thumb pages the grid that way. */
-  track.addEventListener("pointerdown", (e) => {
-    if (e.target === thumb) return;
-    const above = e.clientY < thumb.getBoundingClientRect().top;
-    grid.scrollBy({ top: (above ? -1 : 1) * grid.clientHeight, behavior: "auto" });
-    syncThumb();
   });
 
   const reset = (): void => {
@@ -371,16 +309,26 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
         slider.value = String(draft.stats[name]);
         slider.title = `${STAT_LABELS[name]} at least`;
         const num = el("span", "bxStatNum", draft.stats[name] === 0 ? "any" : String(draft.stats[name]));
+        // The bar fills up to the middle of the handle, so a filter that is set
+        // reads as a bar with something in it and one that is not reads empty.
+        const fill = (): void => {
+          const share = top[name] > 0 ? draft.stats[name] / top[name] : 0;
+          slider.style.setProperty("--at", draft.stats[name] === 0
+            ? "0px"
+            : `calc(${HANDLE / 2}px + ${share} * (100% - ${HANDLE}px))`);
+        };
+        fill();
         slider.addEventListener("input", () => {
           draft.stats[name] = Number(slider.value);
           num.textContent = draft.stats[name] === 0 ? "any" : slider.value;
+          fill();
         });
         row.appendChild(slider);
         row.appendChild(num);
         search.appendChild(row);
       }
       // Side by side: the panel has to fit beside the grid in one screen.
-      const ops = el("div", "bxSearchOps");
+      const ops = el("div", "bxPair");
       ops.appendChild(button("bxWide", "Search", apply));
       ops.appendChild(button("bxWide bxClear", "Clear", reset));
       search.appendChild(ops);
@@ -391,23 +339,17 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       gridPanel.appendChild(grid);
       wrap.appendChild(gridPanel);
 
-      // Side column: the scroll controls.
-      const side = el("div", "bxSide");
-      side.appendChild(button("bxArrow", "▲", () => scrollBy(-1)));
-      side.appendChild(track);
-      side.appendChild(button("bxArrow", "▼", () => scrollBy(1)));
-      // The way back sits at the foot of the scroll column rather than in a
-      // row of its own under the panels, which is the row that did not fit.
-      side.appendChild(button("bxWide bxBack", "Back", cfg.onBack));
-      wrap.appendChild(side);
-
-      // Readout, and the button that opens the whole card.
+      // Readout, the button that opens the whole card, and the way back beside
+      // it, which is the one place under the panels with room for it.
       const info = el("div", "bxPanel bxInfo");
       info.appendChild(readout);
-      info.appendChild(button("bxWide", "Info", () => {
+      const infoOps = el("div", "bxPair");
+      info.appendChild(infoOps);
+      infoOps.appendChild(button("bxWide", "Info", () => {
         const s = selected();
         if (s) infoScreen(s);
       }));
+      infoOps.appendChild(button("bxWide", "Back", cfg.onBack));
       wrap.appendChild(info);
 
       wrap.appendChild(footWrap);
@@ -425,130 +367,42 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
     fillGrid();
   }
 
-  /**
-   * The whole card: the face and the numbers across the top, then a button for
-   * each of the two passives and each move. Pressing one says what it does,
-   * which is the only way to read a move outside a fight.
-   */
   function infoScreen(s: ScobaInstance): void {
-    const sp = SPECIES[s.speciesId];
-    const stats = statsAt(s);
-    // `types` rather than one type: a move of two elements is read against
-    // both, so it has to say both.
-    let showing: { name: string; note: string; desc: string; move?: Move; types?: ElementType[] } | null = null;
-
-    ui.screen((screen) => {
-      screen.classList.add("tight");
-      const card = el("div", "bxCard");
-
-      // The face on its stage, who it is and what its line is like, and its
-      // six stats as a shape rather than as a list of numbers.
-      const head = el("div", "bxCardHead");
-      const port = el("div", "bxPortrait");
-      port.appendChild(face(art, s));
-      head.appendChild(port);
-
-      const facts = el("div", "bxFacts");
-      const top = el("div", "bxFactsTop");
-      const who = el("div", "bxWho");
-      who.appendChild(el("span", "bxCardName", displayName(s)));
-      who.appendChild(el("span", "dim", `Lv ${s.level}`));
-      top.appendChild(who);
-      top.appendChild(button("bxCardBack", "Back", build));
-      facts.appendChild(top);
-
-      // Its elements, and on the same line what it does with its time, which is
-      // where its stat line comes from, so the line under them is the bio's.
-      const kinds = el("div", "bxCardKinds");
-      if (sp) kinds.appendChild(typeIcons(s));
-      if (s.hybrid) kinds.appendChild(el("span", "dim", "Hybrid"));
-      const doing = hobbyDoing(s.hobby);
-      if (doing !== "") kinds.appendChild(el("span", "dim bxDoing", doing));
-      facts.appendChild(kinds);
-
-      const bio = scobaText(s);
-      if (bio !== "") facts.appendChild(el("p", "bxBio", bio));
-      head.appendChild(facts);
-
-      const [first] = scobaTypes(s);
-      head.appendChild(statHex(stats, first ? TYPE_COLORS[first] : "var(--p-dim)"));
-      card.appendChild(head);
-
-      // Two passives on the first row, then the moves, as in the mock-up.
-      const note = el("div", "bxNote");
-      const slots = el("div", "bxSlots");
-      // Nothing is marked on the board: the note under it opens with the name
-      // of what it is reading, which is what says which one was pressed.
-      const showSlot = (what: NonNullable<typeof showing>): void => {
-        showing = what;
-        fillNote();
-      };
-      const fillNote = (): void => {
-        note.innerHTML = "";
-        if (!showing) {
-          note.appendChild(el("div", "dim", "Pick a passive or a move to read it."));
-          return;
-        }
-        const head = el("div", "bxNoteHead");
-        head.appendChild(el("strong", undefined, showing.name));
-        for (const t of showing.types ?? []) head.appendChild(typeIcon(t));
-        head.appendChild(el("span", "dim", showing.note));
-        note.appendChild(head);
-        // Read against the Scoba whose card this is, so a damage line is the
-        // number that Scoba would actually deal.
-        note.appendChild(proseBox(showing.desc, {
-          move: showing.move ?? null,
-          stats: statsAt(s),
-          level: s.level,
-          // Its own elements too: a number lands for half again where the
-          // Scoba casting it shares one, and a line read without them said a
-          // move was worth less than it is.
-          types: scobaTypes(s),
-        }));
-      };
-
-      // The same button the fight puts a move on, so a move reads as the same
-      // thing wherever it is read: its element as its fill, its elements as
-      // badges at its end, and a passive as a plain one.
-      const slot = (label: string, cost: string, what: NonNullable<typeof showing>): void => {
-        const [first, second] = what.types ?? [];
-        const b = actButton(label, cost, () => showSlot(what), {
-          ...(first ? { type: first } : { alt: true }),
-          ...(second ? { type2: second } : {}),
-        });
-        slots.appendChild(b);
-      };
-
-      for (const id of [sp?.primaryAbility, s.secondaryAbility]) {
-        const ability = id ? ABILITIES[id] : undefined;
-        if (!ability) continue;
-        slot(ability.name, "passive", { name: ability.name, note: "passive", desc: abilityText(ability.id) });
-      }
-      for (const id of s.moves) {
-        const move = MOVES[id];
-        if (!move) continue;
-        const cost = moveCost(s, id);
-        // The same line the fight puts under it, less the rest still running,
-        // which only a fight has.
-        slot(move.name, moveSub(move, cost), {
-          name: move.name,
-          note: cost > move.manaCost ? `${move.kind} · worked` : move.kind,
-          desc: moveLine(move), move,
-          types: moveTypes(move),
-        });
-      }
-      card.appendChild(slots);
-      fillNote();
-      card.appendChild(note);
-      screen.appendChild(card);
-    });
+    openScobaCard(ui, art, s, build);
   }
 
   build();
 }
 
-/** What a move does. The cost is on the slot beside it, so the line leaves it off. */
-function moveLine(move: Move): string {
-  return moveText(move);
+/** The card for one Scoba, with everything that is its own, wherever it is opened from. */
+export function openScobaCard(ui: UI, art: Art, s: ScobaInstance, onBack: () => void): void {
+  const sp = SPECIES[s.speciesId];
+  // Its elements, and on the same line what it does with its time, which is
+  // where its stat line comes from, so the line under them is the bio's.
+  const kinds: HTMLElement[] = [];
+  if (sp) kinds.push(typeIcons(s));
+  if (s.hybrid) kinds.push(el("span", "dim", "Hybrid"));
+  const doing = hobbyDoing(s.hobby);
+  if (doing !== "") kinds.push(el("span", "dim bxDoing", doing));
+  const [first] = scobaTypes(s);
+  openCard(ui, {
+    face: face(art, s),
+    name: displayName(s),
+    tag: `Lv ${s.level}`,
+    kinds,
+    bio: scobaText(s),
+    hex: { stats: statsAt(s), color: first ? TYPE_COLORS[first] : "var(--p-dim)" },
+    passives: [sp?.primaryAbility, s.secondaryAbility].flatMap((id) => passiveSlot(id)),
+    moves: s.moves.flatMap((id) => {
+      const move = MOVES[id];
+      return move ? [moveSlot(move, moveCost(s, id))] : [];
+    }),
+    hint: "Pick a passive or a move to read it.",
+    // Its own elements too: a number lands for half again where the Scoba
+    // casting it shares one, and a line read without them said a move was
+    // worth less than it is.
+    prose: { stats: statsAt(s), level: s.level, types: scobaTypes(s) },
+    onBack,
+  });
 }
 

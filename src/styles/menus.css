@@ -161,91 +161,75 @@ body.touch #actBtn { display: block; }
 .list.scroll { max-height: calc(var(--ui-h, 450px) * 0.42); overflow-y: auto; }
 /* Roster rows: a face and a name on the left, what you can do on the right. */
 .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
-/* A fixed box, bottom aligned so feet line up down the column. Its size
-   comes from the caller, since a party row and a card want different
-   heights, and the art inside is only ever drawn at a whole step. */
-.pface {
-  --fill: var(--p-ground);
-  --lit: var(--fill);
-  --shade: var(--fill);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  flex: none;
-  overflow: hidden;
-}
-.pface canvas { image-rendering: pixelated; display: block; }
 .ops { display: flex; align-items: center; gap: 4px; }
 .pill.tiny { font-size: 12px; padding: 4px 8px; }
 .pill:disabled { color: var(--p-dead-text); cursor: default; }
 
 /*
- * The party: a two-column grid of cards, one per party slot whether or not
- * a Scoba fills it, with the action list docked beside it rather than
- * floating over whichever card is picked.
+ * The party: its three slots as cards across the screen, whether or not a
+ * Scoba fills each one, and a column beside them for whose party it is and
+ * what can be done with the one picked. Laid out as the Box and the index
+ * are, so the three read as one set of screens.
  */
-.partyLayout {
-  display: flex;
-  gap: 16px;
-  width: 100%;
-  align-items: stretch;
-}
-.partyGrid {
+.ptBrowser {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) 178px;
   gap: 8px;
-  flex: 1;
-  align-content: start;
-  min-width: 0;
+  width: min(100%, 740px);
 }
-.partyCard {
+.ptCards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+/* Badges at half, the step the Box and the index take beside faces at the
+   size they stand in a fight. */
+.ptBrowser .tico { width: 20.5px; height: 8.5px; }
+.ptBrowser .ticos { gap: 2px; }
+/* A slot: the Scoba on its stage, then its name, its level and elements, and
+   its HP, every card the same height whatever its name or elements. */
+.ptCell {
+  font: inherit;
+  color: var(--p-text);
+  --fill: var(--p-panel);
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 8px;
   min-width: 0;
-  /* An empty slot has nothing to give it height, so both variants read it
-     from here instead: the grid keeps its shape whether a card is filled. */
-  min-height: 80px;
+  text-align: left;
+  cursor: pointer;
 }
-/* Present, numbered by its place in the grid, and plainly not filled in:
-   the box keeps the grid's shape rather than letting the row collapse. */
-.partyCard.empty { --fill: var(--p-dead); }
-.partyCard.sel { outline: 1.5px solid var(--p-text); outline-offset: -1.5px; }
-.partyBody { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; flex: 1; min-width: 0; }
-.partyTop { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.partyName { font-size: 18px; font-family: "Relica 18"; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.partyBottom { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--p-dim); }
-.hpRow { display: flex; align-items: center; gap: 8px; }
+/* The frame's own stepped outline in the highlight, as the Box marks a pick. */
+.ptCell.sel { outline: none; --ink: var(--p-highlight); }
+/* Present and plainly not filled in, so the row keeps its three slots. */
+.ptCell.empty { --fill: var(--p-dead); color: var(--p-dead-text); align-items: center; justify-content: center; cursor: default; }
+/* The stage takes whatever height the card has left over its fixed lines,
+   with the Scoba on its floor; at the least, room for the tallest face. */
+.bxPortrait.ptStage { width: 100%; flex: 1; min-height: 88px; }
+.ptName { font-size: 18px; font-family: "Relica 18"; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptLine { display: flex; align-items: center; gap: 8px; min-height: 17px; }
+.ptLine .dim { color: var(--p-dim); }
+.ptShiny { color: var(--p-danger); }
+/* The word, the bar and the numbers on one grid, so every card's bar starts
+   and ends in the same place. */
+.ptHp { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.ptHp .dim { color: var(--p-dim); }
+.ptHpNum { color: var(--p-text); }
+/* Its four moves, the badges in a column of their own so every name starts
+   in the same place whether its move has one element or two. */
+.ptMoves { display: flex; flex-direction: column; gap: 2px; }
+.ptMove { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ptMoveMarks { display: flex; gap: 2px; width: 43px; flex: none; }
+.ptMoveName { color: var(--p-dim2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptRead { min-height: 36px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; }
+.ptRead .dim { color: var(--p-dim); }
+.ptReadName { font-size: 18px; font-family: "Relica 18"; color: var(--p-text); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptOps { display: flex; flex-direction: column; gap: 4px; }
+/* Why a button is dead, with its room held when there is nothing to say. */
+.ptNote { flex: 1; min-height: 36px; color: var(--p-dim); }
 /* Bars under 16px stay a plain square frame rather than the stepped one,
    the same rule a battle plate's own bars follow. */
 .hpBar { flex: 1; height: 12px; border: 1.5px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
 .hpBar > i { display: block; height: 100%; background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px); }
 .hpBar.warn > i { background: linear-gradient(color-mix(in srgb, var(--p-warning) 62%, var(--p-lit)) 0 2px, var(--p-warning) 2px); }
 .hpBar.danger > i { background: linear-gradient(color-mix(in srgb, var(--p-danger) 62%, var(--p-lit)) 0 2px, var(--p-danger) 2px); }
-/* The dock beside the grid: a hint until a card is picked, then that
-   Scoba's own door rows, using the same cursor idiom as the pause menu. */
-.partyActions {
-  --fill: var(--p-ink);
-  --ink: var(--p-raised);
-  width: 200px;
-  flex: none;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.partyActions .doorRow { padding: 8px 8px 8px 24px; font-size: 12px; font-family: "Relica 12"; }
-.partyActions .doorRow::before { left: 8px; }
-/* The prompt readout along the bottom: what Aetus is on hand, or which
-   Scoba the open action list belongs to. */
-.partyMsg {
-  --fill: var(--p-ink);
-  --ink: var(--p-raised);
-  width: 100%;
-  padding: 12px 16px;
-  font-size: 18px; font-family: "Relica 18";
-}
 
 /*
  * The character creator: the doll in a fixed column on the left, a tabbed

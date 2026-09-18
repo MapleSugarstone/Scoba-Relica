@@ -8,9 +8,9 @@
 // only while you are alone, and drop it the moment a second player is in.
 import type { Art } from "../engine/assets";
 import { sfx } from "../engine/sfx";
-import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
-import { face, openBrowser } from "./browser";
+import { face, openBrowser, openScobaCard } from "./browser";
+import { typeIcon, typeIcons } from "./typeicon";
 import { devMode } from "../version";
 import {
   EVOLVE_COST,
@@ -21,7 +21,7 @@ import {
   levelUpError,
 } from "../sim/growth";
 import { maxHp, speciesName, type ScobaInstance } from "../sim/scoba";
-import { SPECIES, evolutionOf } from "../sim/species";
+import { MOVES, SPECIES, evolutionOf, moveTypes } from "../sim/species";
 import type { SaveData, SlotId } from "../save/save";
 import {
   PARTY_PER_CHARACTER,
@@ -83,55 +83,6 @@ const pill = (label: string, onClick: (() => void) | null, cls = ""): HTMLButton
   return b;
 };
 
-const bigBtn = (label: string, onClick: () => void, primary = false): HTMLButtonElement => {
-  const b = el("button", `big${primary ? " primary" : ""}`, label);
-  const sound = label === "Back" ? sfx.back : sfx.tap;
-  b.addEventListener("click", () => {
-    sound();
-    onClick();
-  });
-  return b;
-};
-
-/**
- * Portrait at list size, cropped to the critter and wearing its own mask.
- *
- * The box is fixed and the art inside it is never resampled. Stretching a
- * portrait to a row height meant a 33 px critter drawn at 48, and at 1.45x
- * nearest-neighbour every third source pixel comes out two wide, which is the
- * one thing this art is not allowed to do. It also made the box as wide as
- * whatever the species cropped to, so no two rows started their name at the
- * same place. Whole steps only, and the box holds its width either way.
- */
-function portrait(art: Art, s: ScobaInstance, px: number): HTMLElement {
-  const wrap = el("div", "pface");
-  wrap.style.width = `${PORTRAIT_BOX}px`;
-  wrap.style.height = `${px}px`;
-  const sp = SPECIES[s.speciesId];
-  if (!sp) return wrap;
-  const cv = critterPortrait(art, sp, s.sire, s.shiny, lookOf(sp, s));
-  const step = Math.max(1, Math.min(
-    Math.floor(PORTRAIT_BOX / cv.width),
-    Math.floor(px / cv.height),
-  ));
-  cv.style.width = `${cv.width * step}px`;
-  cv.style.height = `${cv.height * step}px`;
-  wrap.appendChild(cv);
-  return wrap;
-}
-
-/** Wide enough for every species' crop, so the name column never moves. */
-const PORTRAIT_BOX = 80;
-
-/** The character whose Scobas a screen is showing, and the row that swaps it. */
-function ownerRow(save: SaveData, owner: SlotId, onPick: (o: SlotId) => void): HTMLElement {
-  const row = el("div", "row");
-  for (const slot of ["A", "B"] as SlotId[]) {
-    row.appendChild(pill(save.characters[slot].name, slot === owner ? null : () => onPick(slot),
-      slot === owner ? "sel" : ""));
-  }
-  return row;
-}
 
 /**
  * The Box: everything you have caught, with a party laid along the bottom. The
@@ -257,10 +208,10 @@ export function openBox(ui: UI, art: Art, save: SaveData, hooks: RosterHooks): v
   });
 }
 
-/** The "HP" label and bar for a party card, colored by the share left. */
-function hpBar(m: ScobaInstance): HTMLElement {
-  const row = el("div", "hpRow");
-  row.appendChild(el("span", "badge", "HP"));
+/** HP as the party card reads it: the word, the bar, and what is left of what. */
+function hpRow(m: ScobaInstance): HTMLElement {
+  const row = el("div", "ptHp");
+  row.appendChild(el("span", "dim", "HP"));
   const cap = maxHp(m);
   const frac = cap > 0 ? m.hp / cap : 0;
   const bar = el("div", "hpBar");
@@ -270,9 +221,32 @@ function hpBar(m: ScobaInstance): HTMLElement {
   fill.style.width = `${Math.max(0, Math.min(100, frac * 100))}%`;
   bar.appendChild(fill);
   row.appendChild(bar);
+  row.appendChild(el("span", "ptHpNum", `${m.hp}/${cap}`));
   return row;
 }
 
+/** One of the side column's buttons: live when there is something for it to do. */
+function sideButton(label: string, onClick: (() => void) | null): HTMLButtonElement {
+  const b = el("button", "bxWide", label);
+  b.type = "button";
+  if (onClick) {
+    const sound = label === "Back" ? sfx.back : sfx.tap;
+    b.addEventListener("click", () => {
+      sound();
+      onClick();
+    });
+  } else {
+    b.disabled = true;
+  }
+  return b;
+}
+
+/**
+ * The party: its three slots as cards across the screen, each Scoba on a stage
+ * with its level, elements and HP, and a column beside them for whose party it
+ * is and what can be done with the one picked. Laid out as the Box and the
+ * index are, so the three screens read as one set.
+ */
 export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks): void {
   let owner: SlotId = save.localSlot;
   /** The uid of the card holding the bright outline, or none picked yet. */
@@ -284,30 +258,21 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
     const chosen = members.find((m) => m.uid === selected) ?? null;
 
     ui.screen((s) => {
+      s.classList.add("tight");
       s.appendChild(el("h2", undefined, "Party"));
-      if (hooks.solo()) {
-        s.appendChild(ownerRow(save, owner, (o) => {
-          owner = o;
-          selected = null;
-          render();
-        }));
-      }
+      s.appendChild(el("div", "sub", devMode()
+        ? `${save.aetus} Aetus · dev, so nothing is spent`
+        : `${save.aetus} Aetus`));
 
-      const layout = el("div", "partyLayout");
-      const grid = el("div", "partyGrid");
+      const wrap = el("div", "ptBrowser");
+      const cards = el("div", "ptCards");
       for (let i = 0; i < PARTY_PER_CHARACTER; i++) {
         const m = members[i];
-        grid.appendChild(m ? memberCard(m) : el("div", "partyCard empty"));
+        cards.appendChild(m ? memberCard(m) : el("div", "ptCell empty", "Empty"));
       }
-      layout.appendChild(grid);
-      layout.appendChild(actionsDock(chosen));
-      s.appendChild(layout);
-
-      s.appendChild(el("div", "partyMsg", chosen
-        ? `Do what with ${displayName(chosen)}?`
-        : devMode() ? `${save.aetus} Aetus · dev, so nothing is spent` : `${save.aetus} Aetus`));
-
-      s.appendChild(bigBtn("Back", hooks.onBack, true));
+      wrap.appendChild(cards);
+      wrap.appendChild(sidePanel(chosen));
+      s.appendChild(wrap);
     });
   };
 
@@ -320,24 +285,33 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
     m.owner === save.localSlot || m.lentBy !== undefined || !save.partnerJoined;
 
   const memberCard = (m: ScobaInstance): HTMLElement => {
-    const card = el("div", `partyCard${m.uid === selected ? " sel" : ""}`);
-    card.appendChild(portrait(art, m, 64));
-
-    const body = el("div", "partyBody");
-    const top = el("div", "partyTop");
-    top.appendChild(el("span", "partyName", displayName(m)));
-    if (m.shiny) {
-      const star = el("span", "shiny", "★");
-      star.title = "Shiny";
-      top.appendChild(star);
+    const card = el("button", `ptCell${m.uid === selected ? " sel" : ""}`);
+    card.type = "button";
+    card.title = displayName(m);
+    // The face on the same stage its card puts it on, at the size it stands
+    // in a fight.
+    const stage = el("div", "bxPortrait ptStage");
+    stage.appendChild(face(art, m));
+    card.appendChild(stage);
+    card.appendChild(el("div", "ptName", displayName(m)));
+    const line = el("div", "ptLine");
+    line.appendChild(el("span", "dim", `Lv ${m.level}`));
+    if (m.shiny) line.appendChild(el("span", "ptShiny", "Shiny"));
+    line.appendChild(typeIcons(m));
+    card.appendChild(line);
+    card.appendChild(hpRow(m));
+    // What it can do in a fight, a line a move: its elements, then its name.
+    const moves = el("div", "ptMoves");
+    for (const id of m.moves) {
+      const move = MOVES[id];
+      if (!move) continue;
+      const row = el("div", "ptMove");
+      const marks = el("span", "ptMoveMarks");
+      for (const t of moveTypes(move)) marks.appendChild(typeIcon(t));
+      row.append(marks, el("span", "ptMoveName", move.name));
+      moves.appendChild(row);
     }
-    body.appendChild(top);
-    body.appendChild(hpBar(m));
-    const bottom = el("div", "partyBottom");
-    bottom.appendChild(el("span", undefined, `Lv.${m.level}`));
-    bottom.appendChild(el("span", undefined, `${m.hp}/${maxHp(m)}`));
-    body.appendChild(bottom);
-    card.appendChild(body);
+    card.appendChild(moves);
 
     card.addEventListener("click", () => {
       sfx.tap();
@@ -348,37 +322,56 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
   };
 
   /**
-   * What you can do with the selected Scoba, docked beside the grid rather
-   * than floating over whichever card is picked, so the layout never shifts.
+   * Whose party it is, what the picked one is, and what can be done with it,
+   * in a column that holds its shape whether anything is picked or not: every
+   * button is there either way and only goes dead, and the line saying why
+   * keeps its room when it has nothing to say.
    */
-  const actionsDock = (m: ScobaInstance | null): HTMLElement => {
-    const dock = el("div", "partyActions");
-    if (!m) {
-      dock.appendChild(el("div", "dim", "Pick a Scoba to see what you can do."));
-      return dock;
+  const sidePanel = (m: ScobaInstance | null): HTMLElement => {
+    const side = el("div", "bxPanel ptSide");
+    if (hooks.solo()) {
+      const whose = el("div", "bxPair");
+      for (const slot of ["A", "B"] as SlotId[]) {
+        const b = el("button", `bxOwnerBtn${slot === owner ? " sel" : ""}`, save.characters[slot].name);
+        b.type = "button";
+        b.addEventListener("click", () => {
+          if (slot === owner) return;
+          sfx.tap();
+          owner = slot;
+          selected = null;
+          render();
+        });
+        whose.appendChild(b);
+      }
+      side.appendChild(whose);
     }
-    const theirs = !yours(m);
-    const levelWhy = levelUpError(m, onHand(save));
-    const evolveWhy = evolveError(m, onHand(save));
 
-    const addRow = (label: string, onClick: (() => void) | null): void => {
-      const row = el("button", "doorRow", label);
-      row.type = "button";
-      if (onClick) row.addEventListener("click", () => { sfx.tap(); onClick(); });
-      else row.disabled = true;
-      dock.appendChild(row);
-    };
-    addRow(`Level up · ${LEVEL_COST}`, levelWhy || theirs ? null : () => buyLevel(m));
-    addRow(`Evolve · ${EVOLVE_COST}`, evolveWhy || theirs ? null : () => buyEvolve(m));
-    addRow("Rename", theirs ? null : () => renameScreen(m));
-    addRow("Cancel", () => { selected = null; render(); });
+    // Only its name: its card already says the rest, and is lit.
+    const read = el("div", "ptRead");
+    if (m) {
+      read.appendChild(el("div", "ptReadName", displayName(m)));
+    } else {
+      read.appendChild(el("div", "dim", "Pick a Scoba to see what you can do."));
+    }
+    side.appendChild(read);
+
+    const theirs = m ? !yours(m) : false;
+    const levelWhy = m ? levelUpError(m, onHand(save)) : null;
+    const evolveWhy = m ? evolveError(m, onHand(save)) : null;
+    const ops = el("div", "ptOps");
+    ops.appendChild(sideButton(`Level up · ${LEVEL_COST}`, m && !levelWhy && !theirs ? () => buyLevel(m) : null));
+    ops.appendChild(sideButton(`Evolve · ${EVOLVE_COST}`, m && !evolveWhy && !theirs ? () => buyEvolve(m) : null));
+    ops.appendChild(sideButton("Rename", m && !theirs ? () => renameScreen(m) : null));
+    ops.appendChild(sideButton("Info", m ? () => openScobaCard(ui, art, m, render) : null));
+    side.appendChild(ops);
 
     const notes: string[] = [];
-    if (theirs) notes.push(`${save.characters[owner].name} raises this one.`);
+    if (m && theirs) notes.push(`${save.characters[owner].name} raises this one.`);
     if (levelWhy) notes.push(levelWhy);
     if (evolveWhy) notes.push(evolveWhy);
-    if (notes.length > 0) dock.appendChild(el("div", "dim", notes.join(" · ")));
-    return dock;
+    side.appendChild(el("div", "ptNote", notes.join(" ")));
+    side.appendChild(sideButton("Back", hooks.onBack));
+    return side;
   };
 
   const buyLevel = (m: ScobaInstance): void => {
@@ -408,7 +401,9 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
     ui.screen((s) => {
       s.appendChild(el("h2", undefined, `Name ${displayName(m)}`));
       const card = el("div", "card");
-      card.appendChild(portrait(art, m, 64));
+      const stage = el("div", "bxPortrait");
+      stage.appendChild(face(art, m));
+      card.appendChild(stage);
       const input = el("input");
       input.type = "text";
       input.maxLength = MAX_NICKNAME;

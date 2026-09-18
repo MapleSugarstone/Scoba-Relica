@@ -287,8 +287,11 @@ html.portrait #rotate { display: flex; }
   text-transform: uppercase;
   text-align: center;
   color: var(--p-heading);
-  text-shadow: 0 3px 0 var(--p-ink);
 }
+/* One ink rule the width of the word, at the weight of every other line. A
+   drop shadow on the word and a grey line under the rule stamped a black copy
+   of every letter a few pixels down and doubled the rule, which on the light
+   page read as a blurred word over two underlines. */
 .screen h2::after {
   content: "";
   display: block;
@@ -297,7 +300,6 @@ html.portrait #rotate { display: flex; }
   height: 3px;
   margin-top: 8px;
   background: var(--p-ink);
-  box-shadow: 0 3px 0 var(--p-raised);
 }
 .screen .sub { color: var(--p-dim); font-size: 12px; text-align: center; }
 /* The pair reads as one block, so the rule belongs to the line under it. */
@@ -363,9 +365,9 @@ html.portrait #rotate { display: flex; }
 #bagBtn, #bagMenu, #actBtn, #dialog, .bcard, .bmsg, .mgbar, .dollWrap, #toast,
 .list .item, #stick, #stickKnob, .card input[type="text"], .card input[type="password"],
 label.custom input[type="color"],
-.bxPanel, .bxCell, .bxName, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
+.bxPanel, .bxCell, .bxName, .bxWide, .bxChip, .bxOwnerBtn,
 .bxSwap, .bxCard, .bxPortrait, .bxNote, .bxCardBack, .bxGrid, .bxHex,
-.plinth, button.starter .stage, .pickStage, .ixRow, .ixFace, .pface, .partyCard, .partyActions, .partyMsg,
+.plinth, button.starter .stage, .pickStage, .ptCell,
 .xsay, .ptip, .bcard .mark .sigtip {
   --ink: var(--p-ink);
   --fill: var(--p-panel);
@@ -425,24 +427,21 @@ label.custom input[type="color"],
  * Drawn instead as a square thumb in the raised fill on a sunken track,
  * so a scrolling box says so in the same language as everything else.
  */
-.screen, .ixList, .list.scroll, .xlist, #bagMenu, .bxCard, .devList, .diagRows {
+.screen, .list.scroll, .xlist, #bagMenu, .bxCard, .devList, .diagRows {
   scrollbar-width: thin;
   scrollbar-color: var(--p-raised) var(--p-ground);
 }
 .screen::-webkit-scrollbar,
-.ixList::-webkit-scrollbar,
 .list.scroll::-webkit-scrollbar,
 .xlist::-webkit-scrollbar,
 #bagMenu::-webkit-scrollbar,
 .diagRows::-webkit-scrollbar { width: 10px; height: 10px; }
 .screen::-webkit-scrollbar-track,
-.ixList::-webkit-scrollbar-track,
 .list.scroll::-webkit-scrollbar-track,
 .xlist::-webkit-scrollbar-track,
 #bagMenu::-webkit-scrollbar-track,
 .diagRows::-webkit-scrollbar-track { background: var(--p-ground); }
 .screen::-webkit-scrollbar-thumb,
-.ixList::-webkit-scrollbar-thumb,
 .list.scroll::-webkit-scrollbar-thumb,
 .xlist::-webkit-scrollbar-thumb,
 #bagMenu::-webkit-scrollbar-thumb,
@@ -472,8 +471,9 @@ label.custom input[type="color"],
   .pill:hover:not(:disabled),
   #bagBtn:hover,
   .bxCell:hover:not(:disabled),
+  .ptCell:hover:not(.empty),
   .bxWide:hover:not(:disabled),
-  .bxArrow:hover,
+  .bxChip:hover,
   .bxSwap:hover,
   .bxOwnerBtn:hover,
   .bxCardBack:hover,
@@ -497,8 +497,9 @@ button.thumb:active,
 .pill:active:not(:disabled),
 #bagBtn:active,
 .bxCell:active:not(:disabled),
+.ptCell:active:not(.empty),
 .bxWide:active:not(:disabled),
-.bxArrow:active,
+.bxChip:active,
 .bxSwap:active,
 .bxOwnerBtn:active,
 .bxCardBack:active,
@@ -510,7 +511,7 @@ button.thumb:active,
 @media (prefers-reduced-motion: reduce) {
   button.big:active, button.act:active, button.starter:active,
   button.thumb:active, .pill:active, #bagBtn:active,
-  .bxCell:active, .bxWide:active, .bxArrow:active,
+  .bxCell:active, .ptCell:active, .bxWide:active, .bxChip:active,
   .bxSwap:active, .bxOwnerBtn:active, .bxCardBack:active, .swatch:active {
     transform: none;
   }
@@ -707,67 +708,65 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
 }
 
 /*
- * The index. Every Scoba there is, numbered, with one cell per face
- * whether or not that face has been met: a set with gaps in it reads as
- * something to fill, and a short list of what you happen to have does not.
- *
- * Laid out as four columns rather than as a row of things, so the numbers
- * line up down one edge, the faces down another, and the names start at
- * the same place on every row however long the number or the name is.
+ * The index. Every Scoba there is, numbered, one cell per line whether or not
+ * it has been met: a set with gaps in it reads as something to fill, and a
+ * short list of what you happen to have does not. The grid is the Box's own,
+ * cells, faces and all, with the picked line read out in a column beside it.
  */
-.ixList {
+.ixBrowser {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 178px;
+  gap: 8px;
+  width: min(100%, 740px);
+}
+/* Three rows of cells exactly: three 90 px cells and two 8 px gaps inside the
+   grid's 8 px of padding and the panel's own. */
+.ixGridPanel { height: 318px; }
+/* Seven across rather than the Box's six, since a cell here is taller: the
+   whole index fits on the screen at once. */
+.ixGridPanel .bxGrid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.ixSide { justify-content: space-between; }
+/* A row for the number across the top and the tallest face, 64 px, standing
+   on the floor under it, so a face never reaches the number however tall.
+   Written against both classes, since the Box's cell rule comes later in the
+   sheet and would otherwise hold it to the Box's height. */
+.bxCell.ixCell { position: relative; height: 90px; align-items: flex-end; padding-bottom: 4px; }
+.ixCell .ixQ { align-self: center; }
+/* A line not met yet: present, numbered, and plainly not filled in. */
+.ixCell.blank { --fill: var(--p-dead); }
+/* Its number in the corner, over the face where a wide one reaches it. A met
+   cell is as light as the paper, so the number takes the paper's own dark
+   type; on a blank cell it takes the dead text the question mark does. */
+.ixNo { position: absolute; top: 4px; left: 6px; z-index: 1; color: var(--p-page-dim); }
+.ixCell.blank .ixNo { color: var(--p-dead-text); }
+.ixQ { font-size: 24px; font-family: "Relica 24"; color: var(--p-dead-text); }
+/* A line you keep one of, marked in the opposite corner. */
+.ixCell.kept::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  background: var(--p-confirm);
+  box-shadow: 0 0 0 1.5px var(--p-ink);
+}
+/* The picked line on a stage of its own, as the card shows it, the width of
+   the column. Written against both classes, since the card's stage rule comes
+   later in the sheet and would otherwise hold it to the card's width. */
+.bxPortrait.ixStage { width: 100%; height: 88px; }
+.ixRead {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  max-height: calc(var(--ui-h, 450px) * 0.52);
-  overflow-y: auto;
-}
-.ixRow {
-  --fill: var(--p-ink);
-  --ink: var(--p-raised);
-  display: grid;
-  grid-template-columns: 32px 64px minmax(0, 1fr) 48px;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-}
-/* An entry with nothing behind it yet: present, numbered, and plainly not
-   filled in. The outline goes quiet rather than the row going away. */
-.ixRow.blank { --ink: var(--p-quiet); }
-.ixNo {
-  font-size: 12px;
-  color: var(--p-dead-text);
-  text-align: right;
-  letter-spacing: 1px;
-}
-/* One box for every face, so the column of faces is a column. The art is
-   bottom aligned inside it and never scaled. */
-.ixFace {
-  --fill: var(--p-ground);
-  width: 64px;
-  height: 64px;
-  display: flex;
-  align-items: flex-end;
   justify-content: center;
-  overflow: hidden;
+  gap: 4px;
+  flex: 1;
+  text-align: center;
 }
-.ixFace canvas { image-rendering: pixelated; display: block; }
-.ixQ { align-self: center; font-size: 24px; font-family: "Relica 24"; color: var(--p-dead-text); }
-.ixBody { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-/* The name is what the row is looked up by, so it is the largest thing in
-   it by two steps rather than by weight alone. */
-.ixName { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ixWho {
-  font-size: 18px; font-family: "Relica 18";
-  line-height: 1.1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ixRow.blank .ixWho { color: var(--p-dead-text); }
-.ixLine { font-size: 12px; color: var(--p-dim); }
-.ixMark { display: flex; justify-content: flex-end; }
+.ixRead .dim { color: var(--p-dim); }
+.ixReadName { font-size: 18px; font-family: "Relica 18"; color: var(--p-text); }
+.ixReadKinds { min-height: 9px; }
 
 /* Starter picker. Nine of them, in one strip across the top, so the detail
    card below has the rest of the frame to show the chosen one large. */
@@ -1079,26 +1078,24 @@ label.custom input[type="color"] {
   display: grid;
   gap: 8px;
   width: min(100%, 740px);
-  grid-template-columns: 178px minmax(0, 1fr) 84px;
+  grid-template-columns: 178px minmax(0, 1fr);
   grid-template-areas:
-    "search grid side"
-    "info   foot side";
+    "search grid"
+    "info   foot";
 }
 /* Badges at half, the step a battle readout takes, so their outline is the
    same weight as the faces beside them and every frame on the screen. */
-.browser .tico { width: 20.5px; height: 8.5px; }
-.browser .ticos { gap: 2px; }
+.browser .tico, .ixBrowser .tico { width: 20.5px; height: 8.5px; }
+.browser .ticos, .ixBrowser .ticos { gap: 2px; }
 /* Packed tighter than a panel: it has to fit beside the grid with the
    readout under it, all inside one screen. */
 .bxSearch { grid-area: search; }
 .bxPanel.bxSearch { gap: 4px; }
 .bxSearch .bxName { padding: 4px 8px; }
-.bxSearch .bxTypes { gap: 2px; }
-.bxSearch .bxStat input[type="range"] { height: 10px; }
-.bxSearch .bxStat input[type="range"]::-webkit-slider-thumb { height: 12px; }
-.bxSearch .bxStat input[type="range"]::-moz-range-thumb { height: 12px; }
-.bxGridPanel { grid-area: grid; padding: 8px; }
-.bxSide { grid-area: side; display: flex; flex-direction: column; gap: 8px; }
+/* As tall as the search panel beside it and no taller: sized as if it held
+   nothing, so however many faces are in it the row stays the search panel's
+   height, and the grid inside fills what that leaves. */
+.bxGridPanel { grid-area: grid; padding: 8px; contain: size; }
 .bxInfo { grid-area: info; }
 .bxFoot { grid-area: foot; display: flex; }
 .bxPanel {
@@ -1113,19 +1110,20 @@ label.custom input[type="color"] {
   --lit: var(--fill);
   --shade: var(--fill);
   display: grid;
-  /* Five across: a face at the size it stands in a fight is at most 47 px
-     wide, and four columns left each one alone in a cell twice its width. */
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* Six across: a face at the size it stands in a fight is at most 47 px
+     wide, and the grid has the whole width now the scroll column is gone. */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   align-content: start;
-  /* Three rows of cells exactly, three 72 px cells and two 8 px gaps inside
-     8 px of padding, so a row is never cut through the middle. It is what the
-     search panel beside it leaves room for. */
-  height: 248px;
+  /* Whatever the panel leaves, which is three rows and the top of a fourth.
+     With no bar beside it, the edge of the next row is what says there is
+     more to scroll to. */
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   --fill: var(--p-ground);
   padding: 8px;
-  /* The column on the right is the scrollbar; the browser's own is noise. */
+  /* A wheel or a finger scrolls it; a bar would be one more thing to draw. */
   scrollbar-width: none;
 }
 .bxGrid::-webkit-scrollbar { width: 0; height: 0; }
@@ -1161,24 +1159,23 @@ label.custom input[type="color"] {
   color: var(--p-text);
   text-align: center;
 }
+/* Nine toggles in three equal columns. Each is a button in its own right, dark
+   when it is out of the search and red when it is in, with the badge at the
+   size the rest of the screen's badges take. The badge keeps its colours
+   either way, because they are what say which element it is. */
 .bxTypes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
-/* A badge and nothing round it: the badge carries its own outline, and a frame
-   drawn round one that small came out as a second line. Lit when it is part
-   of the search, dimmed when it is not. The padding is only there to make it
-   a target a finger can hit. */
 .bxChip {
-  background: none;
-  border: 0;
-  padding: 4px 0;
+  --fill: var(--p-ground);
+  padding: 5px 0;
   line-height: 0;
   display: flex;
   justify-content: center;
   cursor: pointer;
-  opacity: 0.45;
 }
-.bxChip.sel { opacity: 1; outline: none; }
+.bxChip.sel { --fill: var(--p-primary); outline: none; }
 .bxStat { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.bxSearchOps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+/* Two buttons side by side, each half the panel. */
+.bxPair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
 .bxStatName { width: 30px; color: var(--p-text); }
 .bxStatNum { width: 26px; text-align: right; color: var(--p-dim); }
 .setBar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
@@ -1210,13 +1207,23 @@ label.custom input[type="color"] {
 .bxWide {
   font: inherit;
   font-size: 12px;
-  padding: 8px 8px;
-  --fill: var(--p-action);
+  padding: 6px 8px;
+  --fill: var(--p-primary);
   color: var(--p-text);
   cursor: pointer;
   width: 100%;
 }
+.bxWide:active:not(:disabled) { --fill: var(--p-primary-down); }
 .bxWide:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: default; }
+/* The stat filters: a thin bar that fills in red up to its handle once it is
+   set, so a filter that is on reads as on without reading the number. The
+   fill is drawn from `--at`, which `openBrowser` keeps at the handle's middle. */
+.bxSearch .bxStat input[type="range"] {
+  height: 10px;
+  background: linear-gradient(var(--p-primary) 0 0) 0 0 / var(--at, 0px) 100% no-repeat, var(--p-ground);
+}
+.bxSearch .bxStat input[type="range"]::-webkit-slider-thumb { box-sizing: border-box; width: 8px; height: 16px; }
+.bxSearch .bxStat input[type="range"]::-moz-range-thumb { box-sizing: border-box; width: 8px; height: 16px; }
 
 /* Readout under the search panel: who it is on one line and its types under
    that, or the hint, in a box that holds one height either way. Given only a
@@ -1237,7 +1244,7 @@ label.custom input[type="color"] {
 .bxReadTop .dim { flex: none; }
 .bxReadName { color: var(--p-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Whose party the strip is showing, and the scroll column. */
+/* Whose party the strip is showing. */
 .bxOwner { display: flex; flex-direction: column; gap: 4px; width: 84px; }
 .bxOwnerBtn {
   font: inherit;
@@ -1251,30 +1258,7 @@ label.custom input[type="color"] {
 }
 /* The fill says which one is showing; the square line `.sel` adds elsewhere
    would cut across this frame's stepped corners. */
-.bxOwnerBtn.sel { --fill: var(--p-confirm); color: var(--p-ink); outline: none; }
-.bxArrow {
-  font: inherit;
-  font-size: 12px;
-  padding: 8px 0;
-  --fill: var(--p-raised);
-  color: var(--p-text);
-  cursor: pointer;
-}
-.bxBack { --fill: var(--p-confirm); margin-top: 8px; }
-.bxTrack {
-  --lit: var(--fill);
-  --shade: var(--fill);
-  flex: 1;
-  min-height: 40px;
-  position: relative;
-  --fill: var(--p-ground);
-  touch-action: none;
-  cursor: pointer;
-}
-/* Inside the frame, clear of its 1.5 px outline and its stepped corners. */
-.bxRail { position: absolute; inset: 4px; }
-.bxThumb { position: absolute; left: 0; right: 0; top: 0; height: 100%; background: var(--p-dim); }
-.bxThumb.held { background: var(--p-text); }
+.bxOwnerBtn.sel { --fill: var(--p-primary); color: var(--p-text); outline: none; }
 
 /* The strip under the grid. */
 .bxParty { flex: 1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
@@ -1595,7 +1579,7 @@ html.soft .xface canvas { image-rendering: auto; }
   cursor: pointer;
 }
 #devPanel .maskCell.on { background: var(--p-danger)cc; }
-.bcard .nm .shiny, .partyTop .shiny { color: var(--p-danger); font-size: 12px; font-family: "Relica 12"; line-height: 1; flex: none; }
+.bcard .nm .shiny { color: var(--p-danger); font-size: 12px; font-family: "Relica 12"; line-height: 1; flex: none; }
 
 #devPanel .layerRow { display: flex; gap: 4px; align-items: stretch; }
 #devPanel .layerRow .devItem { flex: 1; min-width: 0; }
