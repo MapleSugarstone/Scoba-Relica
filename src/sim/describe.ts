@@ -413,6 +413,26 @@ function join(pieces: Piece[]): string {
     .join(" ");
 }
 
+/**
+ * What a status does, split into what is true while it is carried and what it
+ * does when it goes off. A readout that knows the Scoba carrying it says the
+ * second half in real numbers instead, so it needs the two apart.
+ */
+export function statusHalves(id: string, opts: StatusOpts = {}): { standing: string; fires: string } {
+  const def = (opts.statuses ?? STATUSES)[id];
+  if (!def || def.text !== undefined || def.hand) return { standing: describeStatus(id, opts), fires: "" };
+  const pieces = statusPieces(def, HOLDER, opts);
+  return {
+    standing: join(pieces.filter((p) => !p.triggered)),
+    fires: join(pieces.filter((p) => p.triggered)),
+  };
+}
+
+/** When a trigger goes off, written to trail a sentence rather than open one. */
+export function whileTrigger(t: StatusTrigger): string {
+  return low(when(t));
+}
+
 /** What a status does to the Scoba carrying it. */
 export function describeStatus(id: string, opts: StatusOpts = {}): string {
   const def = (opts.statuses ?? STATUSES)[id];

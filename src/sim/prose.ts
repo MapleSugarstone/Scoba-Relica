@@ -11,11 +11,11 @@
 // A token nobody recognises is left exactly as it was typed, brackets and all,
 // so a stray bracket shows up as a stray bracket rather than swallowing the
 // rest of the sentence.
-import { MOVES, allSteps, type Move } from "./species";
+import { MOVES, allSteps, moveTypes, type Move } from "./species";
 import { FIELDS, STATUSES, isContinuous, powerCategory, type Basis, type DamageCategory, type Step, type StatusEffect } from "./status";
 import { describeField, describeStatus, perLevel } from "./describe";
 import { MAX_LEVEL } from "./scoba";
-import { STAT_LABELS, type Stats } from "./types";
+import { STAT_LABELS, type ElementType, type Stats } from "./types";
 import { hitCategory } from "./script/read";
 
 /**
@@ -35,13 +35,39 @@ export type Token =
   /** A mark it leaves, by status id. */
   | { of: "status"; id: string };
 
+/**
+ * One line of the arithmetic behind a number. Every window that shows working
+ * is built from these, so a mark's sum and a move's sum are the same rows in
+ * the same order with the same colours.
+ *
+ * A line with an empty `value` is a sentence rather than a figure, and is given
+ * the whole width of the window to wrap into.
+ */
+export interface WorkLine {
+  label: string;
+  value: string;
+  /** Colours the value as an element rather than as plain text. */
+  element?: ElementType;
+  /** Colours it as better or worse for whoever is reading. */
+  tone?: "good" | "bad";
+  /** Takes the colour its kind of damage has everywhere else in the game. */
+  dmg?: DamageCategory;
+}
+
 export type Part =
   | { kind: "text"; text: string }
   /**
    * A highlighted word, what hovering it should say, and which of the damage
    * colours it takes where it is a number being dealt.
    */
-  | { kind: "token"; label: string; detail: string; tone?: "physical" | "magic" | "true" };
+  | {
+    kind: "token";
+    label: string;
+    detail: string;
+    tone?: "physical" | "magic" | "true";
+    /** Where the number comes from and what happens to it on the way out. */
+    work?: WorkLine[];
+  };
 
 /**
  * What a written line is being read against. The stats are the caster's, and
@@ -52,6 +78,12 @@ export interface ProseFor {
   move?: Move | null;
   stats?: Stats;
   level?: number;
+  /**
+   * The caster's own elements. A hit lands for half again where the move
+   * shares one, so a window that knows them can say whether it applies here
+   * rather than only that it exists.
+   */
+  types?: ElementType[];
 }
 
 /** Everything a written line may put in brackets, for the editor to list. */
@@ -69,6 +101,7 @@ export const TOKENS = [
 ];
 
 const pct = (n: number): string => `${Math.round(n * 100)}%`;
+
 
 /** Reads one bracket's contents, or null where it names nothing. */
 export function readToken(inside: string): { token: Token; label?: string } | null {
@@ -170,12 +203,99 @@ function scalingsOf(move: Move): TokenOf[] {
 }
 
 function hitToken(hit: HitStep, at: ProseFor): Part & { kind: "token" } {
+  const move = at.move;
+  if (!move) return { kind: "token", label: "?", detail: "Nothing to read this off." };
   return {
     kind: "token",
-    label: damageLabel(hit, at),
+    label: damageLabel(hit, at, move),
     detail: damageDetail(hit),
     tone: hitCategory(hit),
+    work: damageWork(hit, at),
   };
+}
+
+/**
+ * Where a hit's number comes from and what happens to it on the way out: the
+ * stats it is read off, the element it lands as, and the half again a caster
+ * gets for sharing one of the move's elements.
+ *
+ * The type chart is left out. What a move is worth is a property of the move;
+ * what it comes to against one particular Scoba belongs beside that Scoba.
+ */
+function damageWork(hit: HitStep, at: ProseFor): WorkLine[] {
+  const move = at.move;
+  if (!move) return [];
+  const out: WorkLine[] = [];
+  if (hit.perLevel !== undefined) {
+    out.push({ label: `${hit.perLevel} per level`, value: at.level === undefined ? "" : `level ${at.level}` });
+  } else {
+    for (const s of hit.scaling) {
+      // The stat, then the share taken of it, the same two rows a mark shows.
+      out.push({
+        label: `Source's ${STAT_LABELS[s.stat]}`,
+        value: at.stats ? String(at.stats[s.stat]) : "",
+      });
+      out.push({
+        label: pct(s.scale),
+        value: at.stats ? String(Math.floor(at.stats[s.stat] * s.scale)) : "",
+      });
+    }
+    if (hit.flatAtCeiling !== undefined) {
+      out.push({ label: perLevel(hit.flatAtCeiling), value: at.level === undefined ? "" : `level ${at.level}` });
+    }
+  }
+  const types = hitElements(hit, move);
+  for (const t of types) {
+    out.push({ label: "Type", value: `${cap(t)} ${hitCategory(hit)}`, element: t });
+  }
+  // Said either way: a reader comparing two casters wants to know the rule is
+  // there and that this one does not have it, rather than seeing nothing.
+  if (at.types) {
+    const match = types.find((t) => at.types!.includes(t));
+    out.push({
+      label: "Elemental Synergy",
+      value: match ? "1.5x" : "1x",
+      ...(match ? { element: match } : {}),
+    });
+  } else if (types.length > 0) {
+    out.push({ label: `Elemental Synergy, for ${types.map(cap).join(" or ")}`, value: "1.5x" });
+  }
+  // As far as the arithmetic goes without a target. The chart and the armor are
+  // read off whoever is being hit, and a move is read here before anyone has
+  // been aimed at, so the total is what the caster brings to it.
+  const base = baseOf(hit, at);
+  if (base !== null) {
+    out.push({
+      label: "Total",
+      value: String(Math.max(1, Math.floor(base * synergyFor(types, at)))),
+      dmg: hitCategory(hit),
+    });
+  }
+  // What it meets on the way in, as a sentence rather than a figure: there is
+  // nobody to read a figure off yet.
+  out.push({ label: reducedBy(hitCategory(hit), "damage"), value: "" });
+  return out;
+}
+
+/** What a hit comes to before anything is done to it, where the stats are known. */
+function baseOf(hit: HitStep, at: ProseFor): number | null {
+  if (hit.perLevel !== undefined) return at.level === undefined ? null : hit.perLevel * at.level;
+  if (!at.stats) return null;
+  let base = hit.flatAtCeiling !== undefined && at.level !== undefined
+    ? (hit.flatAtCeiling * at.level) / MAX_LEVEL
+    : 0;
+  for (const s of hit.scaling) base += at.stats[s.stat] * s.scale;
+  return base;
+}
+
+/**
+ * What one hit lands as, which is the same reading the battle takes: a step
+ * that names its own element lands as that alone, and one that does not takes
+ * the move's, both of them where the move has two.
+ */
+function hitElements(hit: HitStep, move: Move): ElementType[] {
+  if (hit.element) return [hit.element];
+  return moveTypes(move);
 }
 
 /**
@@ -192,11 +312,20 @@ function powerToken(id: string, at: ProseFor): Part & { kind: "token" } {
   const off = power.basis === "source-str" ? "str" : power.basis === "source-mag" ? "mag" : null;
   const number = off && at.stats ? Math.floor(at.stats[off] * share) : null;
   const category = powerCategory(def);
+  const work: WorkLine[] = [];
+  const off2 = off;
+  if (off2 && at.stats) {
+    work.push({ label: `Source's ${STAT_LABELS[off2]}`, value: String(at.stats[off2]) });
+    work.push({ label: pct(share), value: String(Math.floor(at.stats[off2] * share)) });
+  }
+  if (number !== null) work.push({ label: "Total", value: String(number), dmg: category });
+  work.push({ label: reducedBy(category, "statuses"), value: "" });
   return {
     kind: "token",
     label: number === null ? `${pct(share)} ${basisShort(power.basis)}` : String(number),
-    detail: `${pct(share)} of ${basisName(power.basis)}. ${reducedBy(category, "statuses")}`,
+    detail: `${pct(share)} of ${basisName(power.basis)}.`,
     tone: category,
+    work,
   };
 }
 
@@ -223,8 +352,14 @@ function markToken(of: "damage" | "heal", id: string, at: ProseFor): Part & { ki
   const basis = effect.kind === "damage" ? effect.damage.basis : effect.kind === "heal" ? effect.basis : "source-str";
   const flat = effect.kind === "damage" ? effect.damage.flatAtCeiling ?? 0 : 0;
   const off = basis === "source-str" ? "str" : basis === "source-mag" ? "mag" : null;
+  const element = effect.kind === "damage" ? effect.damage.element : null;
+  const match = element && effect.kind === "damage" && effect.damage.category !== "true"
+    ? synergyFor([element], at)
+    : 1;
   const number = off && at.stats
-    ? Math.floor(at.stats[off] * frac + (at.level === undefined ? 0 : (flat * at.level) / MAX_LEVEL))
+    ? Math.max(1, Math.floor(
+      (at.stats[off] * frac + (at.level === undefined ? 0 : (flat * at.level) / MAX_LEVEL)) * match,
+    ))
     : null;
   // A flat amount is written in the script as what it comes to at the level
   // ceiling, and read out as what each level of the caster adds.
@@ -235,13 +370,31 @@ function markToken(of: "damage" | "heal", id: string, at: ProseFor): Part & { ki
   // With no caster to read, the label says what it is a share of, the same way
   // a move's own token does.
   const shareLabel = `${pct(frac)} ${basisShort(basis)}${flat ? ` + ${perLevel(flat)} damage per level` : ""}`;
+  const work: WorkLine[] = [];
+  if (off && at.stats) {
+    work.push({ label: `Source's ${STAT_LABELS[off]}`, value: String(at.stats[off]) });
+    work.push({ label: pct(frac), value: String(Math.floor(at.stats[off] * frac)) });
+  }
+  if (element) work.push({ label: "Type", value: `${cap(element)} ${tone ?? ""}`.trim(), element });
+  if (element && effect.kind === "damage" && effect.damage.category !== "true") {
+    work.push({ label: "Elemental Synergy", value: match > 1 ? "1.5x" : "1x", ...(match > 1 ? { element } : {}) });
+  }
+  if (number !== null) {
+    work.push({
+      label: "Total",
+      value: String(number),
+      ...(effect.kind === "damage" ? { dmg: effect.damage.category } : {}),
+    });
+  }
+  if (effect.kind === "damage") {
+    work.push({ label: reducedBy(effect.damage.category, "statuses"), value: "" });
+  }
   return {
     kind: "token",
     label: number === null ? shareLabel : String(number),
-    detail: effect.kind === "damage"
-      ? `${cap(share)}. ${reducedBy(effect.damage.category, "statuses")}`
-      : `${cap(share)}.`,
+    detail: `${cap(share)}.`,
     ...(tone ? { tone } : {}),
+    work,
   };
 }
 
@@ -288,7 +441,7 @@ function healToken(mend: HealStep, at: ProseFor): Part & { kind: "token" } {
  * chart and before whatever is standing on the other side, so it is what the
  * move is worth rather than what it would do to one particular target.
  */
-function damageLabel(hit: HitStep, at: ProseFor): string {
+function damageLabel(hit: HitStep, at: ProseFor, move: Move): string {
   if (hit.perLevel !== undefined) {
     return at.level === undefined
       ? `${hit.perLevel} damage per level`
@@ -303,7 +456,17 @@ function damageLabel(hit: HitStep, at: ProseFor): string {
   }
   let base = flat && at.level !== undefined ? (flat * at.level) / MAX_LEVEL : 0;
   for (const s of hit.scaling) base += at.stats[s.stat] * s.scale;
-  return String(Math.floor(base));
+  return String(Math.max(1, Math.floor(base * synergyFor(hitElements(hit, move), at))));
+}
+
+/**
+ * The half again a caster gets for sharing one of the elements a number lands
+ * as. Folded into every number written for a particular caster, since it is a
+ * property of that caster rather than of whoever it is aimed at: a number that
+ * left it out read lower than the move would ever actually deal.
+ */
+function synergyFor(types: ElementType[], at: ProseFor): number {
+  return at.types && types.some((t) => at.types!.includes(t)) ? 1.5 : 1;
 }
 
 /** The long form, for the window that opens on hovering it. */
@@ -318,7 +481,9 @@ function damageDetail(hit: HitStep): string {
   const each = hit.perStackOf !== undefined
     ? `, for each ${STATUSES[hit.perStackOf]?.name ?? hit.perStackOf} on the target`
     : "";
-  return `${main}${also}${flat}${each}. ${reducedBy(hitCategory(hit), "damage")}`;
+  // What it meets on the way in is the last line of the working rather than
+  // part of this, so the opening line says only where the number comes from.
+  return `${main}${also}${flat}${each}.`;
 }
 
 /** What a hand of exactly 21 pays out, which the battle reads off the dealer's Strength as physical damage. */

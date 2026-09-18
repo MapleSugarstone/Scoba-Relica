@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_SLOTS, MAX_MANA, REWIND_KEEP, TRAVEL_SLOT, castCost, castableMoves, choiceError, combatantMaxHp,
-  combatantStats, emptySlots, isPawnSlot, resolveTurn, rewind, sendIn, slotsAwaitingChoice, startBattle,
-  stateHash,
+  benchFor, combatantStats, displayName, emptySlots, isPawnSlot, joinBattle, resolveTurn, rewind, sendIn,
+  slotsAwaitingChoice, startBattle, stateHash,
   type BattleState, type Choice, type Combatant, type Slot,
 } from "../src/sim/battle";
 import { MOVES, SPECIES, moveTypes } from "../src/sim/species";
@@ -562,6 +562,92 @@ describe("Time Machine", () => {
     expect(there.aside).toBe(true);
   });
 
+  it("is one journey a battle, for every Scoba on either side", () => {
+    const st = wound();
+    // A second Unwind on the bench, which could otherwise make its own journey.
+    const twin = benched(st, 0, 0);
+    resolveTurn(st, [travel(), block(1), block(0, 1), block(1, 1)]);
+    expect(st.travelled).toBe(true);
+    for (const side of [0, 1] as const) {
+      for (const c of st.teams[side]) {
+        expect(castableMoves(c), displayName(c.scoba)).not.toContain("time-machine");
+      }
+    }
+    // What is left of the move in the slot it held.
+    expect(castableMoves(st.teams[0][twin]!)).toContain("time-shatter");
+  });
+
+  it("takes the journey off a Scoba that joins after one has been made", () => {
+    // A co-op fight with the second seat still open, so somebody can walk in.
+    const st = startBattle("join", [mine(wild("unwind"))], [wild("plib", 30, "e0")],
+      { slots: 2, owners: ["A", null] });
+    for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
+    for (let i = 0; i < 3; i++) resolveTurn(st, [block(0), block(0, 1)]);
+    st.teams[0][0]!.mana = MAX_MANA;
+    st.teams[0][0]!.cds = {};
+    resolveTurn(st, [travel(), block(0, 1)]);
+    expect(st.travelled).toBe(true);
+    const before = st.teams[0].length;
+    // Nothing swapped this one's move: it was on neither team at the time.
+    joinBattle(st, "B", [{ ...wild("unwind", 30, "late"), owner: "B" }]);
+    expect(st.teams[0].length).toBeGreaterThan(before);
+    const late = st.teams[0].at(-1)!;
+    expect(late.scoba.speciesId).toBe("unwind");
+    expect(castableMoves(late)).not.toContain("time-machine");
+  });
+
+  it("refuses a second journey reached any other way, rather than nesting one", () => {
+    // Two Unwinds on the field from the start, so the second is standing there
+    // in the past as well and could reach for a journey of its own.
+    const st = startBattle("twin", [mine(wild("unwind")), mine(wild("unwind", 30, "twin"))],
+      [wild("plib", 30, "e0"), wild("grima", 30, "e1")], { slots: 2 });
+    for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
+    for (let i = 0; i < 3; i++) resolveTurn(st, [block(0), block(1), block(0, 1), block(1, 1)]);
+    for (const c of st.teams[0]) { c.mana = MAX_MANA; c.cds = {}; }
+    resolveTurn(st, [travel(), block(1), block(0, 1), block(1, 1)]);
+    const turnAfterTravel = st.turn;
+    // However the move came back: a step that hands it over, a Scoba the swap
+    // never reached, an effect that casts it. The rule is the effect's own.
+    delete st.travelled;
+    const other = st.teams[0][1]!;
+    delete other.swapped;
+    other.mana = MAX_MANA;
+    other.cds = {};
+    expect(castableMoves(other)).toContain("time-machine");
+    // Put the cast into the round that is about to play itself again.
+    const record = st.travelling!.left[0]!;
+    record.choices = [
+      ...record.choices.filter((c) => !(c.side === 0 && c.slot === 1)),
+      { kind: "spell", side: 0, slot: 1, moveId: "time-machine", picks: [null] } as Choice,
+    ];
+    const events = resolveTurn(st, [inThePast(st, "cogwork", [{ side: 1, index: 0 }])]);
+    // One journey out, one ride home, and the battle back where it started.
+    expect(events.filter((e) => e.kind === "travel" && e.way === "out")).toHaveLength(0);
+    expect(events.filter((e) => e.kind === "travel" && e.way === "back")).toHaveLength(1);
+    expect(st.travelling).toBeUndefined();
+    expect(st.turn).toBe(turnAfterTravel + 3);
+    expect(events.some((e) => e.text.includes("already been made"))).toBe(true);
+  });
+
+  it("goes nowhere, and takes nothing with it, when there is no time behind it", () => {
+    // The very first round of a fight: one round on file, and the round it
+    // would leave is not one of the ones played again, so there is nothing.
+    const st = clock(["plib", "grima"], 2);
+    for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
+    const foe = st.teams[1][0]!;
+    foe.hp -= 40;
+    const hurt = foe.hp;
+    const events = resolveTurn(st, [travel(), block(1), block(0, 1), block(1, 1)]);
+    expect(events.some((e) => e.text.includes("no time to go back to"))).toBe(true);
+    // The round it was cast in stands: winding back and then giving up put the
+    // battle in the turn it had landed in with the round still playing on top.
+    expect(st.turn).toBe(1);
+    expect(st.travelling).toBeUndefined();
+    expect(st.travelled).toBeUndefined();
+    expect(st.teams[1][0]!.hp).toBe(hurt);
+    expect(st.history?.length).toBe(1);
+  });
+
   it("plays on after the traveller has gone, so the board it leaves is not the final one", () => {
     const st = clock(["plib", "grima"], 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
@@ -639,6 +725,12 @@ describe("Time Machine", () => {
     expect(emptySlots(st, 0)).not.toContain(TRAVEL_SLOT);
     expect(choiceError(st, { kind: "switch", side: 0, slot: TRAVEL_SLOT, benchIndex: 1 } as Choice))
       .toMatch(/not even from this turn/);
+    // The traveller is offered nobody to swap to, which is what the Extra
+    // window reads to decide whether to put a Swap button on itself at all.
+    // The bench is there; it is simply not this mark's to send out.
+    benched(st, 0, 1);
+    expect(benchFor(st, 0, 0).length).toBeGreaterThan(0);
+    expect(benchFor(st, 0, TRAVEL_SLOT)).toEqual([]);
   });
 
   it("asks the traveller for a move, and nobody else", () => {

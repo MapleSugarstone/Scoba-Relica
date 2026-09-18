@@ -527,10 +527,15 @@ describe("a status that deals damage every turn", () => {
     expect(inst.power).toBe(mag * 0.2);
     const max = combatantMaxHp(foe);
     const before = foe.hp;
-    // Both damage steps are magic, so each meets the holder's Resistance.
+    // Both damage steps are magic, so each meets the holder's Resistance, and
+    // a mark lands like a move does: the caster's own element where it shares
+    // one, then the chart against whoever is carrying it.
     const res = mitigation(combatantStats(foe).res);
+    const syn = scobaTypes(me.scoba).includes("sun") ? 1.5 : 1;
+    const eff = typesEffectiveness(["sun"], scobaTypes(foe.scoba));
+    const lands = (power: number): number => Math.max(1, Math.floor(power * syn * eff * res));
     const events = resolveTurn(st, [{ kind: "block", side: 0, slot: 0 }]);
-    expect(before - foe.hp).toBe(Math.max(1, Math.floor(max * 0.05 * res)) + Math.max(1, Math.floor(mag * 0.2 * res)));
+    expect(before - foe.hp).toBe(lands(max * 0.05) + lands(mag * 0.2));
     expect(events.filter((e) => e.text.includes("Probe Ember hits"))).toHaveLength(2);
   });
 });

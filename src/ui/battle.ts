@@ -12,6 +12,8 @@ import {
   emptySlots,
   sendIn,
   choiceError,
+  formsOf,
+  markNumbers,
   castableMoves,
   heldMoves,
   hyperError,
@@ -45,17 +47,21 @@ import { abilityText, moveText } from "../game/texts";
 import { proseBox, proseNodes } from "./prose";
 import { fieldSigilText, sigilText, sigilUrl, type SigilText } from "./sigil";
 import { BUILD_VERSION, devMode } from "../version";
+import { fitWindow } from "./fit";
 import { startReplay, stopReplay, takeReplay } from "../sim/replay";
 import { enemyChoices, pawnChoices } from "../sim/ai";
 import { PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
 import { rngFrom } from "../sim/rng";
 import { kitted } from "../sim/kit";
-import { gainXp, MAX_LEVEL, maxHp, moveName, settleCaught, type ScobaInstance } from "../sim/scoba";
+import { gainXp, MAX_LEVEL, maxHp, moveName, scobaTypes, settleCaught, type ScobaInstance } from "../sim/scoba";
 import { AETUS_PER_TRAINER, AETUS_PER_WILD } from "../sim/growth";
 import { ABILITIES, abilityStatuses, MAX_MOVES, MOVES, SPECIES, type Move } from "../sim/species";
 import { BattleStage } from "../game/battlestage";
 import { frameRect, uiZoom, viewport } from "../engine/renderer";
 import { typeIcon, typeIcons } from "./typeicon";
+import { actButton, type ActOpts } from "./actbutton";
+import { workRows } from "./working";
+import { critterPortrait, lookOf } from "../game/critters";
 import type { SaveData } from "../save/save";
 import { addToParty, autosave, partyOf, writeSave } from "../save/save";
 import type { UI } from "./screens";
@@ -326,12 +332,39 @@ function runBattle(
     if (stacks > 1) mark.appendChild(el("b", "sx", String(stacks)));
     const tip = el("span", "sigtip");
     tip.appendChild(el("strong", undefined, said.name));
-    if (said.desc) tip.appendChild(el("span", undefined, said.desc));
+    if (said.desc) {
+      const line = el("span");
+      for (const part of said.said) {
+        line.append(part.dmg ? el("span", `dmg ${part.dmg}`, part.text) : part.text);
+      }
+      tip.appendChild(line);
+    }
     if (said.note) tip.appendChild(el("span", "dim", said.note));
+    const work = workRows(said.working);
+    if (work) {
+      tip.appendChild(work);
+      mark.classList.add("hasWork");
+    }
     mark.appendChild(tip);
     // The readouts ride over the scene and reach its edges, so a window on
     // one out there is nudged back in rather than drawn off the screen.
-    mark.addEventListener("pointerenter", () => nudgeTip(tip));
+    mark.addEventListener("pointerenter", () => fitWindow(tip));
+    // Hovering says what the mark does; clicking holds the window open with
+    // the working under it, so the numbers can be read without keeping the
+    // pointer still. Clicking anywhere else puts it away.
+    mark.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = mark.classList.contains("held");
+      dropHeld();
+      if (!open) {
+        mark.classList.add("held");
+        // The readouts are laid out overlapping and paint in the order they
+        // were built, so the one holding a window open has to come over the
+        // rest or its neighbour covers half of what it is saying.
+        mark.closest(".bcard")?.classList.add("holding");
+        fitWindow(tip);
+      }
+    });
     return mark;
   };
 
@@ -354,7 +387,8 @@ function runBattle(
    * list mid-fight, and the one under the pointer comes up to full with a
    * small window saying what it is doing.
    */
-  const fillMarks = (marks: HTMLElement, side: 0 | 1, want: ReturnType<typeof statusSummary>): void => {
+  const fillMarks = (marks: HTMLElement, ref: TargetRef, want: ReturnType<typeof statusSummary>): void => {
+    const side = ref.side;
     const field = fieldMark(side);
     const key = [
       field ? `@${field.id}:${field.turnsLeft}` : "@",
@@ -366,20 +400,16 @@ function runBattle(
     // The field leads the row: it is the one mark there that is on the side
     // rather than on the Scoba, and its window is what says so.
     if (field) marks.appendChild(sigilMark(field.id, fieldSigilText(field), 1));
-    for (const m of want) marks.appendChild(sigilMark(m.id, sigilText(m), m.stacks));
+    for (const m of want) {
+      // Read off the Scoba the card belongs to, so the window says what the
+      // mark comes to here rather than what share of something it is.
+      const held = st.teams[ref.side][ref.index]?.statuses.find((inst) => inst.id === m.id);
+      const on = held ? markNumbers(st, ref, held) : [];
+      marks.appendChild(sigilMark(m.id, sigilText(m, on), m.stacks));
+    }
   };
 
   /** Shifts a hover window sideways until it clears both edges of the screen. */
-  const nudgeTip = (tip: HTMLElement): void => {
-    tip.style.setProperty("--nudge", "0px");
-    const box = tip.getBoundingClientRect();
-    const edge = frameRect();
-    const pad = 4;
-    const over = box.right > edge.right - pad
-      ? edge.right - pad - box.right
-      : box.left < edge.left + pad ? edge.left + pad - box.left : 0;
-    if (over !== 0) tip.style.setProperty("--nudge", `${Math.round(over / uiZoom())}px`);
-  };
 
   /** The move under the pointer and who would cast it, so a readout can say what it would land at before it is picked. */
   let hoverMove: { move: Move; user: TargetRef } | null = null;
@@ -465,7 +495,7 @@ function runBattle(
       state.textContent = now.fainted ? "Fainted" : c.blocking ? "Blocking" : eff ? eff.label : "";
       state.classList.toggle("good", eff !== null && eff.mult > 1);
       state.classList.toggle("poor", eff !== null && eff.mult < 1);
-      fillMarks(marks, ref.side, now.marks);
+      fillMarks(marks, ref, now.marks);
     };
     refresh();
     return { node: wrap, refresh };
@@ -504,7 +534,7 @@ function runBattle(
         color: frac < 0.25 ? "#d9553f" : frac < 0.55 ? "#e7a03c" : "#7aa74a",
       });
       mpBar.set(now.mana / 100, now.manaTrail / 100);
-      fillMarks(marks, ref.side, now.marks);
+      fillMarks(marks, ref, now.marks);
     };
     refresh();
     return { node: wrap, refresh };
@@ -829,7 +859,16 @@ function runBattle(
     return b;
   };
 
+  /** Puts away a sigil window somebody clicked open. */
+  const dropHeld = (): void => {
+    for (const held of document.querySelectorAll(".mark.held")) held.classList.remove("held");
+    for (const plate of document.querySelectorAll(".bcard.holding")) plate.classList.remove("holding");
+  };
+  document.addEventListener("click", dropHeld);
+
   const render = (): void => {
+    // A window held open belongs to a readout that is about to be rebuilt.
+    dropHeld();
     // Rebuilding the page takes every button with it, and a removed button
     // never gets its pointerleave, so the mark goes with the page.
     costPreview = null;
@@ -855,42 +894,16 @@ function runBattle(
     positionPlates();
   };
 
+  /**
+   * The shared move button, with the fight's own rule on top: nothing is
+   * pressable while a round is playing itself out.
+   */
   const act = (
-    label: string,
-    sub: string,
-    onPick: () => void,
-    opts: {
-      disabled?: boolean; alt?: boolean; small?: boolean; hot?: boolean;
-      type?: ElementType; type2?: ElementType; badge?: ElementType;
-    } = {},
-  ): HTMLButtonElement => {
-    const dual = opts.type !== undefined && opts.type2 !== undefined;
-    // The badges a button wears, at its right end: a move's type or types,
-    // or the type the basic attack lands as.
-    const marks = [opts.type, opts.type2, opts.badge].filter((t): t is ElementType => t !== undefined);
-    const b = el("button",
-      `act${opts.alt ? " alt" : ""}${opts.small ? " small" : ""}${opts.hot ? " hot" : ""}` +
-      `${opts.type ? " typed" : ""}${dual ? " dual" : ""}${marks.length > 0 ? " marked" : ""}`,
-    ) as HTMLButtonElement;
-    if (opts.type) b.style.setProperty("--type-fill", TYPE_COLORS[opts.type]);
-    if (opts.type2) b.style.setProperty("--type-fill2", TYPE_COLORS[opts.type2]);
-    const col = el("span", "tcol");
-    col.appendChild(el("span", "tlabel", label));
-    if (sub) col.appendChild(el("span", "sub", sub));
-    b.appendChild(col);
-    if (marks.length > 0) {
-      const mark = el("span", "tmark");
-      for (const t of marks) mark.appendChild(typeIcon(t));
-      b.appendChild(mark);
-    }
-    b.disabled = !!opts.disabled || busy;
-    b.addEventListener("click", () => {
-      if (busy) return;
-      sfx.tap();
-      onPick();
-    });
-    return b;
-  };
+    label: string, sub: string, onPick: () => void, opts: ActOpts = {},
+  ): HTMLButtonElement => actButton(label, sub, () => {
+    if (busy) return;
+    onPick();
+  }, { ...opts, disabled: opts.disabled === true || busy });
 
   /**
    * Who walks on for a slot that was emptied. It costs no turn: the pick is
@@ -1217,7 +1230,9 @@ function runBattle(
     // items and would otherwise drop the spaces either side of each number.
     const out = document.createElement("span");
     out.append(`${move.name}: `);
-    out.appendChild(proseNodes(moveText(move), { move, stats: combatantStats(me), level: me.scoba.level }));
+    out.appendChild(proseNodes(moveText(move), {
+      move, stats: combatantStats(me), level: me.scoba.level, types: scobaTypes(me.scoba),
+    }));
     return out;
   };
 
@@ -1331,12 +1346,32 @@ function runBattle(
     ui.setLocked(true);
   };
 
+  /** How wide and tall a Scoba's portrait is allowed to be on its panel. */
+  const FACE_BOX = 44;
+
+  /**
+   * Sizes a portrait to fit its box without squashing it. The drawing is
+   * cropped to the Scoba, so one line comes out tall and another wide, and a
+   * limit on each side separately pulls whichever one is over out of shape.
+   */
+  const fitted = (cv: HTMLCanvasElement): HTMLCanvasElement => {
+    const k = Math.min(1, FACE_BOX / cv.width, FACE_BOX / cv.height);
+    cv.style.width = `${Math.round(cv.width * k)}px`;
+    cv.style.height = `${Math.round(cv.height * k)}px`;
+    return cv;
+  };
+
   /** One Scoba on the Extra window: where it stands, its stats and its moves. */
   const scobaPanel = (c: Combatant, ref: TargetRef, slot: number): HTMLElement => {
     const wrap = el("div", "card xscoba");
     const sp = SPECIES[c.scoba.speciesId]!;
     const out = st.active[0].includes(ref.index);
     const nm = el("div", "nm cardHead");
+    // Drawn as it stands on the field, spent forms and Hyper-Mode included, so
+    // the panel shows the Scoba the fight is showing.
+    const face = el("div", "xface");
+    face.appendChild(fitted(critterPortrait(art, sp, c.scoba.sire, c.scoba.shiny, lookOf(sp, c.scoba, formsOf(c)))));
+    nm.appendChild(face);
     nm.appendChild(el("strong", undefined, displayName(c.scoba)));
     nm.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
     nm.appendChild(typeIcons(c.scoba));
@@ -1368,25 +1403,45 @@ function runBattle(
       wrap.appendChild(row);
     }
 
+    // The same board the fight itself shows: four cells, in the same order,
+    // with a move wearing its elements. A Scoba with fewer moves shows the rest
+    // as dead cells rather than shrinking the board, because a status can
+    // address a slot by its position and the position has to be there.
     const detail = el("div", "xinfo");
-    const row = el("div", "bactions");
-    for (const id of heldMoves(c)) {
-      const move = MOVES[id];
-      if (!move) continue;
-      row.appendChild(act(move.name, `${castCost(c, move.id)}% mana`, () => {
-        detail.innerHTML = "";
-        detail.appendChild(explainMove(move, ref, slot));
-      }, { type: move.type }));
+    const say = (move: Move | undefined): void => {
+      detail.innerHTML = "";
+      detail.appendChild(move
+        ? explainMove(move, ref, slot)
+        : el("span", "dim", "Nothing in that slot."));
+    };
+    const board = el("div", "bgrid xmoves");
+    for (let i = 0; i < MAX_MOVES; i++) {
+      const move = MOVES[heldMoves(c)[i] ?? ""];
+      if (!move) {
+        const dead = el("button", "act slot-empty") as HTMLButtonElement;
+        dead.disabled = true;
+        dead.appendChild(el("span", undefined, "None."));
+        board.appendChild(dead);
+        continue;
+      }
+      const cd = c.cds[move.id] ?? 0;
+      const gone = move.oncePerBattle && c.spent.includes(move.id);
+      const cost = castCost(c, move.id);
+      board.appendChild(act(
+        move.name,
+        gone ? "spent" : `${cost}% mana${move.cooldown ? ` · cd${move.cooldown}` : ""}${cd > 0 ? ` · wait ${cd}` : ""}`,
+        () => say(move),
+        { type: move.type, ...(move.type2 ? { type2: move.type2 } : {}) },
+      ));
     }
-    wrap.appendChild(row);
-    wrap.appendChild(detail);
+    wrap.appendChild(board);
+    // What a move does gets a box of its own, the way the fight's own message
+    // box does, rather than running on under the buttons as loose text.
+    const box = el("div", "xsay");
+    box.appendChild(detail);
+    wrap.appendChild(box);
+    say(MOVES[heldMoves(c)[0] ?? ""]);
     return wrap;
-  };
-
-  /** Colour a run of text by what kind of damage it is. */
-  const dmgSpan = (text: string, category: "physical" | "magic" | "true"): HTMLElement => {
-    const e = el("span", `dmg ${category}`, text);
-    return e;
   };
 
   /** What a move does, in numbers, against what is standing there now. */
@@ -1407,16 +1462,12 @@ function runBattle(
 
     // The rule's own line first, then what it comes to against whoever is
     // standing there right now.
-    box.appendChild(proseBox(moveText(move), { move, ...(holder ? { stats: combatantStats(holder), level: holder.scoba.level } : {}) }));
-    if (preview && preview.damage !== null) {
-      const cat = preview.category === "physical" ? "physical" : "magic";
-      const line = el("div");
-      line.appendChild(document.createTextNode("Would deal "));
-      line.appendChild(dmgSpan(`${preview.damage} damage`, cat));
-      if (preview.eff > 1) line.appendChild(el("span", "good", " Super effective."));
-      if (preview.eff < 1) line.appendChild(el("span", "dim", " Resisted."));
-      box.appendChild(line);
-    }
+    box.appendChild(proseBox(moveText(move), {
+      move,
+      ...(holder
+        ? { stats: combatantStats(holder), level: holder.scoba.level, types: scobaTypes(holder.scoba) }
+        : {}),
+    }));
     if (preview && preview.heal !== null) {
       const line = el("div");
       line.appendChild(document.createTextNode("Would restore "));
@@ -1806,6 +1857,7 @@ function runBattle(
       stage.onRoster = null;
       liveStage = null;
       livePeer = null;
+      document.removeEventListener("click", dropHeld);
       // The rounds are only worth holding while the fight they belong to is
       // still on screen to be exported from.
       stopReplay();

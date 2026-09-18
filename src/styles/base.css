@@ -7,10 +7,10 @@
  * the quiet fill instead of picking a darker blue of its own, which is how
  * the sheet ended up with four near-identical slates.
  *
- * There is no ramp per role because there does not need to be one: `--lit`
- * and `--shade` below derive the light and dark faces of whatever fill a
- * component sets, so a swatch carrying a player's own colour is shaded the
- * same way the confirm button is.
+ * There is no ramp per role because there does not need to be one: a panel is
+ * its fill inside its outline, with no lighter or darker face along either
+ * edge, so a swatch carrying a player's own colour is drawn the same way the
+ * confirm button is.
  */
 :root {
   --p-ink: #171b2c;
@@ -235,25 +235,27 @@ html.portrait #rotate { display: flex; }
 
 /*
  * Every panel and button is one shape: a 3 px outline with stepped corners
- * over a flat fill. It is built from four axis-aligned rectangles per
- * layer (fill first, so it paints over the outline's middle) because a
- * border-radius corner is a curve the browser has to antialias, and a
- * rectangle edge never is. The steps run 4, 2, 1, 1, 0 px in from the
- * corner, which reads as a radius without ever softening a pixel.
+ * over a flat fill. It is built from axis-aligned rectangles (fill over
+ * outline) because a border-radius corner is a curve the browser has to
+ * antialias, and a rectangle edge never is.
  *
- * Over the fill sit two more pairs of rectangles: a 2 px lit face along
- * the inside top and left, and a 2 px shaded face along the inside bottom
- * and right. That is the whole light model, and it is the difference
- * between a panel and a rectangle. One light source, up and to the left,
- * everywhere in the game, so a raised thing and a sunken thing are told
- * apart at a glance rather than read.
+ * Both corners are quarter circles walked row by row, never evenly spaced
+ * steps: a staircase that drops the same amount each row is an octagon with
+ * its corners cut, and reads as one. The outline is an arc of 8, stepping
+ * 5, 3, 2, 1, 1, 0 px in, and the fill is an arc of 5 about the same centre,
+ * stepping 6, 4, 4, 3. Two circles about one centre, 3 px apart, is a ring of
+ * one weight the whole way round.
  *
- * `--lit` and `--shade` are mixed from whatever `--fill` the component
- * set, so nothing has to carry three colours: a swatch holding a colour a
- * player chose gets shaded the same way the confirm button does. The
- * highlight mixes toward a warm near-white and the shadow toward a cool
- * near-black, because a shadow that only darkens goes grey and drops out
- * of the picture.
+ * Getting that wrong shows up two ways. Given the outline's own steps moved
+ * 3 px along rather than an arc of its own, the fill leaves 6 px of outline at
+ * each corner and 3 px elsewhere, and the corners read as blobs holding a box
+ * together. Given evenly spaced steps, every corner is a diagonal cut.
+ *
+ * The fill runs to the outline. There was a light model here once: a face
+ * mixing toward a warm near-white along the top and left, another toward a
+ * cool near-black along the bottom and right, one light source up and to the
+ * left. The battle's own board never used it, and a board that did read as a
+ * different kind of thing beside one that did not, so the board won.
  *
  * Every layer is anchored from the top left with `calc()` sizes. A
  * percentage in `background-position` resolves against the difference
@@ -266,12 +268,13 @@ html.portrait #rotate { display: flex; }
 .list .item, #stick, #stickKnob, .card input[type="text"], .card input[type="password"],
 label.custom input[type="color"],
 .bxPanel, .bxCell, .bxName, .bxChip, .bxWide, .bxArrow, .bxTrack, .bxOwnerBtn,
-.bxSwap, .bxCard, .bxPortrait, .bxSlot, .bxNote, .bxCardBack, .bxGrid,
-.plinth, button.starter .stage, .pickStage, .ixRow, .ixFace, .pface, .partyCard, .partyActions, .partyMsg {
+.bxSwap, .bxCard, .bxPortrait, .bxNote, .bxCardBack, .bxGrid,
+.plinth, button.starter .stage, .pickStage, .ixRow, .ixFace, .pface, .partyCard, .partyActions, .partyMsg,
+.xsay, .ptip, .bcard .mark .sigtip {
   --ink: var(--p-ink);
   --fill: var(--p-panel);
-  --lit: color-mix(in srgb, var(--fill) 76%, var(--p-lit));
-  --shade: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
+  --lit: var(--fill);
+  --shade: var(--fill);
   /* What a hover lays over the face. It has to be a layer of its own
      rather than a lighter `--fill`, because a rule computing `--fill` from
      `--fill` is a cycle and leaves the property with no value at all. It is
@@ -282,22 +285,17 @@ label.custom input[type="color"],
   border: 0;
   border-radius: 0;
   background:
-    linear-gradient(var(--lit) 0 0) 7px 3px / calc(100% - 14px) 2px no-repeat,
-    linear-gradient(var(--lit) 0 0) 3px 7px / 2px calc(100% - 14px) no-repeat,
-    linear-gradient(to top, var(--shade) 0 2px, #0000 2px) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
-    linear-gradient(to left, var(--shade) 0 2px, #0000 2px) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
-    linear-gradient(var(--gloss) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
-    linear-gradient(var(--gloss) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
-    linear-gradient(var(--gloss) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
-    linear-gradient(var(--gloss) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 0 4px / 100% calc(100% - 8px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 4px 0 / calc(100% - 8px) 100% no-repeat,
-    linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
+    linear-gradient(var(--gloss) 0 0) 3px 6px / calc(100% - 6px) calc(100% - 12px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 4px 4px / calc(100% - 8px) calc(100% - 8px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 6px 3px / calc(100% - 12px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 3px 6px / calc(100% - 6px) calc(100% - 12px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 4px 4px / calc(100% - 8px) calc(100% - 8px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 6px 3px / calc(100% - 12px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 0 5px / 100% calc(100% - 10px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 5px 0 / calc(100% - 10px) 100% no-repeat,
+    linear-gradient(var(--ink) 0 0) 3px 1px / calc(100% - 6px) calc(100% - 2px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 2px 2px / calc(100% - 4px) calc(100% - 4px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 1px 3px / calc(100% - 2px) calc(100% - 6px) no-repeat;
 }
 /*
  * A box light falls into rather than off: the two faces swap, so the top
@@ -307,8 +305,8 @@ label.custom input[type="color"],
  * press read without anything moving.
  */
 .sunk {
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
 }
 /*
  * Scrollbars. The browser's own is a rounded grey capsule, which is the
@@ -364,19 +362,22 @@ label.custom input[type="color"],
   #bagBtn:hover,
   .bxCell:hover:not(:disabled),
   .bxWide:hover:not(:disabled),
-  .bxSlot:hover,
   .bxArrow:hover,
   .bxSwap:hover,
   .bxOwnerBtn:hover,
   .bxCardBack:hover,
   .swatch:hover {
     --gloss: color-mix(in srgb, var(--fill) 84%, var(--p-lit));
+    /* The faces take it too, or they stay as a ring of the old fill round
+       a lightened middle. */
+    --lit: var(--gloss);
+    --shade: var(--gloss);
   }
 }
 /*
- * Pressed. The faces swap and the label drops by the width of one face, so
- * the button goes down into the page rather than changing colour at it.
- * A transform is used rather than padding, so nothing around it moves.
+ * Pressed. The label drops by the width of one face, so the button goes down
+ * into the page rather than changing colour at it. A transform is used rather
+ * than padding, so nothing around it moves.
  */
 button.big:active:not(:disabled),
 button.act:active:not(:disabled),
@@ -386,20 +387,19 @@ button.thumb:active,
 #bagBtn:active,
 .bxCell:active:not(:disabled),
 .bxWide:active:not(:disabled),
-.bxSlot:active,
 .bxArrow:active,
 .bxSwap:active,
 .bxOwnerBtn:active,
 .bxCardBack:active,
 .swatch:active {
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   transform: translateY(2px);
 }
 @media (prefers-reduced-motion: reduce) {
   button.big:active, button.act:active, button.starter:active,
   button.thumb:active, .pill:active, #bagBtn:active,
-  .bxCell:active, .bxWide:active, .bxSlot:active, .bxArrow:active,
+  .bxCell:active, .bxWide:active, .bxArrow:active,
   .bxSwap:active, .bxOwnerBtn:active, .bxCardBack:active, .swatch:active {
     transform: none;
   }
@@ -480,8 +480,8 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
   width: 100%;
   padding: 8px 8px;
   --fill: var(--p-ground);
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   color: var(--p-text);
 }
 .card input[type="text"]::placeholder,
@@ -675,8 +675,8 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
 .pickStage {
   --fill: var(--p-ground);
   --ink: var(--p-ink);
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   height: 84px;
   width: 100%;
   display: flex;
@@ -763,8 +763,8 @@ button.starter.taken, button.starter:disabled { opacity: 0.4; cursor: default; }
 button.starter .stage {
   --fill: var(--p-ground);
   --ink: var(--p-ink);
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   height: 56px;
   width: 100%;
   display: flex;
@@ -886,21 +886,26 @@ label.custom input[type="color"] {
 .pnum {
   position: relative;
   color: var(--p-highlight);
-  border-bottom: 1px dotted var(--p-highlight);
   cursor: help;
 }
 .pnum:focus-visible { outline: 2px solid var(--p-highlight); outline-offset: 1px; }
-.pnum .ptip {
+.ptip {
   --ink: var(--p-action);
   --fill: var(--p-ink);
   --nudge: 0px;
+  --lift: 0px;
+  /* Set here rather than inherited: a window opens inside whatever box holds
+     the word, is moved onto the screen while it is open, and took a different
+     frame in each place from whatever `--lit` the box around it had. */
+  --lit: var(--fill);
+  --shade: var(--fill);
   position: absolute;
   left: 50%;
   bottom: calc(100% + 4px);
-  transform: translateX(-50%) translateX(var(--nudge));
+  transform: translateX(-50%) translateX(var(--nudge)) translateY(var(--lift));
   z-index: 5;
   display: none;
-  width: 186px;
+  width: 168px;
   padding: 8px;
   font-size: 12px;
   line-height: 1.25;
@@ -908,17 +913,48 @@ label.custom input[type="color"] {
   color: var(--p-text);
   pointer-events: none;
   opacity: 0.96;
-  background:
-    linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 0 4px / 100% calc(100% - 8px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 4px 0 / calc(100% - 8px) 100% no-repeat,
-    linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
 }
 .pnum:hover .ptip, .pnum:focus-within .ptip { display: block; }
+/* Open, and moved onto the screen so no scroller on the way up can clip it.
+   It carries its own place while it is out there. */
+.ptip.loose { display: block; left: 0; bottom: 0; z-index: 30; }
+/* A window moved onto the screen becomes one of its children and was caught by
+   the screen's own entrance animation, which drives `transform` and so threw
+   away the one placing the window. It is not arriving with the screen: it
+   arrives under a pointer, already in place. */
+.screen > .ptip.loose { animation: none; }
+/*
+ * The working: where a number comes from and what happens to it on the way
+ * out, under the line that states it. Written against `.pwork` alone rather
+ * than against either window, because both windows show the same rows and two
+ * copies of these rules drifted apart.
+ */
+.pwork {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--p-dim);
+}
+.pwork .wrow { display: flex; justify-content: space-between; gap: 8px; font-size: 8px; line-height: 1.45; }
+/* One row, one line: a label that wraps breaks the column of numbers beside it. */
+.pwork .wlabel, .pwork .wval { white-space: nowrap; }
+.pwork .wlabel { overflow: hidden; text-overflow: ellipsis; color: var(--p-dim); }
+.pwork .wval { color: var(--p-text); flex: none; }
+/* A sentence gets the width of the window and wraps in it: clipping one to a
+   column leaves half a sentence and no way to read the rest. */
+.pwork .wnote .wlabel { white-space: normal; overflow: visible; color: var(--p-dead-text); }
+/* The element a number lands as, in that element's own colour, so it reads as
+   the same thing the type badges say. */
+.pwork .welem { color: var(--type-fill); }
+.pwork .wrow.good .wval { color: var(--p-confirm); }
+.pwork .wrow.bad .wval { color: var(--p-danger); }
+/* A number being dealt takes the colour its kind of damage has everywhere else
+   in the game, over the row's own colour above. */
+.pwork .wval.dmg.physical { color: var(--p-warning); }
+.pwork .wval.dmg.magic { color: var(--p-mana); }
+.pwork .wval.dmg.true { color: var(--p-true); }
 
 /*
  * The Scoba browser: search down the left, faces in the middle, the scroll
@@ -956,8 +992,8 @@ label.custom input[type="color"] {
   min-width: 0;
 }
 .bxGrid {
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
@@ -990,8 +1026,8 @@ label.custom input[type="color"] {
 
 /* Search panel. */
 .bxName {
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   font: inherit;
   font-size: 14px;
   width: 100%;
@@ -1077,8 +1113,8 @@ label.custom input[type="color"] {
 }
 .bxBack { --fill: var(--p-confirm); margin-top: 8px; }
 .bxTrack {
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   flex: 1;
   min-height: 40px;
   position: relative;
@@ -1125,8 +1161,8 @@ label.custom input[type="color"] {
 }
 .bxCardHead { display: flex; gap: 12px; align-items: stretch; }
 .bxPortrait {
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   width: 100px;
   min-height: 100px;
   --fill: var(--p-ground);
@@ -1156,33 +1192,17 @@ label.custom input[type="color"] {
 }
 
 .bxSlots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.bxSlot {
-  font: inherit;
-  font-size: 14px;
-  padding: 4px 8px;
-  --fill: var(--p-raised);
-  color: var(--p-text);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-.bxSlot.sel { --fill: var(--p-action); outline: 3px solid var(--p-text); outline-offset: -3px; }
-.bxSlot.typed { color: var(--p-ink); }
-.bxSlot.typed .bxSlotCost { color: var(--p-ink); opacity: 0.72; }
-/* The outline is what marks a coloured slot, since its fill is spoken for. */
-.bxSlot.typed.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
-.bxSlotName { overflow-wrap: anywhere; }
-.bxSlotCost { font-size: 12px; color: var(--p-dim); }
-.bxSlot.sel .bxSlotCost { color: var(--p-dim2); }
+.bxSlots > button.act { width: 100%; min-height: 44px; }
+/* What a move does, in the same box the fight says it in: ink behind it and
+   the panel's own outline around it, so a highlighted word in it reads the way
+   it reads in a fight rather than shouting off a lit panel. */
 .bxNote {
-  --fill: var(--p-ground);
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
-  padding: 8px 8px;
-  min-height: 44px;
+  --ink: var(--p-raised);
+  --fill: var(--p-ink);
+  padding: 10px 12px;
+  min-height: 62px;
   font-size: 14px;
+  text-align: left;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1234,7 +1254,41 @@ label.custom input[type="color"] {
   flex-wrap: wrap;
 }
 .card.xscoba > .cardHead strong { font-size: 16px; color: var(--p-text); }
-.xscoba .nm { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.xscoba .nm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/*
+ * The Scoba itself, at the head of its own panel. A fixed box so a tall line
+ * and a squat one leave the name in the same place: the portrait is cropped to
+ * the drawing, so its height is whatever that Scoba happens to be.
+ */
+.xface {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+}
+/* Sized by the script, which fits it to the box by whichever side is longer.
+   A limit on each side separately pulls the drawing out of shape. */
+.xface canvas { image-rendering: pixelated; display: block; }
+html.soft .xface canvas { image-rendering: auto; }
+/*
+ * The move board, laid out the way the fight lays it out: four cells, two by
+ * two, in the order a status addresses them by. Its own height rather than the
+ * stretched rows the battle block gives it, since this panel is read down a
+ * scrolling list rather than fitted to a fixed band.
+ */
+.xmoves.bgrid { grid-row: auto; grid-template-rows: auto auto; }
+.xmoves.bgrid > button.act { min-height: 44px; }
+/* What a move does, in a box of its own, the way the fight's message box is. */
+.xsay {
+  --ink: var(--p-raised);
+  --fill: var(--p-ink);
+  padding: 10px 12px;
+  text-align: left;
+  min-height: 62px;
+}
 .xstats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--p-dim2); }
 .xpass { display: flex; gap: 8px; font-size: 12px; color: var(--p-dim); }
 .xpass strong { color: var(--p-highlight); }

@@ -24,7 +24,7 @@ import {
   moveTypes, typesEffectiveness, type Move,
 } from "./species";
 import { BLACKJACK, DECK, addToHand, deckIndex, type Card, type CardFace } from "./cards";
-import { STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
+import { STAT_LABELS, STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
 import type { Rng } from "./rng";
 import { mulberry32, hashSeed, rngFrom } from "./rng";
 import { logRound, recording } from "./replay";
@@ -302,6 +302,11 @@ export interface BattleState {
   rewound?: boolean;
   /** A journey has been made, so nobody makes another one this battle. */
   travelled?: boolean;
+  /**
+   * The move that journey was made with, so a Scoba that joins afterwards has
+   * it taken off too rather than being offered one it can never cast.
+   */
+  spent?: string;
   /**
    * A journey in progress: the rounds still to play again, where the traveller
    * is standing, and the seat it is coming back to. While this is set, the only
@@ -603,6 +608,7 @@ export function joinBattle(st: BattleState, owner: OwnerId, team: ScobaInstance[
   if (st.slotOwner[slot] !== null || slot >= st.slots) return [];
   const base = st.teams[0].length;
   st.teams[0].push(...makeCombatants(team));
+  for (let i = base; i < st.teams[0].length; i++) spendJourney(st, st.teams[0][i]!);
   st.slotOwner[slot] = owner;
   const idx = st.teams[0].findIndex((c, i) => i >= base && !c.fainted);
   st.active[0][slot] = idx;
@@ -1535,7 +1541,8 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
         if (run.status) {
           ctx.events.push({ text: `${run.status.def.name} hits ${displayName(target.scoba)}.`, kind: "status", at: ref });
         }
-        const reduced = power * mitigation(armorAgainst(d.category, target));
+        const steps = markDamageSteps(ctx.st, ref, run.source, d, target);
+        const reduced = power * steps.synergy * steps.elemental * steps.armorMult;
         dealDamage(ctx, ref, Math.max(1, Math.floor(reduced * (run.scale ?? 1))), {
           element: d.element,
           category: d.category,
@@ -1931,6 +1938,7 @@ function summon(ctx: Ctx, callerRef: TargetRef, speciesId: string, level: number
   scoba.owner = caller?.scoba.owner;
   const [c] = makeCombatants([scoba]);
   if (!c) return;
+  spendJourney(ctx.st, c);
   c.summoned = true;
   ctx.st.teams[side].push(c);
   ctx.events.push({ text: `${displayName(scoba)} answers the call!`, kind: "switch" });
@@ -1968,6 +1976,7 @@ function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
   scoba.summoner = worn;
   const [c] = makeCombatants([scoba]);
   if (!c) return;
+  spendJourney(ctx.st, c);
   c.summoned = true;
   c.pawn = true;
   if (st.ez && side === 0) grantEz(c);
@@ -2027,6 +2036,7 @@ function raisePawn(
   scoba.hp = maxHp(scoba);
   const [c] = makeCombatants([scoba]);
   if (!c) return null;
+  spendJourney(ctx.st, c);
   c.summoned = true;
   c.pawn = true;
   if (st.ez && side === 0) grantEz(c);
@@ -2304,14 +2314,27 @@ function travel(ctx: Ctx, run: Run, turns: number, discount: number, art?: strin
   const caster = combatantAt(st, run.self);
   const move = run.cast?.move;
   if (!caster || !move) return;
+  // A journey is one round's worth of effect, however complicated, and a
+  // battle gets one. Taking the move away is how a Scoba is stopped from
+  // reaching for a second, but that is a rule about moves and this is the
+  // effect itself: anything that reaches it another way stops here. Winding
+  // back inside a wind-back would leave the battle standing in a turn neither
+  // journey came from, with two sets of rounds waiting to play again.
+  if (st.travelled || st.travelling) {
+    ctx.events.push({ text: "That journey has already been made.", kind: "info" });
+    return;
+  }
   // One round further back than it travels: the round it is leaving is not one
-  // of the rounds played again.
-  const undone = rewind(st, turns + 1);
-  const left = undone.slice(0, -1);
-  if (left.length === 0) {
+  // of the rounds played again, so two rounds on file are the fewest that leave
+  // anything to play. Counted before anything is wound back: winding back and
+  // then giving up left the battle standing in the turn it had landed in, with
+  // the round it came from still playing out on top of it.
+  if ((st.history ?? []).length < 2) {
     ctx.events.push({ text: "There is no time to go back to.", kind: "info" });
     return;
   }
+  const undone = rewind(st, turns + 1);
+  const left = undone.slice(0, -1);
   // Set before anything is played again, so a journey recorded in one of those
   // rounds is refused rather than made twice.
   st.travelled = true;
@@ -2333,19 +2356,27 @@ function travel(ctx: Ctx, run: Run, turns: number, discount: number, art?: strin
     at: { side, index },
   });
   // One journey a battle, for everyone: what is left of the move is a shard.
-  for (const team of st.teams) {
-    for (const c of team) {
-      c.scoba.moves.forEach((id, at) => {
-        if (id === move.id) c.swapped = { ...c.swapped, [at]: TRAVEL_SPENT };
-      });
-      for (const [at, id] of Object.entries(c.swapped ?? {})) {
-        if (id === move.id) c.swapped![Number(at)] = TRAVEL_SPENT;
-      }
-    }
-  }
+  st.spent = move.id;
+  for (const team of st.teams) for (const c of team) spendJourney(st, c);
   // The round it left is over: what came after it happened in a past that is
   // gone, and the next round is the first of the ones being played again.
   st.rewound = true;
+}
+
+/**
+ * Takes the journey move off a Scoba, once one has been made. Called for a
+ * Scoba that joins afterwards as well as for everyone standing at the time, so
+ * a latecomer is never offered a move the battle will not let it cast.
+ */
+export function spendJourney(st: BattleState, c: Combatant): void {
+  const spent = st.spent;
+  if (spent === undefined) return;
+  c.scoba.moves.forEach((id, at) => {
+    if (id === spent) c.swapped = { ...c.swapped, [at]: TRAVEL_SPENT };
+  });
+  for (const [at, id] of Object.entries(c.swapped ?? {})) {
+    if (id === spent) c.swapped![Number(at)] = TRAVEL_SPENT;
+  }
 }
 
 /**
@@ -2804,6 +2835,159 @@ export interface StatusMark {
   chargesLeft: number;
   /** Who left it, for anything drawn in that Scoba's colours. */
   from?: TargetRef;
+}
+
+/**
+ * What one of a mark's numbers comes to on the Scoba carrying it right now,
+ * with the arithmetic behind it. The readouts say the number rather than the
+ * share it is of something, and the window over a sigil shows the working.
+ *
+ * Read after the holder's armor and before blocking, since blocking is a choice
+ * made in the round rather than a property of the mark.
+ */
+export interface MarkNumber {
+  kind: "damage" | "heal";
+  /** What it comes to, which is what the readout says. */
+  amount: number;
+  /**
+   * Where it starts, before any multiple. Kept unrounded, so the steps shown
+   * under it multiply out to the amount rather than to one off it.
+   */
+  raw: number;
+  element: ElementType | null;
+  category: DamageCategory;
+  /** The share it takes of its basis, as a fraction. */
+  share: number;
+  /**
+   * The stat it is read off and what that stat stood at when the number was
+   * measured. For a mark that fixed its number as it landed, that is the stat
+   * as it was then rather than as it is now: reading it live left the two rows
+   * contradicting each other once the caster's stat moved.
+   */
+  basis: { label: string; value: number } | null;
+  /** What the holder's armor took, as a multiple, or null where nothing did. */
+  armor: { label: string; value: number; mult: number } | null;
+  /** Half again where the Scoba that left it shares the element, else 1. */
+  synergy: number;
+  /** Which of the caster's elements earned that, where one did. */
+  casterMatch: ElementType | null;
+  /** The chart, against whoever is carrying it. */
+  elemental: number;
+  /** Fixed when it landed, so it does not move with the caster afterwards. */
+  snapshot: boolean;
+}
+
+/**
+ * Every number a mark is carrying for the Scoba it is on. A mark that does
+ * nothing by the numbers has none, which is most of them.
+ */
+export function markNumbers(st: BattleState, ref: TargetRef, inst: StatusInstance): MarkNumber[] {
+  const def = STATUSES[inst.id];
+  const holder = combatantAt(st, ref);
+  if (!def || !holder) return [];
+  const out: MarkNumber[] = [];
+  for (const e of def.effects) {
+    if (e.kind === "damage") {
+      const d = e.damage;
+      const raw = d.snapshot && inst.power !== undefined
+        ? inst.power
+        : basisOf(st, d.basis, ref, inst.from ?? null) * d.frac;
+      const steps = markDamageSteps(st, ref, inst.from ?? null, d, holder);
+      out.push({
+        kind: "damage",
+        amount: Math.max(1, Math.floor(
+          raw * steps.synergy * steps.elemental * steps.armorMult * (inst.scale ?? 1),
+        )),
+        raw,
+        element: d.element,
+        category: d.category,
+        share: d.frac,
+        basis: basisStat(st, d.basis, ref, inst.from ?? null,
+          d.snapshot === true && d.frac > 0 ? raw / d.frac : null),
+        armor: d.category === "true" ? null : {
+          label: STAT_LABELS[d.category === "physical" ? "def" : "res"],
+          value: steps.armor,
+          mult: steps.armorMult,
+        },
+        synergy: steps.synergy,
+        casterMatch: steps.casterMatch,
+        elemental: steps.elemental,
+        snapshot: d.snapshot === true,
+      });
+    }
+    if (e.kind === "heal") {
+      const raw = basisOf(st, e.basis, ref, inst.from ?? null) * e.frac;
+      out.push({
+        kind: "heal",
+        amount: Math.max(1, Math.floor(raw * (inst.scale ?? 1))),
+        raw,
+        element: null,
+        category: "true",
+        share: e.frac,
+        basis: basisStat(st, e.basis, ref, inst.from ?? null, null),
+        armor: null,
+        synergy: 1,
+        casterMatch: null,
+        elemental: 1,
+        snapshot: false,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Everything that stands between a mark's power and what its holder loses.
+ * The sim applies these and the readout shows them, from the one function, so
+ * the working under a sigil is the arithmetic that actually ran.
+ *
+ * A mark lands like a move does: half again where the Scoba that left it shares
+ * the element, then the chart against whoever is carrying it, then that Scoba's
+ * armor. Blocking is not here, because blocking is a choice made in the round.
+ */
+export function markDamageSteps(
+  st: BattleState,
+  holderRef: TargetRef,
+  from: TargetRef | null,
+  d: { element: ElementType; category: DamageCategory },
+  holder: Combatant,
+): { synergy: number; elemental: number; armorMult: number; armor: number; casterMatch: ElementType | null } {
+  const armor = armorAgainst(d.category, holder);
+  // True damage is a flat number by definition: it meets no armor, and the
+  // chart is a defense like any other, so it meets that neither.
+  if (d.category === "true") {
+    return { synergy: 1, elemental: 1, armorMult: 1, armor: 0, casterMatch: null };
+  }
+  const caster = from ? combatantAt(st, from) : null;
+  const own = caster ? scobaTypes(caster.scoba) : [];
+  const match = own.includes(d.element) ? d.element : null;
+  return {
+    synergy: match ? 1.5 : 1,
+    elemental: typesEffectiveness([d.element], scobaTypes(holder.scoba)),
+    armorMult: mitigation(armor),
+    armor,
+    casterMatch: match,
+  };
+}
+
+/**
+ * The stat a basis reads and what it stood at when the number was taken. `held`
+ * is what it worked out to for a mark that fixed its number as it landed, which
+ * is the only record of the stat as it was then.
+ */
+function basisStat(
+  st: BattleState, basis: Basis, holderRef: TargetRef, from: TargetRef | null, held: number | null,
+): { label: string; value: number } | null {
+  const value = Math.round(held ?? basisOf(st, basis, holderRef, from));
+  // The script's own two words for whose stat a number is read off, so the
+  // window and the line that authored it name the same thing.
+  const whose = basis.startsWith("source-") ? "Source's" : "Holder's";
+  switch (basis) {
+    case "source-str": case "holder-str": return { label: `${whose} ${STAT_LABELS.str}`, value };
+    case "source-mag": case "holder-mag": return { label: `${whose} ${STAT_LABELS.mag}`, value };
+    case "source-max-hp": case "holder-max-hp": return { label: `${whose} max HP`, value };
+    case "holder-hp": return { label: "Health left", value };
+  }
 }
 
 export function statusSummary(c: Combatant): StatusMark[] {

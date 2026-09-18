@@ -11,6 +11,7 @@
 import type { BattleState, Choice, Combatant, Slot } from "./battle";
 import {
   castCost,
+  choiceError,
   combatantMaxHp,
   combatantStats,
   heldMoves,
@@ -69,16 +70,22 @@ function actFor(st: BattleState, side: 0 | 1, slot: Slot, c: Combatant, rng: Rng
   const idx = st.active[side][slot]!;
   const user: TargetRef = { side, index: idx };
 
+  // `moveReady` answers what the Scoba can pay for; `choiceError` answers what
+  // the battle allows at all, such as a journey nobody can make twice. A Scoba
+  // that joined after one was made still holds the move, so without this the
+  // round it reached for it with was thrown out as an illegal choice.
+  const allowed = (id: string, picks: (TargetRef | null)[]): boolean =>
+    choiceError(st, { kind: "spell", side, slot, moveId: id, picks }) === null;
   const usable = heldMoves(c)
     .map((id) => MOVES[id])
-.filter((m): m is Move => !!m && moveReady(c, m.id).ok);
+    .filter((m): m is Move => !!m && moveReady(c, m.id).ok);
 
   // Healing is never held back for a bigger spell later: an ally about to fall
   // is worth the bar.
   const healer = usable.find((m) => m.kind === "heal");
   if (healer && neediestAlly(st, user) !== null && rng() < 0.7) {
     const picks = aim(st, user, healer, rng);
-    if (picks) return { kind: "spell", side, slot, moveId: healer.id, picks };
+    if (picks && allowed(healer.id, picks)) return { kind: "spell", side, slot, moveId: healer.id, picks };
   }
 
   const holding = savingUp(c) && rng() < SAVE_CHANCE;
@@ -87,7 +94,7 @@ function actFor(st: BattleState, side: 0 | 1, slot: Slot, c: Combatant, rng: Rng
   if (!holding) {
     for (const move of damaging) {
       const picks = aim(st, user, move, rng);
-      if (picks) {
+      if (picks && allowed(move.id, picks)) {
         cast = { move, picks };
         break;
       }

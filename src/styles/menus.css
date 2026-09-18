@@ -166,8 +166,8 @@ body.touch #actBtn { display: block; }
    heights, and the art inside is only ever drawn at a whole step. */
 .pface {
   --fill: var(--p-ground);
-  --lit: color-mix(in srgb, var(--fill) 72%, var(--p-deep));
-  --shade: color-mix(in srgb, var(--fill) 80%, var(--p-lit));
+  --lit: var(--fill);
+  --shade: var(--fill);
   display: flex;
   align-items: flex-end;
   justify-content: center;

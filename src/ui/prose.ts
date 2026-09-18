@@ -5,18 +5,41 @@
 // word carrying a window of its own. The window is the same one a status sigil
 // opens, so the game has one kind of hover and not two.
 import { parseProse, type Part, type ProseFor } from "../sim/prose";
-import { frameRect, uiZoom } from "../engine/renderer";
+import { uiZoom } from "../engine/renderer";
+import { fitWindow } from "./fit";
+import { workRows } from "./working";
 
-/** Shifts a hover window sideways until it clears both edges of the frame. */
-function nudge(tip: HTMLElement): void {
-  tip.style.setProperty("--nudge", "0px");
-  const box = tip.getBoundingClientRect();
-  const edge = frameRect();
-  const pad = 4;
-  const over = box.right > edge.right - pad
-    ? edge.right - pad - box.right
-    : box.left < edge.left + pad ? edge.left + pad - box.left : 0;
-  if (over !== 0) tip.style.setProperty("--nudge", `${Math.round(over / uiZoom())}px`);
+/**
+ * Puts a window on the screen rather than inside whatever is holding the word.
+ *
+ * A written line can sit in a list that scrolls, and a scroller clips on both
+ * axes: a window opening above a word near the top of one was cut off. Moving
+ * it to the screen for as long as it is open takes it out of every clipping box
+ * on the way up, and it goes back where it belongs when it closes.
+ */
+function lift(span: HTMLElement, tip: HTMLElement): void {
+  const host = span.closest(".screen");
+  if (!host) {
+    fitWindow(tip);
+    return;
+  }
+  const word = span.getBoundingClientRect();
+  const box = host.getBoundingClientRect();
+  const zoom = uiZoom();
+  host.appendChild(tip);
+  tip.classList.add("loose");
+  tip.style.left = `${(word.left + word.width / 2 - box.left) / zoom}px`;
+  tip.style.bottom = `${(box.bottom - word.top + 4) / zoom}px`;
+  fitWindow(tip);
+}
+
+/** Puts it back under its word, so the line owns it again. */
+function drop(span: HTMLElement, tip: HTMLElement): void {
+  if (!tip.classList.contains("loose")) return;
+  tip.classList.remove("loose");
+  tip.style.left = "";
+  tip.style.bottom = "";
+  span.appendChild(tip);
 }
 
 /** One highlighted word with what it stands for hanging off it. */
@@ -29,10 +52,18 @@ function tokenSpan(part: Part & { kind: "token" }): HTMLElement {
   span.append(part.label);
   const tip = document.createElement("span");
   tip.className = "ptip";
-  tip.textContent = part.detail;
+  tip.append(part.detail);
+  // Where the number comes from and what happens to it on the way out, under
+  // the sentence that says what it is.
+  const work = workRows(part.work ?? []);
+  if (work) tip.appendChild(work);
   span.appendChild(tip);
-  span.addEventListener("pointerenter", () => nudge(tip));
-  span.addEventListener("focus", () => nudge(tip));
+  const open = (): void => lift(span, tip);
+  const shut = (): void => drop(span, tip);
+  span.addEventListener("pointerenter", open);
+  span.addEventListener("focus", open);
+  span.addEventListener("pointerleave", shut);
+  span.addEventListener("blur", shut);
   return span;
 }
 

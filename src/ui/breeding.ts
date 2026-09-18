@@ -12,7 +12,7 @@ import {
 import { displayName } from "../sim/battle";
 import { critterPortrait, lookOf, spriteColors } from "../game/critters";
 import { openBrowser } from "./browser";
-import { costOf, maxHp, moveName, speciesName, statsAt, unnaturalMoves, type ScobaInstance } from "../sim/scoba";
+import { costOf, maxHp, moveName, scobaTypes, speciesName, statsAt, unnaturalMoves, type ScobaInstance } from "../sim/scoba";
 import { proseBox } from "./prose";
 import { ABILITIES, SPECIAL, SPECIES } from "../sim/species";
 import { abilityText } from "../game/texts";
@@ -223,7 +223,9 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
       card.appendChild(el("div", undefined,
         `Ability: ${ability?.name ?? child.secondaryAbility}${child.hybrid ? " · its father's" : ""}`));
       if (forceShiny) card.appendChild(el("div", "dim", "Debug: it was hatched shiny rather than rolled for."));
-      if (ability) card.appendChild(proseBox(abilityText(ability.id), { stats: statsAt(child), level: child.level }, "dim"));
+      if (ability) card.appendChild(proseBox(abilityText(ability.id), {
+        stats: statsAt(child), level: child.level, types: scobaTypes(child),
+      }, "dim"));
       if (child.hybrid) card.appendChild(el("div", "dim", "It takes his colors and his element too. A hybrid cannot breed."));
       card.appendChild(el("div", "sub", toParty ? "Joined the party." : "Sent to the box."));
       s.appendChild(card);

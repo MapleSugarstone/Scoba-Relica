@@ -343,15 +343,16 @@ html.soft .bfront { image-rendering: auto; }
   --ink: var(--p-action);
   --fill: var(--p-ink);
   --nudge: 0px;
+  --lift: 0px;
   position: absolute;
   left: 50%;
   bottom: calc(100% + 4px);
-  transform: translateX(-50%) translateX(var(--nudge));
+  transform: translateX(-50%) translateX(var(--nudge)) translateY(var(--lift));
   z-index: 5;
   display: none;
   flex-direction: column;
   gap: 2px;
-  width: 168px;
+  width: 204px;
   padding: 8px 8px;
   line-height: 1.25;
   text-align: left;
@@ -359,17 +360,22 @@ html.soft .bfront { image-rendering: auto; }
   /* Slightly through: it covers a card while it is open, and what is under
      it should still be readable as being there. */
   opacity: 0.93;
-  background:
-    linear-gradient(var(--fill) 0 0) 3px 7px / calc(100% - 6px) calc(100% - 14px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 7px 3px / calc(100% - 14px) calc(100% - 6px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 5px 4px / calc(100% - 10px) calc(100% - 8px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 4px 5px / calc(100% - 8px) calc(100% - 10px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 0 4px / 100% calc(100% - 8px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 4px 0 / calc(100% - 8px) 100% no-repeat,
-    linear-gradient(var(--ink) 0 0) 2px 1px / calc(100% - 4px) calc(100% - 2px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 1px 2px / calc(100% - 2px) calc(100% - 4px) no-repeat;
 }
-.bcard .mark:hover .sigtip, .bcard .mark:focus-within .sigtip { display: flex; }
+.bcard .mark:hover .sigtip, .bcard .mark:focus-within .sigtip,
+.bcard .mark.held .sigtip { display: flex; }
+/* A mark that can show its working says so, and is pressable to hold it open. */
+.bcard .mark.hasWork { cursor: help; }
+/* Held open by a click rather than by the pointer, so the numbers under it can
+   be read without keeping the mouse still. The window takes the pointer back
+   so the click that closes it can land on the window itself. */
+.bcard .mark.held { opacity: 1; }
+.bcard .mark.held .sigtip { opacity: 1; pointer-events: auto; }
+/* The working stays folded away until the window is held open: the line above
+   it already says what the mark does, and this is only the arithmetic. Every
+   rule for the rows themselves lives with the written-line window in base.css,
+   since the two windows show the same rows. */
+.bcard .mark .sigtip .pwork { display: none; }
+.bcard .mark.held .sigtip .pwork { display: flex; }
 /*
  * A readout with a window open comes over the rest of the row. The readouts
  * are laid out overlapping and paint in the order they were built, so without
@@ -378,6 +384,9 @@ html.soft .bfront { image-rendering: auto; }
  */
 .screen.stage .bcard.bplate:hover,
 .screen.stage .bcard.bplate:focus-within { z-index: 5; }
+/* One holding a window open comes over every other readout, not just over the
+   ones built before it. */
+.screen.stage .bcard.bplate.holding { z-index: 8; }
 .bcard .mark .sigtip strong { font-size: 12px; color: var(--p-highlight); }
 .bcard .mark .sigtip span { font-size: 12px; }
 .bcard .mark .sigtip .dim { color: var(--p-dim); }
@@ -579,16 +588,6 @@ button.act.dual:disabled::after {
   background: color-mix(in srgb, var(--type-fill2) 40%, var(--p-ink));
 }
 button.act.dual > .tcol, button.act.dual > .tmark { position: relative; z-index: 1; }
-/*
- * Flat faces on the block and the readouts. The lit and shaded edges the
- * frame recipe draws come out as a grey line on a dark box and read as a
- * stray mark rather than as light, so here the fill runs to the outline.
- */
-.bbottom button.act, .bmsg, .bcard { --lit: var(--fill); --shade: var(--fill); }
-/* A flat face lightens whole on hover: the faces take the gloss too, or they stay as a ring of the old fill round it. */
-@media (hover: hover) {
-  .bbottom button.act:hover:not(:disabled) { --lit: var(--gloss); --shade: var(--gloss); }
-}
 /* An ink outline on the ink band is no outline, and a light one competes
    with the fill: a step darker than the band shows on it and on every fill. */
 .bbottom button.act { --ink: var(--p-deep); }

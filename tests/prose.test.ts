@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { TOKENS, flattenProse, parseProse, readToken } from "../src/sim/prose";
 import { describeAbility, describeField, describeMoveEffects, describeStatus } from "../src/sim/describe";
-import { ABILITIES, MOVES, allSteps } from "../src/sim/species";
+import { ABILITIES, MOVES, allSteps, type Move } from "../src/sim/species";
 import { FIELDS, STATUSES, powerCategory } from "../src/sim/status";
 import type { Stats } from "../src/sim/types";
+import { makeWild, scobaTypes, statsAt } from "../src/sim/scoba";
+import { rngFrom } from "../src/sim/rng";
 
 const coldWave = MOVES["cold-wave"]!;
 const cardThrow = MOVES["card-throw"]!;
@@ -213,17 +215,28 @@ describe("a mark's power, and every scaled number in order", () => {
     expect(parseProse("[power:in-the-green]", {})[0]).toMatchObject({ label: "30% Strength" });
   });
 
+  /** The last line of a token's working, which is what the number meets. */
+  const meets = (token: string): string | undefined => {
+    const part = parseProse(token, {})[0];
+    return part?.kind === "token" ? part.work?.at(-1)?.label : undefined;
+  };
+
   it("says what reduces a mark the way a hit's note does, by the stat it scales off", () => {
+    // The opening line says where the number comes from; what it meets is the
+    // last line of the working, the same way a hit's is.
     expect(parseProse("[power:in-the-black]", {})[0]).toMatchObject({
       tone: "physical",
-      detail: "10% of the caster's Strength. Physical statuses are reduced by the target's Defense.",
+      detail: "10% of the caster's Strength.",
     });
+    expect(meets("[power:in-the-black]")).toBe("Physical statuses are reduced by the target's Defense.");
     expect(parseProse("[power:slowed]", {})[0]).toMatchObject({
       tone: "magic",
-      detail: "30% of the caster's Magic. Magical statuses are reduced by the target's Resistance.",
+      detail: "30% of the caster's Magic.",
     });
+    expect(meets("[power:slowed]")).toBe("Magical statuses are reduced by the target's Resistance.");
+    expect(meets("[damage:in-the-red]")).toBe("Magical statuses are reduced by the target's Resistance.");
     expect(details("[damage:in-the-red]")[0]).toBe(
-      "20% of the caster's Strength plus 1.67 damage per level. Magical statuses are reduced by the target's Resistance.",
+      "20% of the caster's Strength plus 1.67 damage per level.",
     );
   });
 
@@ -243,8 +256,9 @@ describe("a mark's power, and every scaled number in order", () => {
     try {
       expect(parseProse("[damage:probe-true]", {})[0]).toMatchObject({
         tone: "true",
-        detail: "10% of its own maximum HP. True damage ignores target's defenses.",
+        detail: "10% of its own maximum HP.",
       });
+      expect(meets("[damage:probe-true]")).toBe("True damage ignores target's defenses.");
     } finally {
       delete STATUSES["probe-true"];
     }
@@ -385,14 +399,54 @@ describe("a written line", () => {
   });
 
   it("puts the scaling behind the number rather than in the sentence", () => {
-    const said = details("[damage]")[0]!;
-    expect(said).toContain("100% of the caster's Magic");
-    expect(said).toContain("reduced by the target's Resistance");
+    expect(details("[damage]")[0]!).toContain("100% of the caster's Magic");
   });
 
-  it("names the armour that actually reduces it", () => {
-    expect(details("[damage]", cardThrow)[0]).toContain("reduced by the target's Defense");
+  /** Every line of the working behind a hit's number. */
+  const work = (token: string, move: Move = coldWave): string[] => {
+    const part = parseProse(token, { move })[0];
+    return part?.kind === "token" ? (part.work ?? []).map((w) => w.label) : [];
+  };
+
+  it("names the armour that actually reduces it, on the working rather than the line", () => {
+    // The opening line says where the number comes from; what it meets on the
+    // way in is the last line of the working, beneath the rest of the sum.
+    expect(work("[damage]").at(-1)).toContain("reduced by the target's Resistance");
+    expect(work("[damage]", cardThrow).at(-1)).toContain("reduced by the target's Defense");
     expect(details("[damage]", MOVES["green"]!)[0]).toContain("of its Defense");
+  });
+
+  it("gives a mark the caster's element match, where the caster is known", () => {
+    // Corali is Moon and Flux and Dead Coral lands as Flux, so its tick is
+    // worth half again on it. A screen that read the line without saying whose
+    // it was showed the number the mark would deal for nobody in particular.
+    const c = makeWild("corali", 6, rngFrom("corali"));
+    const at = { stats: statsAt(c), level: c.level };
+    const withCaster = parseProse("[damage:dead-coral]", { ...at, types: scobaTypes(c) })[0];
+    const without = parseProse("[damage:dead-coral]", at)[0];
+    const row = (p: typeof withCaster, label: string): string | undefined =>
+      p?.kind === "token" ? p.work?.find((w) => w.label === label)?.value : undefined;
+    expect(scobaTypes(c)).toContain("flux");
+    expect(row(withCaster, "Elemental Synergy")).toBe("1.5x");
+    expect(row(without, "Elemental Synergy")).toBe("1x");
+    expect(Number(withCaster?.kind === "token" ? withCaster.label : 0))
+      .toBeGreaterThan(Number(without?.kind === "token" ? without.label : 0));
+  });
+
+  it("totals what the caster brings, with no target to read the rest off", () => {
+    const part = parseProse("[damage]", {
+      move: coldWave, stats: statsFor({ mag: 200 }), level: 30, types: ["moon"],
+    })[0];
+    const rows = part?.kind === "token" ? part.work ?? [] : [];
+    const synergy = rows.find((r) => r.label === "Elemental Synergy");
+    const total = rows.find((r) => r.label === "Total");
+    expect(synergy).toBeDefined();
+    expect(total).toBeDefined();
+    // Cold Wave is Moon, so a Moon caster gets the half again and the total
+    // carries it. Nothing past it: there is nobody to read a chart against.
+    expect(synergy!.value).toBe("1.5x");
+    expect(total!.value).toBe("300");
+    expect(rows.some((r) => r.label === "Elemental Weakness Modifier")).toBe(false);
   });
 
   it("takes the colour its kind of damage has everywhere else", () => {
