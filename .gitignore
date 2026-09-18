@@ -20,3 +20,4 @@ claude-notes/
 vapid*.txt
 vapid*.json
 *vapid-secrets*
+__pycache__/
