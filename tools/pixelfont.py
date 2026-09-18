@@ -25,15 +25,20 @@ from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.fontBuilder import FontBuilder
 from PIL import ImageFont
 
-# The sizes the interface writes at, in CSS px. One face is sampled for each,
-# at the number of art pixels that size actually covers, so every face is shown
-# at exactly the size it was drawn at.
+# The sizes the interface writes at, in CSS px, and the weights each is written
+# in. One face is sampled per size and weight, at the number of art pixels that
+# size actually covers, so every face is shown at exactly the size it was drawn
+# at.
 #
 # A face shown at a whole multiple of its own size is still sharp, but each of
 # its pixels becomes a block of that many, which reads as crunchy rather than as
 # writing. Smooth and sharp at once means sampling at the size it will be shown
 # at, so a size gets a face rather than a scale factor.
-SIZES = (12, 18, 24)
+#
+# 52 is the title screen and nothing else, and a heading is bold, so it is the
+# one size with no regular cut. A face that large costs as much as the other
+# three together.
+SIZES = {12: (400, 700), 18: (400, 700), 24: (400, 700), 52: (700,)}
 
 # The art is drawn at four pixels to a world unit and the interface lays out at
 # two of those to a CSS px, so a CSS px covers this many art pixels.
@@ -210,7 +215,9 @@ def main() -> int:
         tmp = os.path.join(OUT, f"_nunito-{weight}.ttf")
         instance(SRC, weight, tmp)
         shaped = TTFont(tmp)
-        for size in SIZES:
+        for size, weights in SIZES.items():
+            if weight not in weights:
+                continue
             out = os.path.join(OUT, f"relica-{size}-{tag}.woff2")
             build(tmp, out, f"Relica {size}", size * ART_PER_CSS, shaped)
             print(f"wrote {out}  (sampled at {size * ART_PER_CSS} art px, shown at {size} CSS px)")

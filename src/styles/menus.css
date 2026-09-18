@@ -145,8 +145,8 @@ body.touch #actBtn { display: block; }
   line-height: 1.45;
   display: none;
 }
-#dialog .who { color: var(--p-highlight); font-size: 12px; margin-bottom: 4px; }
-#dialog .next { color: var(--p-dim); font-size: 12px; text-align: right; margin-top: 8px; }
+#dialog .who { color: var(--p-highlight); font-size: 12px; font-family: "Relica 12"; margin-bottom: 4px; }
+#dialog .next { color: var(--p-dim); font-size: 12px; font-family: "Relica 12"; text-align: right; margin-top: 8px; }
 
 .list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .list .item {
@@ -235,7 +235,7 @@ body.touch #actBtn { display: block; }
   flex-direction: column;
   gap: 2px;
 }
-.partyActions .doorRow { padding: 8px 8px 8px 24px; font-size: 12px; }
+.partyActions .doorRow { padding: 8px 8px 8px 24px; font-size: 12px; font-family: "Relica 12"; }
 .partyActions .doorRow::before { left: 8px; }
 /* The prompt readout along the bottom: what Aetus is on hand, or which
    Scoba the open action list belongs to. */
@@ -269,7 +269,7 @@ body.touch #actBtn { display: block; }
 }
 .creatorLeft .dollWrap { padding: 0 16px; }
 .creatorLeft .card { padding: 4px 8px; gap: 4px; }
-.creatorLeft .card input[type="text"] { padding: 4px 8px; font-size: 12px; }
+.creatorLeft .card input[type="text"] { padding: 4px 8px; font-size: 12px; font-family: "Relica 12"; }
 /* A compact pronoun pill: three of them read fine at a caption size. */
 .pill.sm { font-size: 12px; padding: 2px 8px; }
 .creatorRight {

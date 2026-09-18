@@ -21,9 +21,14 @@
  * One face per size, each sampled at the number of art pixels that size covers.
  * A face shown at a whole multiple of its own size is still sharp, but each of
  * its pixels becomes a block of that many and reads as crunchy rather than as
- * writing, so a size gets a face rather than a scale factor. Writing at a size
- * with no face of its own falls back to the outline font and goes soft, which
- * is why every size in this sheet is 12, 18 or 24.
+ * writing, so a size gets a face rather than a scale factor.
+ *
+ * Every size in this sheet is 12, 18, 24 or 52, and every rule that sets one
+ * names the face that goes with it. A size with no face falls back to the
+ * outline font and goes soft; worse, a size set inside something that has
+ * already switched face is drawn in that face scaled by a fraction, and a
+ * fraction drops and doubles whole rows of pixels. `tests/typeface.test.ts`
+ * fails on both.
  */
 @font-face {
   font-family: "Relica 12";
@@ -58,6 +63,13 @@
 @font-face {
   font-family: "Relica 24";
   src: url("../../assets/Fonts/relica-24-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: block;
+}
+/* The title screen and nothing else, which is why there is no regular cut. */
+@font-face {
+  font-family: "Relica 52";
+  src: url("../../assets/Fonts/relica-52-bold.woff2") format("woff2");
   font-weight: 700;
   font-display: block;
 }
@@ -235,8 +247,7 @@ html.portrait #rotate { display: flex; }
  * text on its own floats, and floating is what a title screen cannot do.
  */
 .screen h1 {
-  /* The frame is never narrower than 800 layout px, so this always clamps to 52. */
-  font-size: clamp(28px, 9vw, 52px);
+  font-size: 52px; font-family: "Relica 52";
   letter-spacing: 2px;
   line-height: 1.1;
   text-align: center;
@@ -1494,7 +1505,7 @@ html.soft .xface canvas { image-rendering: auto; }
   cursor: pointer;
 }
 #devPanel .maskCell.on { background: var(--p-danger)cc; }
-.bcard .nm .shiny, .partyTop .shiny { color: var(--p-danger); font-size: 12px; line-height: 1; flex: none; }
+.bcard .nm .shiny, .partyTop .shiny { color: var(--p-danger); font-size: 12px; font-family: "Relica 12"; line-height: 1; flex: none; }
 
 #devPanel .layerRow { display: flex; gap: 4px; align-items: stretch; }
 #devPanel .layerRow .devItem { flex: 1; min-width: 0; }
