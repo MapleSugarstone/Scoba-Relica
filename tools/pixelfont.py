@@ -39,6 +39,15 @@ SIZES = (12, 18, 24)
 # two of those to a CSS px, so a CSS px covers this many art pixels.
 ART_PER_CSS = 2
 
+# The gap between two letters, as a share of the em. Every pair gets the same
+# one: a typeface spaces its letters by eye for smooth type at reading sizes,
+# and those judgements land on whole pixels here as holes between some pairs
+# and not others. Even tracking is what reads as even.
+TRACK = 1 / 12
+
+# How wide a space is, as a share of the em, since it has no ink to measure.
+SPACE = 1 / 6
+
 # Font units per art pixel. A whole power of two keeps every square on a round
 # number and the em a size every rasterizer is happy with.
 UNIT = 64
@@ -69,20 +78,31 @@ def instance(path: str, weight: int, to: str) -> str:
     return to
 
 
-def pixels(font: ImageFont.FreeTypeFont, ch: str) -> tuple[list[tuple[int, int]], int, int, int]:
-    """Which pixels a character lights, its advance, and where the ink sits:
-    how far in from the pen and how far down from the top of the line.
+def pixels(font: ImageFont.FreeTypeFont, ch: str, em: int) -> tuple[list[tuple[int, int]], int, int]:
+    """A character's ink, its width, and how far down from the top of the line
+    it sits.
 
     Asked for in monochrome rather than taken as a threshold of grey. The
     rasterizer grid-fits a stem when it has no greys to spend, so every upright
     of a letter comes out the same width; thresholding its greyscale instead
     left one stem two pixels wide and the next three, by where each happened to
     fall between pixels.
+
+    The ink comes back with the blank columns either side of it taken off. The
+    spacing a typeface carries is drawn for smooth type at reading sizes, and
+    at this size it reads as holes: the n and w of Unwind sat five pixels apart
+    where two letters of the same word should sit as close as any other pair.
+    What goes back is the letter, and the caller sets the gap.
     """
-    mask, (left, top) = font.getmask2(ch, mode="1")
+    mask, (_, top) = font.getmask2(ch, mode="1")
     w, h = mask.size
-    lit = [(x, y) for y in range(h) for x in range(w) if mask.getpixel((x, y))]
-    return lit, round(font.getlength(ch)), left, top
+    cols = [x for x in range(w) if any(mask.getpixel((x, y)) for y in range(h))]
+    if not cols:
+        # A space carries no ink, so its width is the one thing it is.
+        return [], round(em * SPACE), top
+    x0, x1 = cols[0], cols[-1]
+    lit = [(x - x0, y) for y in range(h) for x in range(x0, x1 + 1) if mask.getpixel((x, y))]
+    return lit, x1 - x0 + 1, top
 
 
 def square(pen: TTGlyphPen, x: int, y: int) -> None:
@@ -137,6 +157,9 @@ def kerning(src: TTFont, em: int, names: dict[str, str]) -> str:
 def build(ttf: str, out: str, name: str, em: int, src: TTFont) -> None:
     pil = ImageFont.truetype(ttf, em)
     ascent, descent = pil.getmetrics()
+    # Half the gap on each side of every letter, so the space between any two
+    # of them is the same whichever two they are.
+    track = max(1, round(em * TRACK / 2))
 
     glyphs: dict[str, object] = {}
     widths: dict[str, int] = {}
@@ -149,14 +172,15 @@ def build(ttf: str, out: str, name: str, em: int, src: TTFont) -> None:
 
     for ch in CHARS:
         gname = f"u{ord(ch):04X}"
-        lit, advance, left, top = pixels(pil, ch)
+        lit, width, top = pixels(pil, ch, em)
         pen = TTGlyphPen(None)
         for x, y in lit:
             # PIL counts rows down from the top of the drawn box; a font counts
-            # up from the baseline.
-            square(pen, left + x, ascent - top - y - 1)
+            # up from the baseline. The ink starts one gap in, so a letter has
+            # the same room on its left as it leaves on its right.
+            square(pen, track + x, ascent - top - y - 1)
         glyphs[gname] = pen.glyph()
-        widths[gname] = advance * UNIT
+        widths[gname] = (width + track * 2) * UNIT
         order.append(gname)
         cmap[ord(ch)] = gname
 
@@ -173,9 +197,6 @@ def build(ttf: str, out: str, name: str, em: int, src: TTFont) -> None:
     })
     fb.setupOS2(sTypoAscender=ascent * UNIT, sTypoDescender=-descent * UNIT, usWinAscent=ascent * UNIT, usWinDescent=descent * UNIT)
     fb.setupPost()
-    fea = kerning(src, em, {ch: f"u{ord(ch):04X}" for ch in CHARS})
-    if fea:
-        fb.addOpenTypeFeatures(fea)
     fb.font.flavor = "woff2"
     fb.save(out)
 
