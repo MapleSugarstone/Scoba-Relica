@@ -211,7 +211,7 @@ body.touch #actBtn { display: block; }
 /* Present, numbered by its place in the grid, and plainly not filled in:
    the box keeps the grid's shape rather than letting the row collapse. */
 .partyCard.empty { --fill: var(--p-dead); }
-.partyCard.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
+.partyCard.sel { outline: 1.5px solid var(--p-text); outline-offset: -1.5px; }
 .partyBody { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; flex: 1; min-width: 0; }
 .partyTop { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .partyName { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -219,7 +219,7 @@ body.touch #actBtn { display: block; }
 .hpRow { display: flex; align-items: center; gap: 8px; }
 /* Bars under 16px stay a plain square frame rather than the stepped one,
    the same rule a battle plate's own bars follow. */
-.hpBar { flex: 1; height: 12px; border: 2px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
+.hpBar { flex: 1; height: 12px; border: 1.5px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
 .hpBar > i { display: block; height: 100%; background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px); }
 .hpBar.warn > i { background: linear-gradient(color-mix(in srgb, var(--p-warning) 62%, var(--p-lit)) 0 2px, var(--p-warning) 2px); }
 .hpBar.danger > i { background: linear-gradient(color-mix(in srgb, var(--p-danger) 62%, var(--p-lit)) 0 2px, var(--p-danger) 2px); }

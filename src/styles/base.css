@@ -75,8 +75,18 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  /* Bundled, so every machine spaces a label the same way. */
-  font-family: "Nunito Variable", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  /*
+   * A drawn font rather than an outline one. The smoothing hints below are
+   * only honoured by some browsers on some platforms, so an outline font is
+   * soft on most machines whatever they say: the only way a letter is made of
+   * whole pixels is for the font to be drawn in them.
+   *
+   * Swap the first name for "Silkscreen" for the narrower, squarer one, which
+   * is installed beside it. Both are bundled, so every machine spaces a label
+   * the same way.
+   */
+  --p-font: "Pixelify Sans";
+  font-family: var(--p-font), "Nunito Variable", ui-rounded, system-ui, sans-serif;
   color: var(--p-text);
   /* Hard-edged glyphs: no greyscale or subpixel blending anywhere. */
   -webkit-font-smoothing: none;
@@ -239,17 +249,25 @@ html.portrait #rotate { display: flex; }
  * outline) because a border-radius corner is a curve the browser has to
  * antialias, and a rectangle edge never is.
  *
+ * Everything here is worked out in art pixels, the pixels the Scobas are drawn
+ * in, and written as CSS at half the number, because the interface lays out at
+ * two CSS px per art pixel. The outline is 3 art px, which is the brush the
+ * sprites are drawn with, so a panel's edge and the edge of the Scoba standing
+ * in front of it are the same weight. It used to be 3 CSS px, which is 6 art
+ * px, and every panel was outlined twice as heavily as its contents.
+ *
  * Both corners are quarter circles walked row by row, never evenly spaced
  * steps: a staircase that drops the same amount each row is an octagon with
- * its corners cut, and reads as one. The outline is an arc of 8, stepping
- * 5, 3, 2, 1, 1, 0 px in, and the fill is an arc of 5 about the same centre,
- * stepping 6, 4, 4, 3. Two circles about one centre, 3 px apart, is a ring of
- * one weight the whole way round.
+ * its corners cut, and reads as one. The outline is an arc of 16 art px and
+ * the fill an arc of 13 about the same centre. Two circles about one centre,
+ * 3 art px apart, is a ring of one weight the whole way round.
  *
  * Getting that wrong shows up two ways. Given the outline's own steps moved
- * 3 px along rather than an arc of its own, the fill leaves 6 px of outline at
- * each corner and 3 px elsewhere, and the corners read as blobs holding a box
- * together. Given evenly spaced steps, every corner is a diagonal cut.
+ * along rather than an arc of its own, the fill leaves twice the outline at
+ * each corner and the corners read as blobs holding a box together. Given
+ * evenly spaced steps, every corner is a diagonal cut.
+ *
+ * `scratchpad/frame.mjs` writes these layers from the two radii.
  *
  * The fill runs to the outline. There was a light model here once: a face
  * mixing toward a warm near-white along the top and left, another toward a
@@ -285,17 +303,32 @@ label.custom input[type="color"],
   border: 0;
   border-radius: 0;
   background:
-    linear-gradient(var(--gloss) 0 0) 3px 6px / calc(100% - 6px) calc(100% - 12px) no-repeat,
-    linear-gradient(var(--gloss) 0 0) 4px 4px / calc(100% - 8px) calc(100% - 8px) no-repeat,
-    linear-gradient(var(--gloss) 0 0) 6px 3px / calc(100% - 12px) calc(100% - 6px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 3px 6px / calc(100% - 6px) calc(100% - 12px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 4px 4px / calc(100% - 8px) calc(100% - 8px) no-repeat,
-    linear-gradient(var(--fill) 0 0) 6px 3px / calc(100% - 12px) calc(100% - 6px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 0 5px / 100% calc(100% - 10px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 5px 0 / calc(100% - 10px) 100% no-repeat,
-    linear-gradient(var(--ink) 0 0) 3px 1px / calc(100% - 6px) calc(100% - 2px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 2px 2px / calc(100% - 4px) calc(100% - 4px) no-repeat,
-    linear-gradient(var(--ink) 0 0) 1px 3px / calc(100% - 2px) calc(100% - 6px) no-repeat;
+    linear-gradient(var(--gloss) 0 0) 6px 1.5px / calc(100% - 12px) calc(100% - 3px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 5px 2px / calc(100% - 10px) calc(100% - 4px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 4px 2.5px / calc(100% - 8px) calc(100% - 5px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 3.5px 3px / calc(100% - 7px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 3px 3.5px / calc(100% - 6px) calc(100% - 7px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 2.5px 4px / calc(100% - 5px) calc(100% - 8px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 2px 5px / calc(100% - 4px) calc(100% - 10px) no-repeat,
+    linear-gradient(var(--gloss) 0 0) 1.5px 6px / calc(100% - 3px) calc(100% - 12px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 6px 1.5px / calc(100% - 12px) calc(100% - 3px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 5px 2px / calc(100% - 10px) calc(100% - 4px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 4px 2.5px / calc(100% - 8px) calc(100% - 5px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 3.5px 3px / calc(100% - 7px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 3px 3.5px / calc(100% - 6px) calc(100% - 7px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 2.5px 4px / calc(100% - 5px) calc(100% - 8px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 2px 5px / calc(100% - 4px) calc(100% - 10px) no-repeat,
+    linear-gradient(var(--fill) 0 0) 1.5px 6px / calc(100% - 3px) calc(100% - 12px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 6px 0px / calc(100% - 12px) 100% no-repeat,
+    linear-gradient(var(--ink) 0 0) 4.5px 0.5px / calc(100% - 9px) calc(100% - 1px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 3.5px 1px / calc(100% - 7px) calc(100% - 2px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 3px 1.5px / calc(100% - 6px) calc(100% - 3px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 2.5px 2px / calc(100% - 5px) calc(100% - 4px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 2px 2.5px / calc(100% - 4px) calc(100% - 5px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 1.5px 3px / calc(100% - 3px) calc(100% - 6px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 1px 3.5px / calc(100% - 2px) calc(100% - 7px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 0.5px 4.5px / calc(100% - 1px) calc(100% - 9px) no-repeat,
+    linear-gradient(var(--ink) 0 0) 0px 6px / 100% calc(100% - 12px) no-repeat;
 }
 /*
  * A box light falls into rather than off: the two faces swap, so the top
@@ -337,17 +370,17 @@ label.custom input[type="color"],
 #bagMenu::-webkit-scrollbar-thumb,
 .diagRows::-webkit-scrollbar-thumb {
   background: var(--p-raised);
-  border: 2px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
 }
 
 /* Selection reads as a second frame rather than a soft glow. */
-.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
+.sel { outline: 1.5px solid var(--p-text); outline-offset: -1.5px; }
 /*
  * Where a keyboard or a gamepad is. It has to survive a selected cell and
  * a coloured fill, so it is the highlight rather than the text colour and
  * it is drawn inside the frame like every other second frame here.
  */
-:focus-visible { outline: 3px solid var(--p-highlight); outline-offset: -3px; }
+:focus-visible { outline: 1.5px solid var(--p-highlight); outline-offset: -1.5px; }
 /*
  * A pointer that can hover is a mouse, so the lift is only offered there.
  * On a touch screen the state sticks after the finger has gone and leaves
@@ -860,7 +893,7 @@ button.thumb canvas { image-rendering: pixelated; display: block; }
 .pill.chan i {
   display: block;
   width: 14px; height: 14px;
-  border: 2px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
 }
 label.custom {
   display: flex;
@@ -888,7 +921,7 @@ label.custom input[type="color"] {
   color: var(--p-highlight);
   cursor: help;
 }
-.pnum:focus-visible { outline: 2px solid var(--p-highlight); outline-offset: 1px; }
+.pnum:focus-visible { outline: 1.5px solid var(--p-highlight); outline-offset: 1px; }
 .ptip {
   --ink: var(--p-action);
   --fill: var(--p-ink);
@@ -1018,7 +1051,7 @@ label.custom input[type="color"] {
   cursor: pointer;
   padding: 0;
 }
-.bxCell.sel { outline: 3px solid var(--p-text); outline-offset: -3px; }
+.bxCell.sel { outline: 1.5px solid var(--p-text); outline-offset: -1.5px; }
 .bxCell:disabled { cursor: default; }
 .bxFace { display: flex; align-items: flex-end; justify-content: center; }
 .bxFace canvas { image-rendering: pixelated; display: block; }
@@ -1044,7 +1077,7 @@ label.custom input[type="color"] {
   cursor: pointer;
   opacity: 0.55;
 }
-.bxChip.sel { opacity: 1; outline: 3px solid var(--p-text); outline-offset: -3px; }
+.bxChip.sel { opacity: 1; outline: 1.5px solid var(--p-text); outline-offset: -1.5px; }
 .bxStat { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .bxSearchOps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
 .bxStatName { width: 30px; color: var(--p-text); }
@@ -1059,20 +1092,20 @@ label.custom input[type="color"] {
   min-width: 0;
   height: 12px;
   background: var(--p-ground);
-  border: 2px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
 }
 .bxStat input[type="range"]::-webkit-slider-thumb,
 .setBar input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 13px; height: 18px;
   background: var(--p-text);
-  border: 3px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
 }
 .bxStat input[type="range"]::-moz-range-thumb,
 .setBar input[type="range"]::-moz-range-thumb {
   width: 13px; height: 18px;
   background: var(--p-text);
-  border: 3px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
   border-radius: 0;
 }
 .bxWide {
@@ -1307,12 +1340,12 @@ html.soft .xface canvas { image-rendering: auto; }
 .dmg.true { color: var(--p-true); }
 
 .mgbar { position: relative; width: min(calc(var(--ui-w, 800px) * 0.88), 420px); height: 26px; --ink: var(--p-action); --fill: var(--p-ink); }
-.mgzone { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--p-confirm) 33%, transparent); border-left: 2px solid var(--p-confirm); border-right: 2px solid var(--p-confirm); }
+.mgzone { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--p-confirm) 33%, transparent); border-left: 1.5px solid var(--p-confirm); border-right: 1.5px solid var(--p-confirm); }
 .mgmark { position: absolute; width: 7px; top: -5px; bottom: -5px; background: var(--p-text); }
 
 .meter { width: 100%; }
 .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--p-dim); margin-bottom: 4px; }
-.meter .bar { height: 12px; border: 2px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
+.meter .bar { height: 12px; border: 1.5px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }
 .meter .bar i { display: block; height: 100%; background: linear-gradient(color-mix(in srgb, var(--p-confirm) 62%, var(--p-lit)) 0 2px, var(--p-confirm) 2px); }
 /* A mark saying a thing is done, kept or won. Green, because all three of
    the places it is used report something good; `warn` is the one that
@@ -1333,7 +1366,7 @@ html.soft .xface canvas { image-rendering: auto; }
   top: 0; right: 0; bottom: 0;
   width: 300px;
   background: color-mix(in srgb, var(--p-ink) 95%, transparent);
-  border-left: 3px solid var(--p-ink);
+  border-left: 1.5px solid var(--p-ink);
   overflow-y: auto;
   padding: 8px;
   display: flex;
@@ -1353,13 +1386,13 @@ html.soft .xface canvas { image-rendering: auto; }
   text-align: left;
   color: var(--p-text);
   background: var(--p-ground);
-  border: 2px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
   padding: 4px 8px;
   cursor: pointer;
 }
 #devPanel .devItem.sel { border-color: var(--p-text); }
 #devPanel .devCard {
-  border: 2px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
   background: var(--p-dead);
   padding: 8px;
   display: flex;
@@ -1373,7 +1406,7 @@ html.soft .xface canvas { image-rendering: auto; }
   font: inherit; font-size: 12px;
   color: var(--p-text);
   background: var(--p-ground);
-  border: 2px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
   padding: 4px 8px;
   width: 100%;
 }
@@ -1389,7 +1422,7 @@ html.soft .xface canvas { image-rendering: auto; }
   padding: 0;
   line-height: 0;
   background: var(--p-ground);
-  border: 2px solid var(--p-ink);
+  border: 1.5px solid var(--p-ink);
   cursor: pointer;
 }
 #devPanel .tileBtn.sel { border-color: var(--p-text); }
