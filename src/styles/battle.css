@@ -61,7 +61,7 @@ html.soft .bfront { image-rendering: auto; }
   width: 116px;
   transform-origin: top left;
 }
-.bcard.bplate .nm { font-size: 12px; line-height: 1.2; width: 100%; justify-content: center; gap: 4px; }
+.bcard.bplate .nm { font-size: 12px; line-height: 1.2; width: 100%; justify-content: center; gap: 4px; min-width: 0; }
 /*
  * Badges at half size on a readout. The art is drawn with a 3px outline to
  * match the sprites at their own scale, and the interface is laid out at
@@ -78,7 +78,15 @@ html.soft .bfront { image-rendering: auto; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.bcard.bplate .nm .lv { font-size: 12px; flex: none; }
+/* The badges and the level share a row under the name, centred together. */
+.bcard.bplate .tline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+}
+.bcard.bplate .tline .lv { font-size: 12px; flex: none; color: var(--p-dim); }
 .bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 12px; }
 .bcard.bplate .own { font-size: 12px; }
 .bcard.bplate .bbar { height: 8px; }

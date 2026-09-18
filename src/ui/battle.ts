@@ -461,12 +461,16 @@ function runBattle(
       star.title = "Shiny";
       nm.appendChild(star);
     }
-    nm.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
     wrap.appendChild(nm);
     // Its own row, the same rule a Pawn's readout keeps: a badge is 41 px of
     // drawn art that cannot be shrunk, and inline with the name it sets the
-    // panel's width rather than the name doing it.
-    wrap.appendChild(typeIcons(c.scoba));
+    // panel's width rather than the name doing it. The level rides with the
+    // badges rather than with the name, so the name has the whole row above
+    // and reaches its ellipsis only when it is genuinely too long for one.
+    const tline = el("div", "tline");
+    tline.appendChild(typeIcons(c.scoba));
+    tline.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
+    wrap.appendChild(tline);
     const max = combatantMaxHp(c);
     const hpBar = bar("");
     const mpBar = bar("mp");
