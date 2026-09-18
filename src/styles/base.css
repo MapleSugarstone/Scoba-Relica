@@ -78,11 +78,19 @@ html, body {
   /* Bundled, so every machine spaces a label the same way. */
   font-family: "Nunito Variable", ui-rounded, "Segoe UI", system-ui, sans-serif;
   color: var(--p-text);
-  /* Hard-edged glyphs: no greyscale or subpixel blending anywhere. */
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: grayscale;
-  font-smooth: never;
-  text-rendering: geometricPrecision;
+  /*
+   * Left to the rasterizer, which is what keeps writing sharp.
+   *
+   * This asked for three things that all worked against that.
+   * `-webkit-font-smoothing: none` turns antialiasing off outright where it is
+   * honoured, and a letter with no antialiasing loses its thin strokes at the
+   * sizes used here: it reads as broken rather than as crisp.
+   * `text-rendering: geometricPrecision` turns off the hinting that snaps a
+   * stem onto a whole pixel, which is the one thing that makes small writing
+   * look sharp. Sharpness comes from the frame landing on whole pixels, which
+   * is `engine/crisp.ts`, not from refusing to blend.
+   */
+  -moz-osx-font-smoothing: auto;
 }
 /*
  * The frame the game lives in. It is the same box on every screen, 800 by
