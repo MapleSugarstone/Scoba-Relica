@@ -11,6 +11,7 @@
 // showing round it where the window is the wrong shape.
 
 /** Device px per world unit inside the scene buffer. */
+import { crispPixels } from "./crisp";
 export const ART = 4;
 
 /** What the frame shows in world units. A window held upright gets a prompt to turn, not a frame of its own. */
@@ -70,7 +71,11 @@ export function viewport(): Viewport {
   // pixels per CSS pixel gets, the frame scales to fill instead and the art
   // pixels come out a device pixel uneven.
   const whole = Math.floor(fit);
-  const k = whole >= 1 && whole / fit >= FILL_FLOOR ? ART * whole : ART * fit;
+  // Held to a whole step, a window is left with a border round the game and
+  // every art pixel, panel edge and letter lands on the device grid. Filling
+  // it instead resamples all three, and text goes soft first.
+  const held = crispPixels() ? whole >= 1 : whole >= 1 && whole / fit >= FILL_FLOOR;
+  const k = held ? ART * whole : ART * fit;
   const u = k / UI_PER_UNIT;
   lastGood = {
     portrait,

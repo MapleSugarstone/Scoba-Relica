@@ -42,6 +42,8 @@ export { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
 import { freshRoomCode, normalizeRoomCode } from "../net/roomcode";
 import { mountInstallCard } from "./install";
 import { PACES, setStagePace, stagePace } from "../game/pace";
+import { crispPixels, setCrispPixels } from "../engine/crisp";
+import { holdUiScale } from "../engine/renderer";
 
 export interface DialogLine {
   who?: string;
@@ -1523,6 +1525,25 @@ export function settingsScreen(
     play.appendChild(el("div", "dim",
       "Every level counts as 4 to each stat in battle. Wild Scobas and trainers are left alone."));
     grid.appendChild(play);
+
+    const look = el("div", "card");
+    look.appendChild(el("strong", undefined, "Picture"));
+    const lookRow = el("div", "row");
+    const crispB = el("button", "pill", crispPixels() ? "Sharp pixels" : "Fill the window");
+    crispB.addEventListener("click", () => {
+      sfx.confirm();
+      setCrispPixels(!crispPixels());
+      crispB.textContent = crispPixels() ? "Sharp pixels" : "Fill the window";
+      // The frame is measured on the next resize, so it is asked for one.
+      holdUiScale();
+      window.dispatchEvent(new Event("resize"));
+    });
+    lookRow.appendChild(crispB);
+    look.appendChild(lookRow);
+    look.appendChild(el("div", "dim",
+      "Sharp holds the game to whole pixels, which can leave a border round it."
+      + " Filling uses the whole window and softens the art and the writing."));
+    grid.appendChild(look);
 
     const saveCard = el("div", "card");
     const saveHead = el("div", "cardHead");

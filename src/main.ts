@@ -2,13 +2,6 @@ import { loadArt, type Art } from "./engine/assets";
 import { warmSounds } from "./engine/sfx";
 import { devMode } from "./version";
 import "@fontsource-variable/nunito";
-// A drawn font, so a letter is made of the same pixels the Scobas are. The
-// rounded one is picked to sit with the art; `@fontsource/silkscreen` is
-// installed beside it and swaps in by changing --p-font in base.css.
-import "@fontsource/pixelify-sans/400.css";
-import "@fontsource/pixelify-sans/700.css";
-import "@fontsource/silkscreen/400.css";
-import "@fontsource/silkscreen/700.css";
 import { Renderer, holdUiScale } from "./engine/renderer";
 import { startLoop } from "./engine/loop";
 import { Input } from "./engine/input";

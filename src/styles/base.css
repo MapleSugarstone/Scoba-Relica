@@ -75,18 +75,8 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  /*
-   * A drawn font rather than an outline one. The smoothing hints below are
-   * only honoured by some browsers on some platforms, so an outline font is
-   * soft on most machines whatever they say: the only way a letter is made of
-   * whole pixels is for the font to be drawn in them.
-   *
-   * Swap the first name for "Silkscreen" for the narrower, squarer one, which
-   * is installed beside it. Both are bundled, so every machine spaces a label
-   * the same way.
-   */
-  --p-font: "Pixelify Sans";
-  font-family: var(--p-font), "Nunito Variable", ui-rounded, system-ui, sans-serif;
+  /* Bundled, so every machine spaces a label the same way. */
+  font-family: "Nunito Variable", ui-rounded, "Segoe UI", system-ui, sans-serif;
   color: var(--p-text);
   /* Hard-edged glyphs: no greyscale or subpixel blending anywhere. */
   -webkit-font-smoothing: none;
