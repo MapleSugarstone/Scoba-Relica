@@ -11,7 +11,8 @@ Run from the repo root:
     python tools/pixelfont.py
 
 It reads the bundled Nunito and writes assets/Fonts/, which the stylesheet
-picks up. Nothing at runtime depends on this script; it is the thing that made
+picks up. A letter the sampler gets wrong can be drawn by hand in the face's
+file under tools/glyphs/, and the build takes that drawing instead. Nothing at runtime depends on this script; it is the thing that made
 the files.
 """
 from __future__ import annotations
@@ -73,6 +74,9 @@ CHARS = (
 
 SRC = "node_modules/@fontsource-variable/nunito/files/nunito-latin-wght-normal.woff2"
 OUT = "assets/Fonts"
+# Glyphs drawn by hand, one file per face, named the same as the face it
+# replaces letters in. A face with no file is sampled whole.
+DRAWN = "tools/glyphs"
 
 
 def instance(path: str, weight: int, to: str) -> str:
@@ -186,6 +190,50 @@ def mend(lit: set[tuple[int, int]]) -> set[tuple[int, int]]:
     return lit | add
 
 
+def by_hand(path: str) -> dict[str, tuple[set[tuple[int, int]], int]]:
+    """The glyphs drawn by hand for one face, as ink and width.
+
+    The file format is described at the top of each file in DRAWN. The ink
+    comes back in the same terms `pixels()` uses, trimmed to its own columns
+    and counted up from the baseline, so a drawn glyph and a sampled one are
+    interchangeable.
+    """
+    if not os.path.exists(path):
+        return {}
+    blocks: list[tuple[str, int, list[str]]] = []
+    with open(path, encoding="utf-8") as f:
+        for n, raw in enumerate(f, 1):
+            line = raw.rstrip()
+            if not line or line.startswith(";"):
+                continue
+            if line.startswith("glyph "):
+                parts = line.split(" ")
+                if len(parts) != 3 or len(parts[1]) != 1:
+                    raise ValueError(f"{path}:{n}: expected `glyph <character> <bottom row>`")
+                blocks.append((parts[1], int(parts[2]), []))
+                continue
+            if not blocks or set(line) - {"#", "."}:
+                raise ValueError(f"{path}:{n}: a row is # and . only, under a `glyph` line")
+            blocks[-1][2].append(line)
+
+    glyphs = {}
+    for ch, foot, rows in blocks:
+        if ch not in CHARS:
+            raise ValueError(f"{path}: {ch!r} is not a character the faces carry")
+        cols = [x for row in rows for x, v in enumerate(row) if v == "#"]
+        if not cols:
+            raise ValueError(f"{path}: {ch!r} has no ink")
+        x0, x1 = min(cols), max(cols)
+        lit = {
+            (x - x0, foot + len(rows) - 1 - r)
+            for r, row in enumerate(rows)
+            for x, v in enumerate(row)
+            if v == "#"
+        }
+        glyphs[ch] = (lit, x1 - x0 + 1)
+    return glyphs
+
+
 def square(pen: TTGlyphPen, x: int, y: int) -> None:
     """One art pixel, as a square contour in font units."""
     x0, y0 = x * UNIT, y * UNIT
@@ -235,7 +283,7 @@ def kerning(src: TTFont, em: int, names: dict[str, str]) -> str:
     return "feature kern {" + NL + NL.join(pairs) + NL + "} kern;" + NL
 
 
-def build(ttf: str, out: str, name: str, em: int, src: TTFont) -> None:
+def build(ttf: str, out: str, name: str, em: int, src: TTFont, hand: dict[str, tuple[set[tuple[int, int]], int]]) -> None:
     pil = ImageFont.truetype(ttf, em)
     ascent, descent = pil.getmetrics()
     # Half the gap on each side of every letter, so the space between any two
@@ -258,14 +306,19 @@ def build(ttf: str, out: str, name: str, em: int, src: TTFont) -> None:
     for ch in CHARS:
         drawn[ch], spans[ch] = pixels(pil, ch, em)
     level(drawn, {ch for ch in CHARS if rests(src, ch, em)})
+    # A glyph drawn by hand is taken exactly as drawn, so nothing after this
+    # point second-guesses it.
+    for ch, (lit, span) in hand.items():
+        drawn[ch], spans[ch] = lit, span
 
     for ch in CHARS:
         gname = f"u{ord(ch):04X}"
         pen = TTGlyphPen(None)
+        cells = drawn[ch] if ch in hand else mend(drawn[ch])
         # Top row first and left to right within a row. A glyph's points are
         # stored as steps from the point before, so squares written in a
         # scrambled order cost four times the file.
-        for x, y in sorted(mend(drawn[ch]), key=lambda cell: (-cell[1], cell[0])):
+        for x, y in sorted(cells, key=lambda cell: (-cell[1], cell[0])):
             # The ink starts one gap in, so a letter has the same room on its
             # left as it leaves on its right.
             square(pen, track + x, y)
@@ -303,9 +356,12 @@ def main() -> int:
         for size, weights in SIZES.items():
             if weight not in weights:
                 continue
-            out = os.path.join(OUT, f"relica-{size}-{tag}.woff2")
-            build(tmp, out, f"Relica {size}", size * ART_PER_CSS, shaped)
-            print(f"wrote {out}  (sampled at {size * ART_PER_CSS} art px, shown at {size} CSS px)")
+            face = f"relica-{size}-{tag}"
+            out = os.path.join(OUT, f"{face}.woff2")
+            hand = by_hand(os.path.join(DRAWN, f"{face}.txt"))
+            build(tmp, out, f"Relica {size}", size * ART_PER_CSS, shaped, hand)
+            drew = f", drawn by hand: {''.join(sorted(hand))}" if hand else ""
+            print(f"wrote {out}  (sampled at {size * ART_PER_CSS} art px, shown at {size} CSS px{drew})")
         os.remove(tmp)
     return 0
 
