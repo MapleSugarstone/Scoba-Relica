@@ -36,6 +36,7 @@ import type { StarterTurn } from "../net/lobby";
 import { rngFrom } from "../sim/rng";
 import {
   PRONOUN_PRESETS,
+  markMet,
   type CharacterDef,
   type SaveData,
   type SlotId,
@@ -1130,8 +1131,10 @@ export function buildJoinedSave(
   // against the shared one or the two saves would hold different Scobas.
   const mineScoba = makeWild(mineProfile.starter, 5, rngFrom(`${worldSeed}:starter:${mine}`));
   mineScoba.owner = mine;
+  markMet(mineScoba, mineProfile.name);
   const theirScoba = makeWild(theirProfile.starter, 5, rngFrom(`${worldSeed}:starter:${other}`));
   theirScoba.owner = other;
+  markMet(theirScoba, theirProfile.name);
   save.party = mine === "A" ? [mineScoba, theirScoba] : [theirScoba, mineScoba];
   return save;
 }
@@ -1142,8 +1145,10 @@ function buildSave(localSlot: SlotId, localDef: CharacterDef, otherDef: Characte
   const worldSeed = Math.random().toString(36).slice(2, 10);
   const mine = makeWild(localDef.starter, 5, rngFrom(`${worldSeed}:starter:${localSlot}`));
   mine.owner = localSlot;
+  markMet(mine, localDef.name, now);
   const theirs = makeWild(otherDef.starter, 5, rngFrom(`${worldSeed}:starter:${other}`));
   theirs.owner = other;
+  markMet(theirs, otherDef.name, now);
   return {
     version: 15,
     createdAt: now,

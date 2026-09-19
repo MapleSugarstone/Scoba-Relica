@@ -16,7 +16,7 @@
 // cannot drift apart in how they land.
 import type { ScobaInstance, Summoner } from "./scoba";
 import {
-  MAX_LEVEL, MAX_MANA, freshUid, inheritFromCaller, maxHp, moveCost, scobaTypes, statsAt, makeWild,
+  MAX_LEVEL, MAX_MANA, freshUid, inheritFromCaller, leanOnto, maxHp, moveCost, scobaTypes, statsAt, makeWild,
   passiveStatuses, speciesName,
 } from "./scoba";
 import {
@@ -51,6 +51,7 @@ import {
   wardAgainst,
   softenOn,
   hyperShut,
+  spellsShutBy,
   echoFrac,
   powerCategory,
   type Basis,
@@ -218,9 +219,13 @@ export interface Combatant {
    * on the field with it, from their `mark-worth` effects that reach allies or
    * enemies, and the sigils those effects have it show. Worked out again
    * whenever who is on the field changes, by `refreshWorth`, and absent where
-   * nothing reaches it.
+   * nothing reaches it. `by` names each one, so a window can say what made a
+   * status worth more.
    */
-  worth?: { good: number; bad: number; shown?: string[] };
+  worth?: {
+    good: number; bad: number; shown?: string[];
+    by?: { name: string; polarity: StatusPolarity; mult: number }[];
+  };
   /**
    * One of the two Scobas in a fusion: the team index of that fusion. It keeps
    * its own mark, its moves, its cooldowns and its mana bar, and picks one of
@@ -463,6 +468,12 @@ export interface BattleEvent {
   cards?: CardFace[];
   /** The status a status line is about, for the sound it lands with. */
   status?: string;
+  /**
+   * How many of that status the Scoba carries once it has landed. Only a
+   * status landing has one, which is what lets the scene read several landings
+   * in a row as one line.
+   */
+  stacks?: number;
   /** The sample a hit or a heal lands with, where its step names one. */
   sound?: string;
   /** For a `show` event: the step that asked for it, and who it reaches. */
@@ -1017,6 +1028,22 @@ export function worthOf(c: Combatant, inst: StatusInstance): number {
   return (c.worth?.[polarity] ?? 1) * selfWorth(c.statuses, polarity);
 }
 
+/** Each multiple in `worthOf`, named after the status it comes from. */
+export function worthBy(c: Combatant, inst: StatusInstance): { name: string; mult: number }[] {
+  if (!worthReaches(inst)) return [];
+  const polarity = STATUSES[inst.id]?.polarity;
+  if (!polarity) return [];
+  const out = (c.worth?.by ?? []).filter((b) => b.polarity === polarity).map(({ name, mult }) => ({ name, mult }));
+  for (const own of c.statuses) {
+    for (const e of STATUSES[own.id]?.effects ?? []) {
+      if (e.kind === "mark-worth" && e.reach === "self" && e.polarity === polarity) {
+        out.push({ name: statusName(own.id), mult: Math.pow(e.mult, own.stacks) });
+      }
+    }
+  }
+  return out.filter((b) => b.mult !== 1);
+}
+
 /**
  * Works out every combatant's `worth` from the `mark-worth` effects standing on
  * the field. Only a Scoba on the field reaches anyone, and only a Scoba on the
@@ -1024,7 +1051,7 @@ export function worthOf(c: Combatant, inst: StatusInstance): number {
  */
 function refreshWorth(st: BattleState): void {
   const auras: {
-    from: TargetRef; reach: "enemies" | "allies"; polarity: StatusPolarity; mult: number; shown?: string;
+    from: TargetRef; name: string; reach: "enemies" | "allies"; polarity: StatusPolarity; mult: number; shown?: string;
   }[] = [];
   forEachStanding(st, (ref) => {
     const c = combatantAt(st, ref);
@@ -1032,7 +1059,7 @@ function refreshWorth(st: BattleState): void {
       for (const e of STATUSES[inst.id]?.effects ?? []) {
         if (e.kind !== "mark-worth" || e.reach === "self") continue;
         auras.push({
-          from: ref, reach: e.reach, polarity: e.polarity, mult: Math.pow(e.mult, inst.stacks),
+          from: ref, name: statusName(inst.id), reach: e.reach, polarity: e.polarity, mult: Math.pow(e.mult, inst.stacks),
           ...(e.shown !== undefined ? { shown: e.shown } : {}),
         });
       }
@@ -1045,15 +1072,19 @@ function refreshWorth(st: BattleState): void {
     if (!c) return;
     const w: NonNullable<Combatant["worth"]> = { good: 1, bad: 1 };
     const shown: string[] = [];
+    const by: NonNullable<NonNullable<Combatant["worth"]>["by"]> = [];
     for (const a of auras) {
       const reaches = a.reach === "enemies" ? a.from.side !== ref.side : a.from.side === ref.side;
       if (!reaches) continue;
       w[a.polarity] *= a.mult;
+      by.push({ name: a.name, polarity: a.polarity, mult: a.mult });
       // The holder shows its own passive's sigil already, so the one it hands
-      // out is for everyone else it reaches.
-      if (a.shown !== undefined && !sameRef(a.from, ref) && !shown.includes(a.shown)) shown.push(a.shown);
+      // out is for everyone else it reaches. Listed once per source, so the
+      // sigil can count them.
+      if (a.shown !== undefined && !sameRef(a.from, ref)) shown.push(a.shown);
     }
     if (shown.length > 0) w.shown = shown;
+    if (by.length > 0) w.by = by;
     if (w.good !== 1 || w.bad !== 1 || shown.length > 0) c.worth = w;
   });
 }
@@ -1139,6 +1170,8 @@ export function castCost(c: Combatant, moveId: string): number {
 export function moveReady(c: Combatant, moveId: string): { ok: boolean; why?: string } {
   const move = MOVES[moveId];
   if (!move) return { ok: false, why: "Unknown move." };
+  const shut = spellsShutBy(c.statuses);
+  if (shut) return { ok: false, why: `${shut.name} stops it casting abilities.` };
   if (move.oncePerBattle && c.spent.includes(moveId)) return { ok: false, why: "Already used this battle." };
   if ((c.cds[moveId] ?? 0) > 0) return { ok: false, why: `On cooldown (${c.cds[moveId]}).` };
   if (c.mana < castCost(c, moveId)) return { ok: false, why: "Not enough mana." };
@@ -1158,15 +1191,21 @@ export function formsOf(c: Combatant): string[] {
 
 /**
  * The move a combatant's basic attack has become, where a passive it carries
- * says so, or null for the plain blow.
+ * says so, or null for the plain blow. The latest one it gained wins, so a
+ * Hyper-Mode passive can change a basic attack the primary already changed.
  */
 export function basicAttackOf(c: Combatant): Move | null {
-  for (const inst of c.statuses) {
-    const id = STATUSES[inst.id]?.basicAttack;
+  for (let i = c.statuses.length - 1; i >= 0; i--) {
+    const id = STATUSES[c.statuses[i]!.id]?.basicAttack;
     const move = id ? MOVES[id] : undefined;
     if (move) return move;
   }
   return null;
+}
+
+/** What this combatant's basic attack is aimed at: its move's aim where a passive made it one. */
+export function basicSpecs(c: Combatant): TargetSpec[] {
+  return basicAttackOf(c)?.targets ?? BASIC_ATTACK_TARGETS;
 }
 
 /** Why this Scoba cannot go Hyper right now, or null if it can. */
@@ -1180,8 +1219,16 @@ export function hyperError(c: Combatant): string | null {
 }
 
 /** The target specs a choice has to satisfy before it is legal. */
-export function specsFor(c: Choice): TargetSpec[] {
-  if (c.kind === "attack") return BASIC_ATTACK_TARGETS;
+/**
+ * What an action asks to be aimed at. Given the battle, a basic attack that a
+ * passive turned into a move is aimed the way that move is, which for one that
+ * calls something up is nowhere at all.
+ */
+export function specsFor(c: Choice, st?: BattleState): TargetSpec[] {
+  if (c.kind === "attack") {
+    const user = st ? combatant(st, c.side, c.slot) : null;
+    return st && user ? basicSpecs(actingAs(st, user)) : BASIC_ATTACK_TARGETS;
+  }
   if (c.kind === "spell") return MOVES[c.moveId]?.targets ?? [];
   return [];
 }
@@ -1238,7 +1285,7 @@ export function choiceError(st: BattleState, c: Choice): string | null {
       return "That journey has already been made.";
     }
   }
-  const specs = specsFor(c);
+  const specs = specsFor(c, st);
   const picks = c.picks ?? [];
   if (picks.length !== specs.length) return "Wrong number of targets.";
   // A half aims from where its fusion stands.
@@ -1272,7 +1319,7 @@ interface Ctx {
 /** How a hit should be treated once it reaches `dealDamage`. */
 interface HitMeta {
   element: ElementType;
-  category: DamageCategory;
+  category: DamageCategory | "mixed";
   damageClass: DamageClass;
   triggersOnHit: boolean;
   source: TargetRef | null;
@@ -1320,15 +1367,23 @@ function damageOf(
     // A flat hit takes its number off the caster's level instead of a stat,
     // and is an ordinary hit from there on.
     dmg = 0;
+    // What of it came off Magic, which is the half a mixed hit reads Resistance against.
+    let magical = 0;
     if (attack.step.perLevel !== undefined) {
       dmg = attack.step.perLevel * user.scoba.level;
     } else {
-      for (const s of attack.step.scaling) dmg += uStats[s.stat] * s.scale;
+      for (const s of attack.step.scaling) {
+        const part = uStats[s.stat] * s.scale;
+        dmg += part;
+        if (s.stat === "mag") magical += part;
+      }
       // A flat share is written as what it comes to at the ceiling, so a level
       // 6 attacker lands a fifth of it.
       const flat = attack.step.flatAtCeiling;
       if (flat !== undefined) dmg += (flat * user.scoba.level) / MAX_LEVEL;
     }
+    // Every multiplier below reaches both halves alike, so the share stays put.
+    const magicShare = dmg > 0 ? magical / dmg : 0;
     // Counted once per stack the target carries, so what it comes to is what
     // the attacker built up there.
     if (attack.step.perStackOf !== undefined) dmg *= stacksOf(target.statuses, attack.step.perStackOf);
@@ -1342,7 +1397,12 @@ function damageOf(
     // A two-element move is powered up by whichever of its elements the
     // caster and the field have something to say about.
     dmg *= types.reduce((mult, t) => mult * elementPower(user, t, field), 1);
-    dmg *= mitigation(hitCategory(attack.step) === "physical" ? tStats.def : tStats.res);
+    const category = hitCategory(attack.step);
+    if (category === "mixed") {
+      dmg = dmg * (1 - magicShare) * mitigation(tStats.def) + dmg * magicShare * mitigation(tStats.res);
+    } else {
+      dmg *= mitigation(category === "physical" ? tStats.def : tStats.res);
+    }
   }
   return { dmg: Math.max(1, Math.floor(dmg)), eff };
 }
@@ -1881,6 +1941,8 @@ function whoRefs(ctx: Ctx, run: Run, who: Who): TargetRef[] {
     case "field-enemies": return fieldOf(ctx.st, foe, false);
     case "ally-scobas": return fieldOf(ctx.st, run.self.side, true);
     case "enemy-scobas": return fieldOf(ctx.st, foe, true);
+    case "ally-pawns": return fieldOf(ctx.st, run.self.side, false).filter((ref) => combatantAt(ctx.st, ref)?.pawn);
+    case "enemy-pawns": return fieldOf(ctx.st, foe, false).filter((ref) => combatantAt(ctx.st, ref)?.pawn);
     default: return teamOf(ctx.st, run.self, who);
   }
 }
@@ -2164,9 +2226,13 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       }
       return true;
     }
-    case "summon":
-      summon(ctx, run.self, step.species, step.level);
+    case "summon": {
+      const copied = step.copying !== undefined ? whoRefs(ctx, run, step.copying)[0] ?? null : null;
+      // A Pawn called up is what the steps after it reach as `raised`, the same
+      // as one a `raise` step put on the field.
+      run.raised = summon(ctx, run.self, step, copied) ?? run.raised;
       return true;
+    }
     case "raise": {
       const fallen = whoRefs(ctx, run, step.who)[0];
       if (!fallen) return true;
@@ -2198,9 +2264,13 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       for (const ref of whoRefs(ctx, run, step.to)) dealCard(ctx, run.self, ref, step.payoff, step.hand, run.card);
       return true;
     case "if": {
-      const fell = whoRefs(ctx, run, step.fell).some((ref) =>
-        run.alive.has(refKey(ref)) && combatantAt(ctx.st, ref)?.fainted === true);
-      if (fell) runSteps(ctx, run, step.then);
+      const holds = whoRefs(ctx, run, step.who).some((ref) => {
+        const c = combatantAt(ctx.st, ref);
+        return step.test === "stands"
+          ? !!c && !c.fainted
+          : run.alive.has(refKey(ref)) && c?.fainted === true;
+      });
+      if (holds) runSteps(ctx, run, step.then);
       return true;
     }
     case "refund": {
@@ -2342,7 +2412,10 @@ export function inflict(
   if (target.fusion && fuseMarks(target.statuses).has(statusId)) return;
   let power: number | undefined;
   if (def.power) {
-    power = basisValue(ctx, def.power.basis, targetRef, from) * def.power.frac;
+    power = def.power.basis ? basisValue(ctx, def.power.basis, targetRef, from) * def.power.frac : 0;
+    const flat = def.power.flatAtCeiling;
+    const source = from ? combatantAt(ctx.st, from) : null;
+    if (flat && source) power += (flat * source.scoba.level) / MAX_LEVEL;
   } else {
     const dmg = snapshotStep(def.effects);
     if (dmg) {
@@ -2372,7 +2445,11 @@ export function inflict(
   }
   // What put it there can say how long it stands, over the mark's own clock.
   if (turns !== undefined) inst.turnsLeft = turns;
+  const before = combatantMaxHp(target);
   const how = applyStatus(target.statuses, inst);
+  // A bigger pool keeps the share of it the Scoba had, the way Hyper-Mode does.
+  const after = combatantMaxHp(target);
+  if (after > before && before > 0) target.hp = Math.round((target.hp * after) / before);
   // A status that makes others stronger across the field starts doing so now.
   if (def.effects.some((e) => e.kind === "mark-worth" && e.reach !== "self")) refreshWorth(ctx.st);
   const name = displayName(target.scoba);
@@ -2387,8 +2464,36 @@ export function inflict(
     at: targetRef,
     by: from ?? undefined,
     status: statusId,
+    stacks,
   });
   target.hp = Math.min(target.hp, combatantMaxHp(target));
+}
+
+/** A name as a group of them: "Grinklings". */
+function plural(name: string): string {
+  if (/(s|x|z|ch|sh)$/i.test(name)) return `${name}es`;
+  if (/[^aeiou]y$/i.test(name)) return `${name.slice(0, -1)}ies`;
+  return `${name}s`;
+}
+
+/**
+ * One line for a status landing on several Scobas in a row, in place of a line
+ * for each landing: "All 3 Grinklings are Charged x4." The count shows where
+ * every one of them ends up carrying the same number.
+ */
+export function landingLine(run: BattleEvent[], nameOf: (ref: TargetRef) => string): string {
+  const name = statusName(run[0]?.status ?? "");
+  const last = new Map<string, { ref: TargetRef; stacks: number }>();
+  for (const ev of run) if (ev.at) last.set(refKey(ev.at), { ref: ev.at, stacks: ev.stacks ?? 1 });
+  const who = [...last.values()];
+  const names = who.map((w) => nameOf(w.ref));
+  const first = who[0];
+  const count = first && first.stacks > 1 && who.every((w) => w.stacks === first.stacks) ? ` x${first.stacks}` : "";
+  if (who.length <= 1) return `${names[0] ?? ""} is ${name}${count}.`;
+  const subject = names.every((n) => n === names[0])
+    ? `${who.length === 2 ? "Both" : `All ${who.length}`} ${plural(names[0]!)}`
+    : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${subject} are ${name}${count}.`;
 }
 
 function cleanse(ctx: Ctx, targetRef: TargetRef, polarity: StatusPolarity): void {
@@ -2426,50 +2531,106 @@ function copyStatuses(ctx: Ctx, fromRef: TargetRef, toRef: TargetRef): void {
   dst.hp = Math.min(dst.hp, combatantMaxHp(dst));
 }
 
-function summon(ctx: Ctx, callerRef: TargetRef, speciesId: string, level: number): void {
-  const sp = SPECIES[speciesId];
-  if (!sp) return;
+type SummonStep = Extract<Step, { kind: "summon" }>;
+
+/** Calls up whatever a `summon` step names, and says where it landed, or null for nowhere. */
+function summon(ctx: Ctx, callerRef: TargetRef, step: SummonStep, copiedRef: TargetRef | null): TargetRef | null {
+  const sp = SPECIES[step.species];
+  if (!sp) return null;
   const side = callerRef.side;
   const caller = combatantAt(ctx.st, callerRef);
-  if (sp.pawn) return summonPawn(ctx, callerRef, speciesId);
+  const copied = copiedRef ? combatantAt(ctx.st, copiedRef) ?? null : null;
+  const shared = step.levelShare !== undefined && caller
+    ? Math.max(1, Math.round(caller.scoba.level * step.levelShare))
+    : undefined;
+  const copy = copied ? { from: copied, except: step.except ?? [] } : null;
+  if (sp.pawn) return summonPawn(ctx, callerRef, step.species, shared, copy);
   const already = ctx.st.teams[side].filter((c) => c.summoned).length;
   if (already >= MAX_SUMMONS) {
     ctx.events.push({ text: "Nothing else answers the call.", kind: "info" });
-    return;
+    return null;
   }
-  const scoba = makeWild(speciesId, level, rngFrom(`${ctx.st.seed}:summon:${ctx.st.turn}:${already}`));
+  const scoba = makeWild(step.species, shared ?? step.level, rngFrom(`${ctx.st.seed}:summon:${ctx.st.turn}:${already}`));
   scoba.owner = caller?.scoba.owner;
+  if (copy) copyLine(scoba, copy.from);
   const [c] = makeCombatants([scoba]);
-  if (!c) return;
+  if (!c) return null;
+  if (copy) copyMarks(c, copy.from, copy.except);
   spendJourney(ctx.st, c);
   c.summoned = true;
+  const index = ctx.st.teams[side].length;
   ctx.st.teams[side].push(c);
   ctx.events.push({ text: `${displayName(scoba)} answers the call!`, kind: "switch" });
+  return { side, index };
+}
+
+/** What a `copying` summon copies, and the statuses it leaves out. */
+interface SummonCopy {
+  from: Combatant;
+  except: readonly string[];
+}
+
+/**
+ * Makes a newly called Scoba's line a copy of another's: the moves it holds,
+ * its second passive, and whatever lean it was bred into, carried onto the new
+ * line at that line's own scale. A Scoba bred into Strength calls up one with
+ * more Strength than its line starts with.
+ */
+function copyLine(scoba: ScobaInstance, from: Combatant): void {
+  scoba.moves = [...heldMoves(from)];
+  scoba.secondaryAbility = from.scoba.secondaryAbility;
+  const own = SPECIES[scoba.speciesId];
+  const theirs = SPECIES[from.scoba.speciesId];
+  if (own && theirs) scoba.genes = leanOnto(own.genes, from.scoba.genes, theirs.genes);
+  scoba.hp = maxHp(scoba);
+}
+
+/**
+ * Hands a newly called Scoba every status another carries and every move it
+ * was handed for the battle. Hyper-Mode stays behind, since its numbers were
+ * measured off the other line, and so does anything `except` names. A status
+ * that does not stack and is already there is not doubled.
+ */
+function copyMarks(c: Combatant, from: Combatant, except: readonly string[]): void {
+  for (const inst of from.statuses) {
+    if (inst.id === "hyper" || except.includes(inst.id)) continue;
+    const def = STATUSES[inst.id];
+    if (!def) continue;
+    if (!def.stacks && c.statuses.some((s) => s.id === inst.id)) continue;
+    c.statuses.push({ ...inst, from: inst.from ? { ...inst.from } : undefined });
+  }
+  for (const id of from.given ?? []) {
+    const given = (c.given ??= []);
+    if (!given.includes(id)) given.push(id);
+  }
 }
 
 /**
  * A Pawn takes a mark of its own rather than a place on the bench, so it is on
  * the field the moment it is called and stays there until it falls. It comes
- * out at its summoner's level, since the only thing that ever decides how big
- * a Pawn is is who called it.
+ * out at its summoner's level, or the share of it the step names, since the
+ * only thing that ever decides how big a Pawn is is who called it.
  */
-function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
+function summonPawn(
+  ctx: Ctx, callerRef: TargetRef, speciesId: string, level?: number, copy: SummonCopy | null = null,
+): TargetRef | null {
   const st = ctx.st;
   const side = callerRef.side;
   const caller = combatantAt(st, callerRef);
-  if (!caller) return;
+  if (!caller) return null;
   const slot = freePawnSlot(st, side);
   if (slot === null) {
     ctx.events.push({ text: "There is no room for another Pawn.", kind: "info" });
-    return;
+    return null;
   }
   const scoba = makeWild(
-    speciesId, caller.scoba.level,
+    speciesId, level ?? caller.scoba.level,
     // Label kept through the rename, for the reason given in `ai.ts`.
     rngFrom(`${st.seed}:mote:${st.turn}:${side}:${slot}`),
   );
   scoba.owner = caller.scoba.owner;
   inheritFromCaller(scoba, caller.scoba);
+  if (copy) copyLine(scoba, copy.from);
   // What it wears is settled where the pixels are. The sim only records who
   // called it; the art layer keeps whichever of the summoner's marks the Pawn's
   // own palette has a colour for.
@@ -2478,7 +2639,8 @@ function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
   if (caller.scoba.shiny) worn.shiny = true;
   scoba.summoner = worn;
   const [c] = makeCombatants([scoba]);
-  if (!c) return;
+  if (!c) return null;
+  if (copy) copyMarks(c, copy.from, copy.except);
   spendJourney(ctx.st, c);
   c.summoned = true;
   c.pawn = true;
@@ -2496,6 +2658,7 @@ function summonPawn(ctx: Ctx, callerRef: TargetRef, speciesId: string): void {
   if (ctx.depth < MAX_TRIGGER_DEPTH) {
     fire({ ...ctx, depth: ctx.depth + 1 }, { side, index }, { on: "switch-in" }, null);
   }
+  return { side, index };
 }
 
 /**
@@ -2774,7 +2937,7 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     // Each spec is resolved once and reused, so a move's own hit and its
     // effects agree on which Scoba "target 1" meant. A pick made before a
     // fusion formed this round names one of its halves, which is the fusion now.
-    const specs = specsFor(c);
+    const specs = specsFor(c, st);
     const picks = c.picks.map((p) => (p ? throughFusion(st, p) : p));
     const hits = specs.map((spec, i) => resolveTargets(st, userRef, spec, picks[i] ?? null, rng));
 
@@ -3408,6 +3571,41 @@ export interface StatusMark {
   chargesLeft: number;
   /** Who left it, for anything drawn in that Scoba's colours. */
   from?: TargetRef;
+  /**
+   * For a status that moves stats by its power: what it is moving them by on
+   * this Scoba right now, every stack in, and which stats.
+   */
+  shift?: {
+    amount: number; stats: StatName[];
+    /** What it comes to before anything boosts it, over how many stacks, and each stack's share where they match. */
+    written: number; stacks: number; perStack?: number;
+  };
+  /** What is making it worth more or less than written on this Scoba, by name. */
+  boosts?: { name: string; mult: number }[];
+}
+
+/** What a status's power moves its holder's stats by right now, the way the stats read it. */
+function powerShift(c: Combatant, id: string): StatusMark["shift"] | undefined {
+  const moves = STATUSES[id]?.effects.filter((e) => e.kind === "stat-power") ?? [];
+  const stats = [...new Set(moves.map((e) => (e.kind === "stat-power" ? e.stat : "hp")))];
+  if (stats.length === 0) return undefined;
+  let amount = 0;
+  let written = 0;
+  let stacks = 0;
+  const shares = new Set<number>();
+  for (const inst of c.statuses) {
+    if (inst.id !== id) continue;
+    // One stat's worth: every stat a status moves by its power moves the same.
+    const read = continuousEffects([inst], (i) => worthOf(c, i)).find((r) => r.effect.kind === "stat-power");
+    if (read?.effect.kind !== "stat-power") continue;
+    amount += read.power * read.effect.mult * read.stacks;
+    const share = (inst.power ?? 0) * read.effect.mult;
+    written += share * read.stacks;
+    stacks += read.stacks;
+    shares.add(Number(share.toFixed(6)));
+  }
+  const [perStack] = shares.size === 1 ? [...shares] : [];
+  return { amount, stats, written, stacks, ...(perStack !== undefined ? { perStack } : {}) };
 }
 
 /**
@@ -3591,6 +3789,7 @@ export function statusSummary(c: Combatant): StatusMark[] {
       found.chargesLeft = Math.max(found.chargesLeft, inst.chargesLeft);
       continue;
     }
+    const boosts = worthBy(c, inst);
     out.push({
       id: inst.id,
       name: statusName(inst.id),
@@ -3598,14 +3797,21 @@ export function statusSummary(c: Combatant): StatusMark[] {
       turnsLeft: inst.turnsLeft,
       chargesLeft: inst.chargesLeft,
       ...(inst.from ? { from: inst.from } : {}),
+      ...(boosts.length > 0 ? { boosts } : {}),
     });
   }
   // What somebody standing on the field is doing to this one's statuses, shown
   // for as long as it reaches it. Nothing is carried for it: it is read off the
   // field, so it goes the moment whoever is doing it leaves.
-  for (const id of c.worth?.shown ?? []) {
+  const reached = new Map<string, number>();
+  for (const id of c.worth?.shown ?? []) reached.set(id, (reached.get(id) ?? 0) + 1);
+  for (const [id, sources] of reached) {
     if (out.some((o) => o.id === id)) continue;
-    out.push({ id, name: statusName(id), stacks: 1, turnsLeft: -1, chargesLeft: -1 });
+    out.push({ id, name: statusName(id), stacks: sources, turnsLeft: -1, chargesLeft: -1 });
+  }
+  for (const mark of out) {
+    const shift = powerShift(c, mark.id);
+    if (shift) mark.shift = shift;
   }
   return out;
 }

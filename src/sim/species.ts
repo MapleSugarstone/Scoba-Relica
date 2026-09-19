@@ -103,7 +103,8 @@ export function abilityStatuses(id: string): string[] {
  * gait; `scamper` is the same hop a little quicker and is what Scobas use
  * unless they are given something else. Numbers live in `game/actors.ts`.
  */
-export type MovementStyle = "hop" | "scamper" | "hover" | "skitter" | "moonhop";
+/** `teleport` never walks: it stands still, and blinks to wherever it has to be. */
+export type MovementStyle = "hop" | "scamper" | "hover" | "skitter" | "moonhop" | "teleport";
 
 /**
  * `art` is a 118x139 sprite drawn on the same canvas and feet line as the

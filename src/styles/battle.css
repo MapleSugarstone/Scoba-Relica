@@ -87,15 +87,33 @@ html.soft .bfront { image-rendering: auto; }
   width: 100%;
 }
 .bcard.bplate .tline .lv { font-size: 12px; flex: none; color: var(--p-dim); }
-.bcard.bplate .bnum, .bcard.bplate .bpct { font-size: 12px; }
+.bcard.bplate .tline .bnum { flex: none; }
+.bcard.bplate .bnum { font-size: 12px; }
 .bcard.bplate .own { font-size: 12px; }
 .bcard.bplate .bbar { height: 8px; }
 .bcard.bplate .bbar.mp { height: 6px; }
-.bcard.bplate .bfoot { min-height: 16px; }
-/* A fusion's two bars of each kind, side by side across the panel's width,
-   the first slot's on the left, so each half's bar is half a bar long. */
-.bcard .bpair { display: flex; gap: 4px; align-self: stretch; width: 100%; }
-.bcard .bpair > .bbar { flex: 1 1 0; width: auto; min-width: 0; }
+/*
+ * A bar and its label: "HP" before the HP bar and the mana share before the
+ * mana bar, in a column wide enough for "100%", so the two bars start and end
+ * together. A fusion's two of each sit side by side, the first slot's on the
+ * left, each with a label column of its own.
+ */
+/* Room on the right as well as the label on the left, so the bars sit nearer
+   the middle of the panel than the label column alone would put them. */
+.bcard .brow { display: flex; align-items: center; gap: 3px; align-self: stretch; width: 100%; padding-right: 8px; }
+.bcard .brow > .bbar { flex: 1 1 0; width: auto; min-width: 0; }
+.bcard .blab {
+  flex: none;
+  /* "100%" in the pixel digits is 27 art pixels, which is 13.5 here. */
+  width: 14px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  line-height: 0;
+}
+.bcard .blab canvas { display: block; image-rendering: pixelated; }
+/* Two pairs of bars need more room than one, so a fusion's panel is wider. */
+.bcard.bplate.bfusion { width: 176px; }
 /* Two badges side by side are 84 px of art, which is what sets the width
    above. A third wraps rather than pushing the panel out. */
 .bcard.bplate .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }
@@ -215,28 +233,19 @@ html.soft .bfront { image-rendering: auto; }
   transition: left 140ms ease-out, width 140ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) { .bbar u { transition: none; } }
-.bbar.mp i { background: linear-gradient(color-mix(in srgb, var(--p-mana) 62%, var(--p-lit)) 0 2px, var(--p-mana) 2px); }
+.bbar.mp i { background: var(--p-mana); }
 .bbar.mp b { background: var(--p-mana-trail); }
 /*
- * The footer under the bars: what the bars cannot say on the left, the
- * mana share on the right. It holds its line whether or not there is a
- * state to report, because the marks hang off the bottom of the panel and
- * a line that collapsed moved every sigil under it the moment a Scoba
- * started blocking.
+ * What the bars cannot say, in the level's place on the type line: Blocking,
+ * Fainted, or what an aimed move would land at. It swaps with the level
+ * rather than taking a line of its own, because the marks hang off the bottom
+ * of the panel and a line that came and went moved every sigil under it the
+ * moment a Scoba started blocking.
  */
-.bfoot {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px;
-  width: 100%;
-  min-height: 1.2em;
-}
 .bnum { font-size: 12px; color: var(--p-dim); }
 /* What an aimed move would land at: a multiple lit, a fraction dimmed. */
 .bnum.good { color: var(--p-highlight); }
 .bnum.poor { color: var(--p-dead-text); }
-.bpct { font-size: 12px; color: var(--p-dim); margin-left: auto; }
 /*
  * The message box: the first row of the action block on every page. It
  * asks the question while a choice is being made and says what is
@@ -374,19 +383,14 @@ html.soft .bfront { image-rendering: auto; }
 }
 .bcard .mark:hover .sigtip, .bcard .mark:focus-within .sigtip,
 .bcard .mark.held .sigtip { display: flex; }
-/* A mark that can show its working says so, and is pressable to hold it open. */
+/* A mark with a number or a status in it that opens its own window says so,
+   and is pressable to hold its window open so that word can be hovered. */
 .bcard .mark.hasWork { cursor: help; }
 /* Held open by a click rather than by the pointer, so the numbers under it can
    be read without keeping the mouse still. The window takes the pointer back
    so the click that closes it can land on the window itself. */
 .bcard .mark.held { opacity: 1; }
 .bcard .mark.held .sigtip { opacity: 1; pointer-events: auto; }
-/* The working stays folded away until the window is held open: the line above
-   it already says what the mark does, and this is only the arithmetic. Every
-   rule for the rows themselves lives with the written-line window in base.css,
-   since the two windows show the same rows. */
-.bcard .mark .sigtip .pwork { display: none; }
-.bcard .mark.held .sigtip .pwork { display: flex; }
 /*
  * A readout with a window open comes over the rest of the row. The readouts
  * are laid out overlapping and paint in the order they were built, so without
@@ -401,7 +405,6 @@ html.soft .bfront { image-rendering: auto; }
 .bcard .mark .sigtip strong { font-size: 12px; color: var(--p-highlight); }
 .bcard .mark .sigtip span { font-size: 12px; }
 .bcard .mark .sigtip .dim { color: var(--p-dim); }
-
 /*
  * The block: the message box down the left, the choices in two rows down
  * the right, on every page. Action rows stack so the small ones sit under

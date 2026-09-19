@@ -61,6 +61,17 @@ export type DamageClass = "attack" | "status";
 /** How damage is mitigated. `true` damage ignores both defences. */
 export type DamageCategory = "physical" | "magic" | "true";
 
+/**
+ * How an attack is mitigated. A `mixed` one is both at once: its shares of
+ * Magic are magical and everything else in it is physical.
+ */
+export type HitCategory = "physical" | "magic" | "mixed";
+
+/** Whether a hit of one category counts as one of another, which a mixed hit does for both halves. */
+export function countsAs(cat: DamageCategory | "mixed", want: DamageCategory): boolean {
+  return cat === want || (cat === "mixed" && want !== "true");
+}
+
 /** Where a number is measured from. */
 export type Basis =
   /** The Scoba that applied the status. */
@@ -72,6 +83,17 @@ export type Basis =
   | "holder-mag"
   | "holder-max-hp"
   | "holder-hp";
+
+/**
+ * The number a status measures as it lands: a share of a stat, a flat amount at
+ * the level ceiling scaled by the source's level, or both added together. A
+ * power with no `basis` is the flat amount alone.
+ */
+export interface StatusPower {
+  basis?: Basis;
+  frac: number;
+  flatAtCeiling?: number;
+}
 
 export interface StatusDamage {
   basis: Basis;
@@ -123,6 +145,10 @@ export type Who =
   | "ally-scobas"
   /** Every enemy Scoba standing on the field, and no Pawn. */
   | "enemy-scobas"
+  /** Every ally Pawn standing on the field, and no Scoba. */
+  | "ally-pawns"
+  /** Every enemy Pawn standing on the field, and no Scoba. */
+  | "enemy-pawns"
   /** One of a move's target groups, by the order its aims are written in. */
   | { aim: number }
   /** The first ally or enemy Scoba standing on the field, in mark order, that `from` does not reach. */
@@ -147,7 +173,9 @@ export type CasterAnim =
   /** Rise and slam down. */
   | "rear"
   /** Hold still and gather. */
-  | "focus";
+  | "focus"
+  /** Sway from side to side in little hops, turning to face each way. */
+  | "dance";
 
 /** How something thrown travels, or how it appears where it lands. */
 export type MoveVfx =
@@ -169,7 +197,7 @@ export type MoveVfx =
   | "beam";
 
 /** How something shown in place is drawn. */
-export type ShowPath = "wheel" | "glow" | "burst" | "ghost" | "flames" | "clock" | "liftoff" | "landing";
+export type ShowPath = "wheel" | "glow" | "burst" | "ghost" | "flames" | "clock" | "liftoff" | "landing" | "rise";
 
 /** A color on a drawn card replaced by another, `chance` of the time. */
 export interface ChanceColorChange {
@@ -215,7 +243,7 @@ export type Step =
      * thrown at all where the target carries none.
      */
     perStackOf?: string;
-    element?: ElementType; category?: "physical" | "magic"; sound?: string;
+    element?: ElementType; category?: HitCategory; sound?: string;
   }
   /** A set amount, with no chart and no armor. */
   | { kind: "damage"; to: Who; damage: StatusDamage; sound?: string }
@@ -227,7 +255,16 @@ export type Step =
   | { kind: "copy-marks"; from: Who; to: Who }
   /** Takes a share of current HP from some and spends it on others, split between them. */
   | { kind: "transfer"; from: Who; to: Who; frac: number; deliver: "damage" | "heal" }
-  | { kind: "summon"; species: string; level: number }
+  /**
+   * Calls a Scoba to the side of the one running the step. `levelShare` sets its
+   * level as a share of that Scoba's own, in place of `level`. `copying` hands it
+   * the moves, the statuses and the bred lean of the first Scoba that reaches,
+   * less Hyper-Mode and the statuses `except` names.
+   */
+  | {
+    kind: "summon"; species: string; level: number; levelShare?: number;
+    copying?: Who; except?: string[];
+  }
   | { kind: "grant-item"; item: string; count: number }
   /** `second` puts it in a fusion's second mana bar rather than its first. */
   | { kind: "mana"; on: Who; amount: number; second?: true }
@@ -278,8 +315,11 @@ export type Step =
   | { kind: "undo-round"; on: Who; mark?: string }
   /** Takes one named status off each Scoba in `on`, however many stacks it holds. */
   | { kind: "clear-status"; status: string; on: Who }
-  /** Runs `then` only if a Scoba in `fell` that was standing when the cast began is down now. */
-  | { kind: "if"; fell: Who; then: Step[] }
+  /**
+   * Runs `then` only where `test` holds for a Scoba in `who`: `fell` for one
+   * standing as the steps began that is down now, `stands` for one standing now.
+   */
+  | { kind: "if"; who: Who; test: "fell" | "stands"; then: Step[] }
   /** Puts back the mana the cast was paid with and clears its cooldown. */
   | { kind: "refund" }
   /**
@@ -374,6 +414,8 @@ export type Standing =
   | { kind: "root" }
   /** The holder can no longer enter Hyper-Mode. Read where the mode is offered. */
   | { kind: "no-hyper" }
+  /** The holder cannot cast a move. Read where a move is offered. */
+  | { kind: "no-spells" }
   /**
    * Everything the holder casts is cast a second time, worth `frac` of the
    * first. What the echo leaves behind is marked as an echo too.
@@ -454,7 +496,7 @@ export interface StatusDef {
    * instance. `stat-power` moves a stat by it, so a mark left by a big caster
    * hits harder than the same mark left by a small one.
    */
-  power?: { basis: Basis; frac: number };
+  power?: StatusPower;
   /**
    * A passive the Scoba was born with rather than something done to it. Innate
    * statuses are never cleansed, never copied, and are left off the tag row,
@@ -539,6 +581,7 @@ export function powerCategory(def: StatusDef): DamageCategory {
   const lowers = def.effects.some((e) => e.kind === "stat-power" && e.mult < 0);
   if (!def.power || !lowers) return "true";
   const basis = def.power.basis;
+  if (basis === undefined) return "true";
   if (basis === "source-str" || basis === "holder-str") return "physical";
   if (basis === "source-mag" || basis === "holder-mag") return "magic";
   return "true";
@@ -745,7 +788,8 @@ export interface ReadEffect {
  */
 const CONTINUOUS = new Set<StatusEffect["kind"]>([
   "stat-add", "stat-set", "stat-scale", "stat-share", "stat-offset", "stat-power",
-  "stat-boost", "immune", "vulnerable", "frail", "element-power", "root", "no-hyper", "echo", "ward", "soften", "mark-power",
+  "stat-boost", "immune", "vulnerable", "frail", "element-power", "root", "no-hyper", "no-spells", "echo", "ward", "soften",
+  "mark-power",
   "mark-worth", "heal-bonus",
 ]);
 
@@ -811,7 +855,7 @@ export function worthReaches(inst: StatusInstance): boolean {
  * much of a share; a multiplier moves that much of the way from 1, so a
  * quarter-strength x0.5 is x0.875 rather than x0.125.
  */
-function shrink(effect: StatusEffect, scale: number): StatusEffect {
+export function shrink(effect: StatusEffect, scale: number): StatusEffect {
   switch (effect.kind) {
     case "stat-add":
     case "stat-offset":
@@ -901,6 +945,15 @@ export function hyperShut(list: StatusInstance[]): boolean {
   return list.some((inst) => STATUSES[inst.id]?.effects.some((e) => e.kind === "no-hyper"));
 }
 
+/** The first status that stops the holder casting moves, for naming it, or null. */
+export function spellsShutBy(list: StatusInstance[]): StatusDef | null {
+  for (const inst of list) {
+    const def = STATUSES[inst.id];
+    if (def?.effects.some((e) => e.kind === "no-spells")) return def;
+  }
+  return null;
+}
+
 /** The first status holding a ward against this element, if anything does. */
 export function wardAgainst(list: StatusInstance[], element: ElementType): StatusInstance | null {
   for (const inst of list) {
@@ -936,8 +989,8 @@ export type TriggerEvent =
   | { on: "basic-attack" }
   | { on: "use-ability" }
   | { on: "block" }
-  | { on: "hit"; category: DamageCategory; element: ElementType; spell: boolean }
-  | { on: "deal"; category: DamageCategory; element: ElementType; spell: boolean }
+  | { on: "hit"; category: DamageCategory | "mixed"; element: ElementType; spell: boolean }
+  | { on: "deal"; category: DamageCategory | "mixed"; element: ElementType; spell: boolean }
   | { on: "kill-attack" }
   | { on: "death" }
   | { on: "switch-in" }
@@ -956,8 +1009,8 @@ export function triggerFits(t: StatusTrigger, event: TriggerEvent): boolean {
   if (event.on === "hit") {
     switch (t.on) {
       case "hit-any": return true;
-      case "hit-magic": return event.category === "magic";
-      case "hit-physical": return event.category === "physical";
+      case "hit-magic": return countsAs(event.category, "magic");
+      case "hit-physical": return countsAs(event.category, "physical");
       case "hit-element": return t.element === event.element;
       default: return false;
     }
@@ -965,11 +1018,11 @@ export function triggerFits(t: StatusTrigger, event: TriggerEvent): boolean {
   if (event.on === "deal") {
     switch (t.on) {
       case "deal-any": return true;
-      case "deal-magic": return event.category === "magic";
-      case "deal-physical": return event.category === "physical";
+      case "deal-magic": return countsAs(event.category, "magic");
+      case "deal-physical": return countsAs(event.category, "physical");
       case "deal-spell": return event.spell;
       case "deal-element":
-        return event.element === t.element && (t.category === undefined || event.category === t.category);
+        return event.element === t.element && (t.category === undefined || countsAs(event.category, t.category));
       default: return false;
     }
   }

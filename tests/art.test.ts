@@ -17,6 +17,17 @@ const named = (paths: Record<string, unknown>): Set<string> =>
 const POWERS = named(import.meta.glob("../assets/Powers/*.png"));
 const SIGILS = named(import.meta.glob("../assets/Sigils/*.png"));
 
+/**
+ * Whether a name finds a drawing the way the game finds one: its own file, one
+ * of a numbered set beside it (`grinkle` finds `grinkle1`), or `itself`, which
+ * is the Scoba's own drawing.
+ */
+const onDisk = (art: string): boolean => {
+  const key = art.toLowerCase();
+  return key === "itself" || POWERS.has(key)
+    || [...POWERS].some((f) => f.startsWith(key) && /^[0-9]+$/.test(f.slice(key.length)));
+};
+
 /** Every art name a list of steps asks to be drawn, whatever draws it. */
 function drawn(steps: Step[]): string[] {
   const out: string[] = [];
@@ -32,7 +43,7 @@ describe("the drawings the content names", () => {
     const missing: string[] = [];
     for (const move of Object.values(MOVES)) {
       for (const art of drawn(move.cast)) {
-        if (!POWERS.has(art.toLowerCase())) missing.push(`${move.id}: ${art}`);
+        if (!onDisk(art)) missing.push(`${move.id}: ${art}`);
       }
     }
     expect(missing).toEqual([]);
@@ -43,7 +54,7 @@ describe("the drawings the content names", () => {
     for (const status of Object.values(STATUSES)) {
       const steps = status.effects.filter((e): e is Step => "kind" in e) as Step[];
       for (const art of drawn(steps)) {
-        if (!POWERS.has(art.toLowerCase())) missing.push(`${status.id}: ${art}`);
+        if (!onDisk(art)) missing.push(`${status.id}: ${art}`);
       }
       // A growth is a numbered set: one piece is "coral1" under the name "coral".
       const grows = status.growth;

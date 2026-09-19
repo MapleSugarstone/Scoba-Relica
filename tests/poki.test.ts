@@ -132,6 +132,19 @@ describe("Poki", () => {
     expect(ids(st.teams[0][1]!)).toContain("multiply-allies");
   });
 
+  it("stacks its reach sigil once for each Scoba reaching it", () => {
+    const st = startBattle(
+      "poki-twins",
+      [{ ...wild("poki", 30, "A") }, { ...wild("poki", 30), owner: "B" }],
+      [wild("obera", 30), wild("obera", 30)],
+      { slots: 2, owners: ["A", "B"] },
+    );
+    const reach = (c: Combatant, id: string) => statusSummary(c).find((m) => m.id === id);
+    expect(reach(st.teams[1][0]!, "multiply-enemies-reach")?.stacks).toBe(2);
+    // Each Poki is reached by the other one and never by itself.
+    expect(reach(st.teams[0][0]!, "multiply-allies-reach")?.stacks).toBe(1);
+  });
+
   it("deals more per tick from a status that has been made stronger", () => {
     const lost = (multiplied: boolean): number => {
       const st = duel();

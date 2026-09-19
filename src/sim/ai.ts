@@ -12,6 +12,7 @@ import type { BattleState, Choice, Combatant, Slot } from "./battle";
 import {
   actingAs,
   actingRef,
+  basicSpecs,
   castCost,
   choiceError,
   combatantMaxHp,
@@ -150,11 +151,10 @@ function share(st: BattleState, ref: TargetRef): number {
  * to aim at, which is how the caller knows to reach for a different move.
  */
 function aim(st: BattleState, user: TargetRef, move: Move | null, rng: Rng): (TargetRef | null)[] | null {
-  const specs = specsFor(
-    move
-      ? { kind: "spell", side: user.side, slot: 0, moveId: move.id, picks: [] }
-      : { kind: "attack", side: user.side, slot: 0, picks: [] },
-  );
+  const self = st.teams[user.side][user.index];
+  const specs = move
+    ? specsFor({ kind: "spell", side: user.side, slot: 0, moveId: move.id, picks: [] })
+    : self ? basicSpecs(self) : [];
   const picks: (TargetRef | null)[] = [];
   for (const spec of specs) {
     if (!needsPick(spec.mode)) {

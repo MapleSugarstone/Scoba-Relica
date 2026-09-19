@@ -1,5 +1,6 @@
 import type { ScobaInstance } from "../sim/scoba";
 import { MAX_LEVEL, maxHp } from "../sim/scoba";
+import { rebuildScoba, storedScoba } from "../sim/rebuild";
 import { MOVES, RETIRED_SPECIES, SPECIES, speciesMoves } from "../sim/species";
 import { BABY_BUDGET, BASE_GENES, STAT_BUDGET, STAT_NAMES, capStats, statTotal, type Stats } from "../sim/types";
 import type { CareState } from "../sim/care";
@@ -192,9 +193,15 @@ export function clearStampedGrowth(save: SaveData): void {
   }
 }
 
+/** Records when a Scoba first joined somebody, and who. A Scoba that already has a record keeps it. */
+export function markMet(scoba: ScobaInstance, trainer: string, at = Date.now()): void {
+  if (!scoba.met) scoba.met = { at, by: trainer };
+}
+
 /** Puts a newly caught or hatched Scoba wherever its owner has room. */
 export function addToParty(save: SaveData, scoba: ScobaInstance, owner: SlotId): "party" | "box" {
   scoba.owner = owner;
+  markMet(scoba, save.characters?.[owner]?.name ?? "");
   if (!partyHasRoom(save, owner)) {
     save.box.push(scoba);
     return "box";
@@ -451,8 +458,20 @@ export function migrate(data: unknown): SaveData | null {
   if (d.version !== 15) return null;
   const out = d as unknown as SaveData;
   if (!out.sentinels || typeof out.sentinels !== "object") out.sentinels = {};
+  // The save keeps what each Scoba is, and its moves, stats and passive are
+  // rebuilt from that against the content as it stands now.
+  for (const s of [...out.party, ...out.box]) rebuildScoba(s);
   clearStampedGrowth(out);
   return out;
+}
+
+/** The save as it is written: every Scoba without what is rebuilt on load. */
+function stored(data: SaveData): unknown {
+  return {
+    ...data,
+    party: data.party.map(storedScoba),
+    box: data.box.map(storedScoba),
+  };
 }
 
 const DEFAULT_STARTERS: Record<SlotId, string> = { A: "cresce", B: "grima" };
@@ -477,7 +496,7 @@ let current: SaveData | null = null;
 
 export function writeSave(data: SaveData): void {
   data.updatedAt = Date.now();
-  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  localStorage.setItem(SAVE_KEY, JSON.stringify(stored(data)));
 }
 
 /** Debounced autosave; also flushed on pagehide/visibility loss. */
@@ -513,7 +532,7 @@ export function clearSave(): void {
 }
 
 export function exportSave(data: SaveData): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(stored(data), null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   const d = new Date();

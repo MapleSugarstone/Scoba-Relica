@@ -12,7 +12,7 @@ import { button, el } from "./dom";
 import { buildKitEditor, speciesEntries } from "./kit";
 import { buildPicker } from "./pickers";
 
-const GAITS: MovementStyle[] = ["hop", "scamper", "hover", "skitter", "moonhop"];
+const GAITS: MovementStyle[] = ["hop", "scamper", "hover", "skitter", "moonhop", "teleport"];
 
 export interface NewScobaHost {
   /** Files the line. Returns what is wrong, or nothing. */

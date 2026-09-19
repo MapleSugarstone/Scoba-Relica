@@ -51,7 +51,7 @@ export interface WorkLine {
   /** Colours it as better or worse for whoever is reading. */
   tone?: "good" | "bad";
   /** Takes the colour its kind of damage has everywhere else in the game. */
-  dmg?: DamageCategory;
+  dmg?: DamageCategory | "mixed";
 }
 
 export type Part =
@@ -64,7 +64,7 @@ export type Part =
     kind: "token";
     label: string;
     detail: string;
-    tone?: "physical" | "magic" | "true";
+    tone?: DamageCategory | "mixed";
     /** Where the number comes from and what happens to it on the way out. */
     work?: WorkLine[];
   };
@@ -136,7 +136,7 @@ export function resolveToken(token: Token, at: ProseFor): Part & { kind: "token"
   if (token.of === "status") {
     const def = STATUSES[token.id];
     if (def) {
-      return { kind: "token", label: def.name, detail: describeStatus(token.id) };
+      return { kind: "token", label: def.name, detail: describeStatus(token.id, at.level !== undefined ? { level: at.level } : {}) };
     }
     // A field is laid over a side rather than hung on a Scoba, but it is named
     // in a sentence the same way and reads the same way to a player.
@@ -313,22 +313,37 @@ function powerToken(id: string, at: ProseFor): Part & { kind: "token" } {
   const power = def?.power;
   if (!def || !power) return { kind: "token", label: id, detail: `No power on a mark called ${id}.` };
   const moves = def.effects.filter((e): e is StatPower => e.kind === "stat-power");
-  const share = Math.abs(power.frac * (moves[0]?.mult ?? 1));
+  const mult = Math.abs(moves[0]?.mult ?? 1);
+  const share = power.frac * mult;
+  // A flat amount is written at the level ceiling and read out as what each level adds.
+  const flat = (power.flatAtCeiling ?? 0) * mult;
+  const flatHere = flat && at.level !== undefined ? (flat * at.level) / MAX_LEVEL : 0;
   const off = power.basis === "source-str" ? "str" : power.basis === "source-mag" ? "mag" : null;
-  const number = off && at.stats ? Math.floor(at.stats[off] * share) : null;
+  const shared = off && at.stats ? at.stats[off] * share : power.basis === undefined ? 0 : null;
+  const number = shared !== null && (flat === 0 || at.level !== undefined) ? Math.floor(shared + flatHere) : null;
   const category = powerCategory(def);
   const work: WorkLine[] = [];
-  const off2 = off;
-  if (off2 && at.stats) {
-    work.push({ label: `Source's ${STAT_LABELS[off2]}`, value: String(at.stats[off2]) });
-    work.push({ label: pct(share), value: String(Math.floor(at.stats[off2] * share)) });
+  if (off && at.stats) {
+    work.push({ label: `Source's ${STAT_LABELS[off]}`, value: String(at.stats[off]) });
+    work.push({ label: pct(share), value: String(Math.floor(at.stats[off] * share)) });
+  }
+  if (flat && at.level !== undefined) {
+    work.push({ label: `${perLevel(flat)} per level`, value: String(Math.floor(flatHere)) });
   }
   if (number !== null) work.push({ label: "Total", value: String(number), dmg: category });
   work.push({ label: reducedBy(category, "statuses"), value: "" });
+  const said = [
+    ...(power.basis !== undefined ? [`${pct(share)} of ${basisName(power.basis)}`] : []),
+    ...(flat ? [`${perLevel(flat)} per level`] : []),
+  ].join(" plus ");
+  const short = [
+    ...(power.basis !== undefined ? [`${pct(share)} ${basisShort(power.basis)}`] : []),
+    ...(flat ? [`${perLevel(flat)}/lv`] : []),
+  ].join(" + ");
   return {
     kind: "token",
-    label: number === null ? `${pct(share)} ${basisShort(power.basis)}` : String(number),
-    detail: `${pct(share)} of ${basisName(power.basis)}.`,
+    label: number === null ? short : String(number),
+    detail: `${said.charAt(0).toUpperCase()}${said.slice(1)}.`,
     tone: category,
     work,
   };
@@ -339,8 +354,12 @@ function powerToken(id: string, at: ProseFor): Part & { kind: "token" } {
  * move's damage and for a mark: Defense for physical, Resistance for magical,
  * and nothing for true.
  */
-function reducedBy(category: DamageCategory, what: "damage" | "statuses"): string {
+function reducedBy(category: DamageCategory | "mixed", what: "damage" | "statuses"): string {
   if (category === "true") return "True damage ignores target's defenses.";
+  if (category === "mixed") {
+    return `The share off ${STAT_LABELS.mag} is magical and reduced by the target's ${STAT_LABELS.res}.`
+      + ` The rest is physical and reduced by its ${STAT_LABELS.def}.`;
+  }
   const kind = category === "physical" ? "Physical" : "Magical";
   const armor = STAT_LABELS[category === "physical" ? "def" : "res"];
   return `${kind} ${what} ${what === "damage" ? "is" : "are"} reduced by the target's ${armor}.`;

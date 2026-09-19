@@ -294,3 +294,26 @@ passive twin-mana "Twin Mana"
   icon twinmana
   when a turn ends:
     give holder 20 mana, second bar
+
+# Grinkle Pylon's. It never casts: its basic attack spawns a Grinkling that
+# holds its abilities and statuses, less these two, and casts them for it.
+passive pylon "Pylon"
+  text "Basic attacks spawn a Grinkling instead. The Grinkling has every ability and status this Scoba has except this passive and Double Spawn. Can't cast abilities."
+  icon pylon
+  basic attack is spawn-grinkling
+  while carried:
+    cannot cast spells
+
+passive power-grid "Power Grid"
+  text "At the end of each turn, ally Pawns gain [status:charged|Charged], raising all stats by [power:charged]. Stacks up to 30."
+  icon pawnbuff
+  when a turn ends:
+    inflict charged on ally pawns
+
+passive double-spawn "Double Spawn"
+  text "Basic attacks spawn two Grinklings instead of one."
+  basic attack is spawn-grinklings
+
+# What a Grinkling is, beyond whatever it was copied from.
+passive grinkle-piece "Grinkle Piece"
+  text "Has every ability and status of the Grinkle Pylon that spawned it."

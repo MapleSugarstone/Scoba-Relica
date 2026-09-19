@@ -86,18 +86,21 @@ describe("what a mark's window says", () => {
     const { st, ref } = marked("dead-coral");
     const numbers = markNumbers(st, ref, held(st, "dead-coral"));
     const said = sigilText(statusSummary(st.teams[0][0]!)[0]!, numbers);
-    expect(said.working.length).toBeGreaterThan(0);
-    expect(said.working.some((w) => w.element === "flux")).toBe(true);
-    expect(said.working.some((w) => w.label.includes("Magic"))).toBe(true);
+    const dealt = said.said.find((p) => p.dmg !== undefined)!;
+    expect(dealt.text).toBe(String(numbers[0]!.amount));
+    const working = dealt.work ?? [];
+    expect(working.some((w) => w.element === "flux")).toBe(true);
+    expect(working.some((w) => w.label.includes("Magic"))).toBe(true);
     // The stat is the one the number was taken off, so the share of it is the
     // number: the two rows agree even after the caster's own Magic has moved.
-    const stat = said.working.find((w) => w.label.includes("Magic"))!;
-    const share = said.working.find((w) => w.label.endsWith("%"))!;
+    const stat = working.find((w) => w.label.includes("Magic"))!;
+    const share = working.find((w) => w.label.endsWith("%"))!;
     st.teams[1][0]!.scoba.genes = { ...st.teams[1][0]!.scoba.genes, mag: 1 };
     const later = sigilText(statusSummary(st.teams[0][0]!)[0]!, markNumbers(st, ref, held(st, "dead-coral")));
-    expect(later.working.find((w) => w.label.includes("Magic"))!.value).toBe(stat.value);
-    expect(later.working.find((w) => w.label.endsWith("%"))!.value).toBe(share.value);
-    expect(said.working.at(-1)!.value).toBe(String(numbers[0]!.amount));
+    const laterWork = later.said.find((p) => p.dmg !== undefined)!.work ?? [];
+    expect(laterWork.find((w) => w.label.includes("Magic"))!.value).toBe(stat.value);
+    expect(laterWork.find((w) => w.label.endsWith("%"))!.value).toBe(share.value);
+    expect(working.at(-1)!.value).toBe(String(numbers[0]!.amount));
   });
 
   it("leaves a mark with no numbers reading as it always did", () => {
@@ -105,6 +108,40 @@ describe("what a mark's window says", () => {
     const mark = statusSummary(st.teams[0][0]!).find((m) => m.id === "coral-shield")!;
     const said = sigilText(mark, markNumbers(st, ref, held(st, "coral-shield")));
     expect(said.desc).not.toBe("");
-    expect(said.working).toEqual([]);
+    expect(said.said.every((p) => p.work === undefined)).toBe(true);
+  });
+});
+
+describe("what a boost does to a mark's window", () => {
+  /** Addiza carrying Swift beside a Poki, whose Multiply Allies makes Addiza's positive statuses 15% more effective. */
+  function boosted(): BattleState {
+    const a = { ...wild("addiza"), secondaryAbility: "swift" };
+    return startBattle("boost", [a, wild("poki")], [wild("obera"), wild("obera", 30, "foe")], { slots: 2 });
+  }
+
+  it("states the boosted number, with what it was written as and each boost in its working", () => {
+    const st = boosted();
+    const mark = statusSummary(st.teams[0][0]!).find((m) => m.id === "swift")!;
+    expect(mark.boosts).toEqual([{ name: "Multiply Allies", mult: 1.15 }]);
+    const said = sigilText(mark);
+    expect(said.desc).toBe("Speed +23%.");
+    const number = said.said.find((p) => p.work)!;
+    expect(number.text).toBe("23%");
+    expect(number.work).toEqual([
+      { label: "Base", value: "20%" },
+      { label: "Multiply Allies", value: "1.15x", tone: "good" },
+      { label: "Total", value: "23%" },
+    ]);
+  });
+});
+
+describe("a status one mark lands", () => {
+  it("is split out of the line with its own window, read at the carrier's level", () => {
+    const mark = { id: "power-grid", name: "Power Grid", stacks: 1, turnsLeft: -1, chargesLeft: -1 };
+    const said = sigilText(mark, [], 30);
+    expect(said.desc).toBe("At the end of each turn, all ally Pawns gain Charged.");
+    const named = said.said.find((p) => p.status)!;
+    expect(named.text).toBe("Charged");
+    expect(named.status).toEqual({ id: "charged", desc: "Increases all stats by 1 per stack, up to 30 stacks." });
   });
 });

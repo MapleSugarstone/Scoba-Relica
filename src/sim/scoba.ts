@@ -106,6 +106,11 @@ export interface ScobaInstance {
   /** Whose it really is, while it is lent to the other character. */
   lentBy?: "A" | "B";
   /**
+   * Hybrids only: the move it took from its father and the slot it took. Its
+   * moves are rebuilt around this every time the save is loaded.
+   */
+  inherited?: { move: string; slot: number };
+  /**
    * The father it took its passive from, whose colours it wears, by species.
    * The swap itself is worked out from his own art wherever the Scoba is
    * drawn, so it follows the Scoba through an evolution and into Hyper-Mode.
@@ -127,6 +132,12 @@ export interface ScobaInstance {
   type1?: ElementType;
   /** Rare colouring: its main colour is turned, and it glitters. */
   shiny?: boolean;
+  /**
+   * When it first joined somebody, and that trainer's name as it was then. Set
+   * once and kept through lending, trading and growing up. A Scoba kept from
+   * before this was recorded has none.
+   */
+  met?: { at: number; by: string };
   /** Pawns only: who called it up, which is what it takes its colours from. */
   summoner?: Summoner;
   /**
@@ -370,6 +381,25 @@ export function inheritFromCaller(pawn: ScobaInstance, caller: ScobaInstance): v
   if (costOf(pawn.speciesId, worked) > MAX_MANA) return;
   const at = Math.min(caller.moves.indexOf(worked), pawn.moves.length - 1);
   if (at >= 0) pawn.moves[at] = worked;
+}
+
+/**
+ * Another line with the lean a bred Scoba carries. `from` is what the bred
+ * Scoba's species is built on and `bred` is what it actually is. Whatever `bred`
+ * holds more or less of than `from` would at the same total is added to `own`,
+ * scaled to `own`'s total, so a Scoba of its species' own shape hands on no lean.
+ */
+export function leanOnto(own: Stats, bred: Stats, from: Stats): Stats {
+  const bredTotal = statTotal(bred);
+  const fromTotal = statTotal(from);
+  if (bredTotal <= 0 || fromTotal <= 0) return { ...own };
+  const scale = statTotal(own) / bredTotal;
+  const out = {} as Stats;
+  for (const name of STAT_NAMES) {
+    const lean = bred[name] - from[name] * (bredTotal / fromTotal);
+    out[name] = Math.max(0, Math.round(own[name] + lean * scale));
+  }
+  return capStats(out);
 }
 
 /** What the next level costs. Linear, so the climb to 30 stays readable. */

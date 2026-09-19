@@ -74,6 +74,8 @@ function who(w: Who, names: Names): string {
     case "field-enemies": return "enemies on the field";
     case "ally-scobas": return "ally scobas";
     case "enemy-scobas": return "enemy scobas";
+    case "ally-pawns": return "ally pawns";
+    case "enemy-pawns": return "enemy pawns";
     default: return w;
   }
 }
@@ -160,7 +162,14 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
       return line(`take ${pct(s.frac)} hp from ${who(s.from, names)}, ${s.deliver === "damage"
         ? `deal it to ${who(s.to, names)}`
         : `heal ${who(s.to, names)} with it`}`);
-    case "summon": return line(`summon ${s.species} at level ${num(s.level)}`);
+    case "summon": {
+      const at = s.levelShare !== undefined ? `at ${pct(s.levelShare)} level` : `at level ${num(s.level)}`;
+      const opts = [
+        ...(s.copying !== undefined ? [`copying ${who(s.copying, names)}`] : []),
+        ...(s.except ?? []).map((id) => `except ${id}`),
+      ];
+      return line([`summon ${s.species} ${at}`, ...opts].join(", "));
+    }
     case "grant-item": return line(`find ${num(s.count)} ${s.item}`);
     case "mana": return line(`give ${who(s.on, names)} ${num(s.amount)} mana${s.second ? ", second bar" : ""}`);
     case "field": return line(`lay ${s.field} over ${FIELD_SCOPE_WORDS.write[s.scope]}`);
@@ -169,7 +178,7 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
     case "deal-card":
       return line(`deal drawn card to ${who(s.to, names)}, hand ${s.hand}, 21 pays ${pct(s.payoff)} strength`);
     case "if":
-      return [`${pad}if ${who(s.fell, names)} fell:`, ...s.then.flatMap((t) => stepLines(t, names, depth + 1))];
+      return [`${pad}if ${who(s.who, names)} ${s.test}:`, ...s.then.flatMap((t) => stepLines(t, names, depth + 1))];
     case "refund": return line("refund");
     case "pick-move": {
       const opts: string[] = [];
@@ -225,6 +234,7 @@ function standingLine(e: Standing): string {
     case "element-power": return `${e.element} moves ${times(e.mult)}`;
     case "root": return "cannot switch out";
     case "no-hyper": return "cannot enter hyper-mode";
+    case "no-spells": return "cannot cast spells";
     case "echo": return `casts again at ${pct(e.frac)}`;
     case "ward": return `blocks ${e.element} hits`;
     case "soften": return `cuts the next hit by ${pct(e.frac)}`;
@@ -318,7 +328,12 @@ export function writeStatus(s: StatusDef): string {
   if (s.growth !== undefined) {
     out.push(`${INDENT}grows ${s.growthEach === undefined ? "" : `${num(s.growthEach)} `}${bare(s.growth)}`);
   }
-  if (s.power) out.push(`${INDENT}power ${share(s.power.basis, s.power.frac, { kind: "status", aims: [] })}`);
+  if (s.power) {
+    const p = s.power;
+    const flat = p.flatAtCeiling !== undefined ? `${num(p.flatAtCeiling)} at max level` : "";
+    const part = p.basis !== undefined ? share(p.basis, p.frac, { kind: "status", aims: [] }) : "";
+    out.push(`${INDENT}power ${[part, flat].filter((x) => x !== "").join(" + ")}`);
+  }
   out.push(...behaviourLines(s));
   return out.join("\n");
 }

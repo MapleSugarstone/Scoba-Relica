@@ -27,12 +27,15 @@ function lift(span: HTMLElement, tip: HTMLElement): void {
     return;
   }
   const word = span.getBoundingClientRect();
+  // A word inside a sigil's window opens its own above that window rather than
+  // over it, so the name and the line it came from stay readable.
+  const top = (span.closest(".sigtip") ?? span).getBoundingClientRect().top;
   const box = host.getBoundingClientRect();
   const zoom = uiZoom();
   host.appendChild(tip);
   tip.classList.add("loose");
   tip.style.left = `${(word.left + word.width / 2 - box.left) / zoom}px`;
-  tip.style.bottom = `${(box.bottom - word.top + 4) / zoom}px`;
+  tip.style.bottom = `${(box.bottom - top + 4) / zoom}px`;
   fitWindow(tip);
   if (!watching.has(tip)) {
     // The line holding a word can be rewritten while its window is out, and a
@@ -60,7 +63,7 @@ function drop(span: HTMLElement, tip: HTMLElement): void {
 }
 
 /** One highlighted word with what it stands for hanging off it. */
-function tokenSpan(part: Part & { kind: "token" }): HTMLElement {
+export function tokenSpan(part: Part & { kind: "token" }): HTMLElement {
   const span = document.createElement("span");
   // A number being dealt takes the colour its kind of damage already has
   // everywhere else in the game, so blue is magic wherever it is read.

@@ -152,6 +152,18 @@
         "dx": -22,
         "dy": 27,
         "front": true
+      },
+      "grinkle pylon": {
+        "dx": -2,
+        "dy": -4
+      },
+      "hyper-grinkle pylon": {
+        "dx": 0,
+        "dy": -2
+      },
+      "corrupt grinkling": {
+        "dx": 0,
+        "dy": -3
       }
     }
   },
@@ -541,6 +553,58 @@
       "center": {
         "dx": 1,
         "dy": 38
+      }
+    },
+    "grinkle pylon": {
+      "body": {
+        "dx": 8,
+        "dy": 14
+      },
+      "origin": {
+        "dx": 6,
+        "dy": -8
+      },
+      "center": {
+        "dx": 6,
+        "dy": 22
+      },
+      "shadow": {
+        "art": "shadow",
+        "dx": -1,
+        "dy": 0
+      }
+    },
+    "hyper-grinkle pylon": {
+      "body": {
+        "dx": 2,
+        "dy": 15
+      },
+      "origin": {
+        "dx": 4,
+        "dy": -17
+      },
+      "center": {
+        "dx": -1,
+        "dy": 16
+      },
+      "shadow": {
+        "art": "shadowbig",
+        "dx": -4,
+        "dy": 2
+      }
+    },
+    "corrupt grinkling": {
+      "body": {
+        "dx": 10,
+        "dy": 6
+      },
+      "origin": {
+        "dx": 11,
+        "dy": -9
+      },
+      "center": {
+        "dx": 11,
+        "dy": 10
       }
     }
   },

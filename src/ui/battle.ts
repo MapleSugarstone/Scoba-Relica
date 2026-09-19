@@ -50,7 +50,7 @@ import {
 import { statusName, type StatusInstance } from "../sim/status";
 import { restoreDerived } from "../sim/rewrite";
 import { abilityText, moveText } from "../game/texts";
-import { proseBox, proseNodes } from "./prose";
+import { proseBox, proseNodes, tokenSpan } from "./prose";
 import { fieldSigilText, sigilText, sigilUrl, type SigilText } from "./sigil";
 import { BUILD_VERSION, devMode } from "../version";
 import { fitWindow } from "./fit";
@@ -66,8 +66,7 @@ import { BattleStage } from "../game/battlestage";
 import { frameRect, uiZoom, viewport } from "../engine/renderer";
 import { typeIcon, typeIcons } from "./typeicon";
 import { actButton, moveSub, type ActOpts } from "./actbutton";
-import { countMark } from "./countmark";
-import { workRows } from "./working";
+import { countMark, pixelLabel } from "./countmark";
 import { critterPortrait, lookOf } from "../game/critters";
 import type { SaveData } from "../save/save";
 import { addToParty, autosave, partyOf, writeSave } from "../save/save";
@@ -147,6 +146,9 @@ const OTHER: Record<OwnerId, OwnerId> = { A: "B", B: "A" };
 const BUTTON_ROWS = 2;
 const BAR_SHARE = 0.4;
 const BAR_MAX_W = 1120;
+
+/** One row of sigils under a readout, and the gap it hangs from, in interface pixels. */
+const MARKS_ROW = 18;
 
 /** Bag entries that do something in a battle. Everything else stays put. */
 const BATTLE_ITEMS: { id: string; name: string; desc: string; wildOnly: boolean }[] = [
@@ -351,23 +353,30 @@ function runBattle(
     if (said.desc) {
       const line = el("span");
       for (const part of said.said) {
-        line.append(part.dmg ? el("span", `dmg ${part.dmg}`, part.text) : part.text);
+        if (part.status || part.work) {
+          // A number or a status the mark lands opens its own window, once this
+          // one is held open, the same way a word in a move's text does.
+          const word = tokenSpan({
+            kind: "token", label: part.text, detail: part.status?.desc ?? "",
+            ...(part.dmg ? { tone: part.dmg } : {}), ...(part.work ? { work: part.work } : {}),
+          });
+          word.addEventListener("click", (e) => e.stopPropagation());
+          line.append(word);
+          mark.classList.add("hasWork");
+        } else {
+          line.append(part.dmg ? el("span", `dmg ${part.dmg}`, part.text) : part.text);
+        }
       }
       tip.appendChild(line);
     }
     if (said.note) tip.appendChild(el("span", "dim", said.note));
-    const work = workRows(said.working);
-    if (work) {
-      tip.appendChild(work);
-      mark.classList.add("hasWork");
-    }
     mark.appendChild(tip);
     // The readouts ride over the scene and reach its edges, so a window on
     // one out there is nudged back in rather than drawn off the screen.
     mark.addEventListener("pointerenter", () => fitWindow(tip));
-    // Hovering says what the mark does; clicking holds the window open with
-    // the working under it, so the numbers can be read without keeping the
-    // pointer still. Clicking anywhere else puts it away.
+    // Hovering says what the mark does; clicking holds the window open, so the
+    // numbers in it can be hovered for their working. Clicking anywhere else
+    // puts it away.
     mark.addEventListener("click", (e) => {
       e.stopPropagation();
       const open = mark.classList.contains("held");
@@ -408,7 +417,7 @@ function runBattle(
     const field = fieldMark(side);
     const key = [
       field ? `@${field.id}:${field.turnsLeft}` : "@",
-      ...want.map((m) => `${m.id}:${m.stacks}:${m.turnsLeft}`),
+      ...want.map((m) => `${m.id}:${m.stacks}:${m.turnsLeft}:${(m.boosts ?? []).map((b) => b.mult).join("*")}`),
     ].join(",");
     if (marks.dataset["key"] === key) return;
     marks.dataset["key"] = key;
@@ -421,7 +430,8 @@ function runBattle(
       // mark comes to here rather than what share of something it is.
       const held = st.teams[ref.side][ref.index]?.statuses.find((inst) => inst.id === m.id);
       const on = held ? markNumbers(st, ref, held) : [];
-      marks.appendChild(sigilMark(m.id, sigilText(m, on), m.stacks));
+      const level = st.teams[ref.side][ref.index]?.scoba.level;
+      marks.appendChild(sigilMark(m.id, sigilText(m, on, level), m.stacks));
     }
   };
 
@@ -465,6 +475,32 @@ function runBattle(
   };
 
   /**
+   * A row of bars, each with a label column to its left that is the same width
+   * on every row, so an HP bar and a mana bar at the same share are the same
+   * length.
+   */
+  const barRow = (bars: ReturnType<typeof bar>[], labels: HTMLElement[]): HTMLElement => {
+    const row = el("div", "brow");
+    bars.forEach((b, i) => row.append(labels[i] ?? el("span", "blab"), b.node));
+    return row;
+  };
+
+  /**
+   * A bar's label in the sigil counts' pixel digits, which are half the height
+   * of the smallest writing and still sharp. Redrawn only when it changes.
+   */
+  const barLabel = (text = ""): { node: HTMLElement; say: (text: string) => void } => {
+    const node = el("span", "blab");
+    const say = (t: string): void => {
+      if (node.dataset["shown"] === t) return;
+      node.dataset["shown"] = t;
+      node.replaceChildren(pixelLabel(t));
+    };
+    if (text !== "") say(text);
+    return { node, say };
+  };
+
+  /**
    * A Scoba's readout. It reads the stage's lagging copy rather than the
    * combatant, so a bar drops on the hit that caused it instead of emptying
    * the moment the round is resolved.
@@ -484,31 +520,25 @@ function runBattle(
     // panel's width rather than the name doing it. The level rides with the
     // badges rather than with the name, so the name has the whole row above
     // and reaches its ellipsis only when it is genuinely too long for one.
+    // What the bars cannot say takes the level's place while there is any of
+    // it, so the panel is the same height blocking or not and no sigil under
+    // it moves.
     const tline = el("div", "tline");
     tline.appendChild(typeIcons(c.scoba));
-    tline.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
+    const lv = el("span", "lv", `Lv ${c.scoba.level}`);
+    const state = el("span", "bnum", "");
+    tline.append(lv, state);
     wrap.appendChild(tline);
     const max = combatantMaxHp(c);
     // A fusion reads two of each, side by side, the first slot's on the left:
     // the left HP bar is the one a hit empties first.
     const pairs = c.fusion ? 2 : 1;
-    const pairRow = (bars: ReturnType<typeof bar>[]): HTMLElement => {
-      if (bars.length === 1) return bars[0]!.node;
-      const row = el("div", "bpair");
-      for (const b of bars) row.appendChild(b.node);
-      return row;
-    };
+    if (c.fusion) wrap.classList.add("bfusion");
     const hpBars = Array.from({ length: pairs }, () => bar(""));
     const mpBars = Array.from({ length: pairs }, () => bar("mp"));
-    // Both bars run the panel's full width, so a length means the same thing on
-    // every readout on the field. The share rides in the footer instead, which
-    // is a line the state already reserves.
-    const state = el("span", "bnum", "");
-    const mpNum = el("span", "bpct", "");
-    const foot = el("div", "bfoot");
-    foot.append(state, mpNum);
+    const mpNums = mpBars.map(() => barLabel());
     const marks = el("div", "marks");
-    wrap.append(pairRow(hpBars), pairRow(mpBars), foot, marks);
+    wrap.append(barRow(hpBars, [barLabel("HP").node]), barRow(mpBars, mpNums.map((l) => l.node)), marks);
 
     const refresh = (): void => {
       const now = stage.shownOf(ref.side, ref.index);
@@ -524,13 +554,15 @@ function runBattle(
         const spend = mine ? costPreview!.cost : 0;
         mpBars[i]?.set(row.mana / 100, row.manaTrail / 100, { spend: spend / 100 });
       });
-      mpNum.textContent = rows.map((row) => `${row.mana}%`).join(" · ");
-      // The bars say the numbers; this line is only for what they cannot,
-      // and while a move is aimed, for what the chart says it would land at.
+      rows.forEach((row, i) => mpNums[i]?.say(`${row.mana}%`));
+      // The bars say the numbers; this is only for what they cannot, and
+      // while a move is aimed, for what the chart says it would land at.
       const eff = now.fainted || c.blocking ? null : aimEffect(c, ref);
       state.textContent = now.fainted ? "Fainted" : c.blocking ? "Blocking" : eff ? eff.label : "";
       state.classList.toggle("good", eff !== null && eff.mult > 1);
       state.classList.toggle("poor", eff !== null && eff.mult < 1);
+      lv.hidden = state.textContent !== "";
+      state.hidden = !lv.hidden;
       fillMarks(marks, ref, now.marks);
     };
     refresh();
@@ -560,8 +592,9 @@ function runBattle(
     const max = combatantMaxHp(c);
     const hpBar = bar("");
     const mpBar = bar("mp");
+    const mpNum = barLabel();
     const marks = el("div", "marks");
-    wrap.append(hpBar.node, mpBar.node, marks);
+    wrap.append(barRow([hpBar], [barLabel("HP").node]), barRow([mpBar], [mpNum.node]), marks);
 
     const refresh = (): void => {
       const now = stage.shownOf(ref.side, ref.index);
@@ -570,6 +603,7 @@ function runBattle(
         color: frac < 0.25 ? "#d9553f" : frac < 0.55 ? "#e7a03c" : "#7aa74a",
       });
       mpBar.set(now.mana / 100, now.manaTrail / 100);
+      mpNum.say(`${now.mana}%`);
       fillMarks(marks, ref, now.marks);
     };
     refresh();
@@ -693,14 +727,19 @@ function runBattle(
     if (bar.style.height !== h) bar.style.height = h;
     if (bar.style.getPropertyValue("--bw") !== w) bar.style.setProperty("--bw", w);
     // The readouts hang under their fighters and the block is opaque, so the
-    // room the scene is left has to cover a plate's height as well as the
-    // block's. Measured rather than guessed: a plate is a different height on
-    // a narrow screen, and a Pawn's is shorter than a Scoba's.
-    const plateRoom = plates.reduce(
-      (tallest, p) => Math.max(tallest, p.node.getBoundingClientRect().height),
+    // room the scene is left has to cover a plate's height, and the row of
+    // sigils under it, as well as the block's. Measured rather than guessed: a
+    // plate is a different height on a narrow screen, and a Pawn's is shorter
+    // than a Scoba's but stands lower, so the two are handed over apart.
+    const marksRoom = MARKS_ROW * uiZoom();
+    const tallest = (pawns: boolean): number => plates.reduce(
+      (most, p) => p.node.classList.contains("bpawn") === pawns
+        ? Math.max(most, p.node.getBoundingClientRect().height + marksRoom)
+        : most,
       0,
     );
-    stage.setSafeBottom(bar.getBoundingClientRect().height + plateRoom);
+    const barH = bar.getBoundingClientRect().height;
+    stage.setSafeBottom(barH + tallest(false), barH + tallest(true));
     // The Pawn row is spaced by what a Pawn's card actually came out at, not
     // by a world-unit constant: a world unit is worth a different number of
     // interface pixels on different screens, and the cards are the thing that
@@ -1320,7 +1359,7 @@ function runBattle(
    * stopped for the ones that are a decision.
    */
   const startAiming = (action: Choice): void => {
-    aiming = { action, specs: specsFor(action), picks: [], at: 0 };
+    aiming = { action, specs: specsFor(action, st), picks: [], at: 0 };
     advanceAim();
   };
 

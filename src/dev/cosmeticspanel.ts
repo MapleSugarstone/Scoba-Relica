@@ -74,7 +74,7 @@ const WALK_ON_PACE = 40;
 const DEX_CELL = { w: 74, h: 62 };
 
 /** Every gait a line can be given, and the entry that hands it back to its species. */
-const GAITS: MovementStyle[] = ["hop", "scamper", "hover", "skitter", "moonhop"];
+const GAITS: MovementStyle[] = ["hop", "scamper", "hover", "skitter", "moonhop", "teleport"];
 
 /**
  * What the drag moves. Each is one thing stored against a costume, except the

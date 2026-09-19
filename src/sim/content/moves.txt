@@ -708,3 +708,93 @@ move multiply-wounds "Multiply Wounds"
     caster focus
     show multiplywounds as burst on target
     inflict multiplied on target
+
+# Grinkle Pylon's basic attacks, which its passives make of the plain blow. Only
+# a Grinkling that actually arrives costs the Pylon its 30%.
+move spawn-grinkling "Spawn Grinkling"
+  type plain
+  costs 0 mana
+  aim self
+  text "Spawns a Grinkling at 60% of this Scoba's level for 30% of its max HP."
+  cast:
+    caster rear
+    summon grinkling at 60% level, copying caster, except pylon, except double-spawn
+    if raised stands:
+      damage caster 30% of their max hp, as true, counts as status
+
+move spawn-grinklings "Spawn Grinklings"
+  type plain
+  costs 0 mana
+  aim self
+  text "Spawns two Grinklings at 60% of this Scoba's level for 30% of its max HP."
+  cast:
+    caster rear
+    summon grinkling at 60% level, copying caster, except pylon, except double-spawn
+    summon grinkling at 60% level, copying caster, except pylon, except double-spawn
+    if raised stands:
+      damage caster 30% of their max hp, as true, counts as status
+
+# Grinkle Pylon's four, which only its Grinklings cast.
+move plonk "Plonk"
+  type plain
+  costs 10 mana
+  aim any enemy
+  text "Deals [damage] physical and magic damage to an enemy."
+  cast:
+    caster lunge
+    hit target 100% strength + 100% magic, as mixed
+
+move silly-dance "Silly Dance"
+  type plain
+  costs 40 mana
+  aim self
+  text "Gains [status:dancing|Dancing], raising speed by [scaling:1]. Stacks up to 3."
+  cast:
+    caster dance, for 1.5 seconds
+    show musicnote as rise on caster
+    wait 0.2 seconds
+    show musicnote as rise on caster
+    wait 0.2 seconds
+    show musicnote as rise on caster
+    wait 0.2 seconds
+    show musicnote as rise on caster
+    wait 0.2 seconds
+    show musicnote as rise on caster
+    wait 0.3 seconds
+    inflict dancing on caster
+
+move grinkle-splink "Grinkle Splink"
+  type plain
+  costs 60 mana
+  cooldown 2
+  aim any enemy
+  text "Throws 4 Grinkles at an enemy for [damage] physical and magic damage each."
+  cast:
+    caster lunge
+    throw grinkle as bolt to target
+    hit target 50% strength + 50% magic, as mixed
+    caster lunge
+    throw grinkle as bolt to target
+    hit target 50% strength + 50% magic, as mixed
+    caster lunge
+    throw grinkle as bolt to target
+    hit target 50% strength + 50% magic, as mixed
+    caster lunge
+    throw grinkle as bolt to target
+    hit target 50% strength + 50% magic, as mixed
+
+move mass "Mass"
+  type plain
+  costs 100 mana
+  cooldown 8
+  aim self
+  text "Becomes [status:massive|Massive], doubling all stats. Stacks up to 2."
+  cast:
+    caster focus
+    show itself as ghost on caster
+    wait 0.3 seconds
+    show itself as ghost on caster
+    wait 0.3 seconds
+    show itself as ghost on caster
+    wait 0.3 seconds
+    inflict massive on caster

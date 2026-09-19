@@ -33,6 +33,7 @@ export const ELEMENT_WORDS = vocab<ElementType>(TYPES.map((t) => [t, t] as const
 
 export const ANIM_WORDS = vocab<CasterAnim>([
   ["shake", "shake"], ["lunge", "lunge"], ["blink", "blink"], ["rear", "rear"], ["focus", "focus"],
+  ["dance", "dance"],
 ]);
 
 export const PATH_WORDS = vocab<MoveVfx>([
@@ -42,7 +43,7 @@ export const PATH_WORDS = vocab<MoveVfx>([
 
 export const SHOW_WORDS = vocab<ShowPath>([
   ["wheel", "wheel"], ["glow", "glow"], ["burst", "burst"], ["ghost", "ghost"], ["flames", "flames"],
-  ["clock", "clock"], ["liftoff", "liftoff"], ["landing", "landing"],
+  ["clock", "clock"], ["liftoff", "liftoff"], ["landing", "landing"], ["rise", "rise"],
 ]);
 
 export const AIM_WORDS = vocab<TargetMode>([
@@ -97,12 +98,15 @@ export const TRIGGER_WORDS = vocab<PlainTrigger>([
  * else, so the type checker keeps it in step with the union, and `missingWords`
  * keeps the word tables in step with these.
  */
-const everyAnim: Record<CasterAnim, true> = { shake: true, lunge: true, blink: true, rear: true, focus: true };
+const everyAnim: Record<CasterAnim, true> = {
+  shake: true, lunge: true, blink: true, rear: true, focus: true, dance: true,
+};
 const everyPath: Record<MoveVfx, true> = {
   bolt: true, lob: true, toss: true, drop: true, burst: true, flames: true, glow: true, beam: true,
 };
 const everyShow: Record<ShowPath, true> = {
   wheel: true, glow: true, burst: true, ghost: true, flames: true, clock: true, liftoff: true, landing: true,
+  rise: true,
 };
 const everyStat: Record<StatName, true> = { hp: true, str: true, def: true, res: true, mag: true, spd: true };
 const everyMode: Record<TargetMode, true> = {

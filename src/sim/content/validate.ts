@@ -45,7 +45,7 @@ const req = (rule: Rule) => ({ rule });
 const opt = (rule: Rule) => ({ rule, optional: true });
 
 const everyMovement: Record<MovementStyle, true> = {
-  hop: true, scamper: true, hover: true, skitter: true, moonhop: true,
+  hop: true, scamper: true, hover: true, skitter: true, moonhop: true, teleport: true,
 };
 const MOVEMENTS = Object.keys(everyMovement);
 

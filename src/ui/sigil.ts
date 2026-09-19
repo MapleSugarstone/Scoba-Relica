@@ -6,9 +6,10 @@
 // status with no icon, or an icon with nothing drawn for it, falls back to the
 // placeholder, so a new status turns up as a mark it can be hovered rather
 // than as a gap.
-import { FIELDS, STATUSES, type StatusDef } from "../sim/status";
-import { describeField, describeStatus, statusHalves, whileTrigger } from "../sim/describe";
-import type { MarkNumber } from "../sim/battle";
+import { FIELDS, STATUSES, isContinuous, shrink, statusName, type Step, type StatusDef } from "../sim/status";
+import { describeField, describeStatus, shiftLine, shownAmount, statusHalves, whileTrigger } from "../sim/describe";
+import { allSteps } from "../sim/species";
+import type { MarkNumber, StatusMark } from "../sim/battle";
 import type { DamageCategory } from "../sim/status";
 import type { WorkLine } from "../sim/prose";
 
@@ -40,6 +41,10 @@ export function sigilUrl(id: string): string | null {
 export interface SaidPart {
   text: string;
   dmg?: DamageCategory;
+  /** A status the mark lands, named here, and what its own window says. */
+  status?: { id: string; desc: string };
+  /** The arithmetic behind a number, in a window of its own over it. */
+  work?: WorkLine[];
 }
 
 /** What a hover window says: what the mark is, and what it is doing. */
@@ -47,15 +52,12 @@ export interface SigilText {
   name: string;
   /** The line as plain text, for anywhere that cannot colour a run of it. */
   desc: string;
-  /** The same line, split so a number being dealt can take its own colour. */
+  /** The same line, split so a number can take its own colour and its own window. */
   said: SaidPart[];
   note: string;
-  /**
-   * The working behind whatever number `desc` states, shown when the window is
-   * opened rather than on the line itself. Empty where the mark has no number.
-   */
-  working: WorkLine[];
 }
+
+type Boost = { name: string; mult: number };
 
 const turns = (n: number): string => `${n} turn${n === 1 ? "" : "s"}`;
 
@@ -66,25 +68,109 @@ const turns = (n: number): string => `${n} turn${n === 1 ? "" : "s"}`;
  */
 export function sigilText(m: {
   id: string; name: string; stacks: number; turnsLeft: number; chargesLeft: number;
-}, numbers: MarkNumber[] = []): SigilText {
+  shift?: StatusMark["shift"]; boosts?: StatusMark["boosts"];
+}, numbers: MarkNumber[] = [], level?: number): SigilText {
   const def = STATUSES[m.id];
   const bits: string[] = [];
   if (m.turnsLeft > 0) bits.push(`Lasts ${turns(m.turnsLeft)}.`);
   if (m.chargesLeft > 0) bits.push(`Procs ${m.chargesLeft} time${m.chargesLeft === 1 ? "" : "s"}.`);
   if (def?.persists === false) bits.push("Removes on switch out.");
-  const opts = { duration: false, charges: false };
+  const boosts = m.boosts ?? [];
+  const worth = boosts.reduce((p, b) => p * b.mult, 1);
+  const better = def?.polarity !== "bad";
   // The note already says how long is left and how many times, so the line on
-  // what it does leaves both out.
-  const said = numbers.length > 0 && def
-    ? exactly(def, numbers, opts)
-    : [{ text: describeStatus(m.id, opts) }];
+  // what it does leaves both out. It is read twice, as written and at what the
+  // boosts make it worth, so each number a boost moved can show by how much.
+  const written = { duration: false, charges: false, ...(level !== undefined ? { level } : {}) };
+  const boosted = def && worth !== 1 ? { ...written, statuses: { ...STATUSES, [def.id]: worthMore(def, worth) } } : written;
+  const read = (said: (opts: typeof written) => string): SaidPart[] =>
+    boostedNumbers(said(written), said(boosted), boosts, better);
+  // A status that only moves stats by its power says what it is moving them by
+  // on this Scoba, every stack in.
+  const said = def && m.shift && def.text === undefined && def.effects.every((e) => e.kind === "stat-power")
+    ? shiftParts(m.shift, boosts, better)
+    : numbers.length > 0 && def
+      ? exactly(def, numbers, boosts, read)
+      : read((opts) => describeStatus(m.id, opts));
   return {
     name: m.name,
     desc: said.map((p) => p.text).join(""),
-    said,
+    said: def ? linked(said, def, level) : said,
     note: bits.join(" "),
-    working: working(numbers),
   };
+}
+
+/** One row for each boost, coloured by whether it helps whoever carries the mark. */
+const boostRows = (boosts: Boost[], better: boolean): WorkLine[] =>
+  boosts.map((b) => ({ label: b.name, value: times(b.mult), tone: (b.mult > 1) === better ? "good" : "bad" }));
+
+const NUMBER = /(\d+(?:\.\d+)?%?)/;
+
+/**
+ * The line as boosted, with each number a boost moved split out and carrying
+ * what it is written as, each boost, and what it comes to. A line whose words
+ * changed along with its numbers is left as it reads.
+ */
+function boostedNumbers(written: string, boosted: string, boosts: Boost[], better: boolean): SaidPart[] {
+  const was = written.split(NUMBER);
+  const now = boosted.split(NUMBER);
+  if (boosts.length === 0 || written === boosted || was.length !== now.length
+    || now.some((t, i) => i % 2 === 0 && t !== was[i])) {
+    return [{ text: boosted }];
+  }
+  return now.flatMap((t, i): SaidPart[] => {
+    if (t === "") return [];
+    if (i % 2 === 0 || t === was[i]) return [{ text: t }];
+    return [{ text: t, work: [{ label: "Base", value: was[i]! }, ...boostRows(boosts, better), { label: "Total", value: t }] }];
+  });
+}
+
+/** "Increases all stats by 24.", with the 24 carrying its stacks and every boost. */
+function shiftParts(shift: NonNullable<StatusMark["shift"]>, boosts: Boost[], better: boolean): SaidPart[] {
+  const line = shiftLine(shift.amount, shift.stats);
+  const shown = shownAmount(shift.amount);
+  const at = line.lastIndexOf(shown);
+  const work: WorkLine[] = shift.perStack !== undefined
+    ? [{ label: "Per stack", value: shownAmount(shift.perStack) }, { label: "Stacks", value: times(shift.stacks) }]
+    : [{ label: `${shift.stacks} stack${shift.stacks === 1 ? "" : "s"}`, value: shownAmount(shift.written) }];
+  work.push(...boostRows(boosts, better), { label: "Total", value: shown });
+  return [{ text: line.slice(0, at) }, { text: shown, work }, { text: line.slice(at + shown.length) }];
+}
+
+/** A status with everything it holds moved `worth` of the way, the way a boost reads it. */
+function worthMore(def: StatusDef, worth: number): StatusDef {
+  return { ...def, effects: def.effects.map((e) => (isContinuous(e.kind) ? shrink(e, worth) : e)) };
+}
+
+/** Every other status a status can land, by id. */
+function landed(def: StatusDef): string[] {
+  const steps = [
+    ...def.effects.filter((e): e is Step => !isContinuous(e.kind)),
+    ...(def.also ?? []).flatMap((b) => b.steps),
+  ];
+  const ids = allSteps(steps).flatMap((s) => (s.kind === "inflict" ? [s.status] : []));
+  return [...new Set(ids)].filter((id) => id !== def.id && STATUSES[id] !== undefined);
+}
+
+const escaped = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The line with the name of each status the mark lands split out, so the
+ * window can open that status's own window over it. What it says is read at
+ * the level of the Scoba carrying the mark, since that is who leaves it.
+ */
+function linked(said: SaidPart[], def: StatusDef, level?: number): SaidPart[] {
+  let out = said;
+  for (const id of landed(def)) {
+    const name = statusName(id);
+    const status = { id, desc: describeStatus(id, level !== undefined ? { level } : {}) };
+    const split = new RegExp(`\\b(${escaped(name)})\\b`);
+    out = out.flatMap((p) => {
+      if (p.dmg || p.status || p.work) return [p];
+      return p.text.split(split).filter((t) => t !== "").map((t) => (t === name ? { text: t, status } : { text: t }));
+    });
+  }
+  return out;
 }
 
 /**
@@ -94,20 +180,21 @@ export function sigilText(m: {
  * what it is, since the share is the working rather than the effect.
  */
 function exactly(
-  def: StatusDef, numbers: MarkNumber[], opts: { duration: boolean; charges: boolean },
+  def: StatusDef, numbers: MarkNumber[], boosts: Boost[],
+  read: (said: (opts: { duration: boolean; charges: boolean }) => string) => SaidPart[],
 ): SaidPart[] {
-  const { standing, fires } = statusHalves(def.id, opts);
   const at = whileTrigger(def.trigger);
-  if (numbers.length === 0) return [{ text: standing || fires }];
-  const out: SaidPart[] = [];
-  if (standing !== "") out.push({ text: `${standing} ` });
+  const out: SaidPart[] = read((opts) => {
+    const { standing } = statusHalves(def.id, opts);
+    return standing === "" ? "" : `${standing} `;
+  });
   for (const [i, n] of numbers.entries()) {
     if (i > 0) out.push({ text: " " });
     out.push({ text: n.kind === "damage" ? "Takes " : "Heals " });
-    out.push({ text: String(n.amount), ...(n.kind === "damage" ? { dmg: n.category } : {}) });
+    out.push({ text: String(n.amount), work: working(n, boosts), ...(n.kind === "damage" ? { dmg: n.category } : {}) });
     out.push({ text: n.kind === "damage" ? ` damage ${at}.` : ` ${at}.` });
   }
-  return out;
+  return out.filter((p) => p.text !== "");
 }
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -119,47 +206,47 @@ const times = (n: number): string => `${Number(n.toFixed(2))}x`;
  * still listed at 1x: what a reader wants to know is whether it was in play,
  * and a missing line reads as a rule that does not exist.
  */
-function working(numbers: MarkNumber[]): WorkLine[] {
+function working(n: MarkNumber, boosts: Boost[]): WorkLine[] {
   const out: WorkLine[] = [];
-  for (const n of numbers) {
-    // The stat first, then the share taken of it. A mark that measured its
-    // number as it was cast says so on the stat, since that is the stat as it
-    // was then: it is the share that is fixed, not some separate number.
-    if (n.basis) {
-      out.push({
-        label: n.snapshot ? `${n.basis.label} when cast` : n.basis.label,
-        value: String(n.basis.value),
-      });
-    }
-    out.push({ label: `${Math.round(n.share * 100)}%`, value: String(Math.round(n.raw)) });
-    if (n.element) {
-      out.push({ label: "Type", value: `${cap(n.element)} ${n.category}`, element: n.element });
-    }
-    if (n.kind === "damage" && n.category !== "true") {
-      out.push({
-        label: "Elemental Synergy",
-        value: times(n.synergy),
-        ...(n.casterMatch ? { element: n.casterMatch } : {}),
-        ...(n.synergy > 1 ? { tone: "bad" as const } : {}),
-      });
-      out.push({
-        label: "Elemental Weakness Modifier",
-        value: times(n.elemental),
-        ...(n.elemental === 1 ? {} : { tone: n.elemental > 1 ? "bad" as const : "good" as const }),
-      });
-    }
-    if (n.armor) {
-      out.push({ label: `${n.armor.label} ${n.armor.value}`, value: times(n.armor.mult), tone: "good" });
-    }
-    if (n.category === "true" && n.kind === "damage") {
-      out.push({ label: "True damage, no defenses apply", value: "" });
-    }
+  // The stat first, then the share taken of it. A mark that measured its
+  // number as it was cast says so on the stat, since that is the stat as it
+  // was then: it is the share that is fixed, not some separate number.
+  if (n.basis) {
     out.push({
-      label: "Total",
-      value: String(n.amount),
-      ...(n.kind === "damage" ? { dmg: n.category } : {}),
+      label: n.snapshot ? `${n.basis.label} when cast` : n.basis.label,
+      value: String(n.basis.value),
     });
   }
+  out.push({ label: `${Math.round(n.share * 100)}%`, value: String(Math.round(n.raw)) });
+  if (n.element) {
+    out.push({ label: "Type", value: `${cap(n.element)} ${n.category}`, element: n.element });
+  }
+  if (n.kind === "damage" && n.category !== "true") {
+    out.push({
+      label: "Elemental Synergy",
+      value: times(n.synergy),
+      ...(n.casterMatch ? { element: n.casterMatch } : {}),
+      ...(n.synergy > 1 ? { tone: "bad" as const } : {}),
+    });
+    out.push({
+      label: "Elemental Weakness Modifier",
+      value: times(n.elemental),
+      ...(n.elemental === 1 ? {} : { tone: n.elemental > 1 ? "bad" as const : "good" as const }),
+    });
+  }
+  if (n.armor) {
+    out.push({ label: `${n.armor.label} ${n.armor.value}`, value: times(n.armor.mult), tone: "good" });
+  }
+  if (n.category === "true" && n.kind === "damage") {
+    out.push({ label: "True damage, no defenses apply", value: "" });
+  }
+  // A boost is worse for whoever carries a mark that deals damage, and better for one that heals.
+  out.push(...boostRows(boosts, n.kind !== "damage"));
+  out.push({
+    label: "Total",
+    value: String(n.amount),
+    ...(n.kind === "damage" ? { dmg: n.category } : {}),
+  });
   return out;
 }
 
@@ -175,7 +262,6 @@ export function fieldSigilText(f: { id: string; turnsLeft: number }): SigilText 
     desc: describeField(f.id),
     note: f.turnsLeft > 0 ? `${turns(f.turnsLeft)} remaining` : "",
     said: [{ text: describeField(f.id) }],
-    working: [],
   };
 }
 

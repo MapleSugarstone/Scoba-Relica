@@ -148,6 +148,7 @@ export function breed(
 
   const moves = [...mom.moves];
   const newFromDad = inheritableFrom(mom, dad);
+  let inherited: { move: string; slot: number } | undefined;
   if (newFromDad.length > 0) {
     // The inherited move lands on the slot it replaced and stays there,
     // because statuses address a Scoba's moves by position. Which slot that
@@ -156,6 +157,7 @@ export function breed(
     const drop = swap && droppable.includes(swap.drop) ? swap.drop : pick(rng, droppable);
     const slot = moves.indexOf(drop);
     moves[slot] = swap && newFromDad.includes(swap.take) ? swap.take : pick(rng, newFromDad);
+    inherited = { move: moves[slot]!, slot };
   }
 
   const dadSp = SPECIES[dad.speciesId]!;
@@ -174,6 +176,8 @@ export function breed(
     sire: sireOf(dad),
     hp: 0,
   };
+  // Kept apart from the moves, since the moves are rebuilt around it on load.
+  if (inherited) child.inherited = inherited;
   // His leading element stands in for whatever second the child's own line
   // had, so nothing ends up with three.
   if (dadSp.type !== childSp.type) child.type2 = dadSp.type;

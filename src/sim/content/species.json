@@ -734,6 +734,67 @@
     "blurb": "Addiza and Poki, as one."
   },
   {
+    "id": "grinkle-pylon",
+    "name": "Grinkle Pylon",
+    "type": "plain",
+    "genes": {
+      "hp": 400,
+      "str": 0,
+      "def": 50,
+      "res": 50,
+      "mag": 0,
+      "spd": 0
+    },
+    "primaryAbility": "pylon",
+    "secondaryPool": [
+      "power-grid"
+    ],
+    "hyperAbility": "double-spawn",
+    "moves": [
+      "plonk",
+      "silly-dance",
+      "grinkle-splink",
+      "mass"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "grinkle pylon",
+      "forms": {
+        "hyper": "hyper-grinkle pylon"
+      }
+    },
+    "movement": "teleport",
+    "blurb": "A Grinkle Pylon never fights. Its Grinklings do."
+  },
+  {
+    "id": "grinkling",
+    "name": "Grinkling",
+    "type": "plain",
+    "genes": {
+      "hp": 80,
+      "str": 80,
+      "def": 80,
+      "res": 80,
+      "mag": 80,
+      "spd": 80
+    },
+    "primaryAbility": "grinkle-piece",
+    "secondaryPool": [],
+    "moves": [
+      "plonk",
+      "silly-dance",
+      "grinkle-splink",
+      "mass"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "corrupt grinkling"
+    },
+    "movement": "skitter",
+    "pawn": true,
+    "blurb": "Whatever a Grinkle Pylon knows, its Grinklings know too."
+  },
+  {
     "id": "relica",
     "name": "Relica",
     "type": "plain",

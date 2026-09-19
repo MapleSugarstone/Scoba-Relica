@@ -158,6 +158,10 @@ class Companion {
     const a = this.anchor();
     this.trackAnchor(dt, a);
     const away = Math.hypot(this.actor.x - a.x, this.actor.y - a.y);
+    if (this.actor.skin.motion === "teleport") {
+      this.blinkAlong(dt, map, crowd, a, away);
+      return;
+    }
     const sees = away <= SIGHT &&
       lineOfSight(map, this.actor.x, this.actor.y, a.x, a.y, this.actor.radius);
     this.repathT = Math.max(0, this.repathT - dt);
@@ -250,6 +254,32 @@ class Companion {
       const route = this.route(map, center);
       if (route) this.setPath(route, center);
     }
+  }
+
+  /**
+   * How one that never walks keeps up: it stands where it is, and once it has
+   * been left past its leash for a beat, it teleports to a spot beside its
+   * anchor in a white flash.
+   */
+  private blinkAlong(dt: number, map: TileMap, crowd: Actor[], a: { x: number; y: number }, away: number): void {
+    this.actor.step(dt, 0, 0, map);
+    if (away <= this.leash) {
+      this.following = false;
+      return;
+    }
+    if (!this.following) {
+      this.following = true;
+      this.reactT = REACT_MIN + Math.random() * REACT_SPAN;
+    }
+    this.reactT -= dt;
+    if (this.reactT > 0) return;
+    // A tight spot can refuse every place in the ring. Beside the anchor, on
+    // this one's own side, is still better than on top of whoever it follows.
+    const beside = { x: a.x + Math.sign(this.flank) * this.ring.near, y: a.y };
+    const spot = this.pickSpot(map, crowd, a) ?? this.pickSpot(map, crowd, a) ?? this.nearestFree(map, beside);
+    this.teleportTo(spot.x, spot.y);
+    this.actor.blink();
+    this.following = false;
   }
 
   /** Walk the current BFS route, trimming corners and redrawing it stale. */
@@ -1088,6 +1118,7 @@ export class Overworld {
       // off to meet them: leaving the screen is what it is for.
       if (c === this.partner && (this.peerDriven || this.handover)) continue;
       if (c.trailing()) continue; // already walking its way back
+      if (c.actor.skin.motion === "teleport") continue; // it catches up on its own
       if (c.away() < c.leash + 40) continue; // just clipped by the edge, not lost
       if (hidden(c.actor.x, c.actor.y)) c.snapToTrail(this.world.map, crowd, hidden, edge);
     }

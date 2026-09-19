@@ -1070,6 +1070,8 @@ label.custom input[type="color"] {
   padding-top: 4px;
   border-top: 1px solid var(--p-dim);
 }
+/* A window that is only working, such as a number's in a sigil's window, has no line above it to rule off. */
+.ptip > .pwork:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .pwork .wrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; line-height: 1.45; }
 /* One row, one line: a label that wraps breaks the column of numbers beside it. */
 .pwork .wlabel, .pwork .wval { white-space: nowrap; }
@@ -1088,6 +1090,7 @@ label.custom input[type="color"] {
 .pwork .wval.dmg.physical { color: var(--p-warning); }
 .pwork .wval.dmg.magic { color: var(--p-mana); }
 .pwork .wval.dmg.true { color: var(--p-true); }
+.pwork .wval.dmg.mixed { color: transparent; }
 
 /*
  * The Scoba browser: search down the left, faces in the middle, the scroll
@@ -1491,6 +1494,13 @@ html.soft .xface canvas { image-rendering: auto; }
 .dmg.physical { color: var(--p-warning); }
 .dmg.magic { color: var(--p-mana); }
 .dmg.true { color: var(--p-true); }
+/* Both at once: the physical colour on its left half and the magical on its right. */
+.dmg.mixed {
+  background: linear-gradient(90deg, var(--p-warning) 50%, var(--p-mana) 50%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 
 .mgbar { position: relative; width: min(calc(var(--ui-w, 800px) * 0.88), 420px); height: 26px; --ink: var(--p-action); --fill: var(--p-ink); }
 .mgzone { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--p-confirm) 33%, transparent); border-left: 1.5px solid var(--p-confirm); border-right: 1.5px solid var(--p-confirm); }

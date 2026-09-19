@@ -14,7 +14,7 @@ import { sfx } from "../engine/sfx";
 import { Actor, MOTIONS } from "./actors";
 import { stagePace } from "./pace";
 import {
-  accessoryAnchor, centerAnchor, critterLook, critterBounds, lookOf, originAnchor, personSkin, pieceWorn,
+  accessoryAnchor, centerAnchor, critterLook, critterBounds, lookOf, originAnchor, personSkin, pieceWorn, sizeOf,
   type CritterBounds, type FormTag,
   growthArt,
   growthMiddle,
@@ -25,7 +25,7 @@ import {
   type ScobaImage,
 } from "./critters";
 import {
-  formsOf, fusionBars, fusionHalves, statusSummary,
+  displayName, formsOf, fusionBars, fusionHalves, landingLine, statusSummary,
   type BattleEvent, type BattleState, type Combatant, type StatusMark, type VisualStep,
 } from "../sim/battle";
 import { ACE_EXTRA, BLACKJACK, CARD_BACK, CARD_HIGH, cardOfValue, type CardFace } from "../sim/cards";
@@ -200,7 +200,7 @@ interface FieldWash {
 }
 
 interface Effect {
-  kind: MoveVfx | "impact" | "poof" | "wheel" | "clock" | "ghost" | "machine";
+  kind: MoveVfx | "impact" | "poof" | "wheel" | "clock" | "ghost" | "machine" | "rise";
   t: number;
   dur: number;
   from: Anchor;
@@ -208,6 +208,10 @@ interface Effect {
   color: string;
   /** Turns it makes on the way across, signed. Only a `toss` takes one. */
   spin?: number;
+  /** Drawn mirrored, the way a Scoba facing left is. */
+  flip?: boolean;
+  /** How big a ghost starts and ends, as a share of its own size, where not the usual. */
+  grow?: { from: number; to: number };
   /**
    * Drawn art for the move behind it, cropped to what was drawn. Where there
    * is any it is thrown and burst in place of the blocks, along the same path,
@@ -417,7 +421,14 @@ const PAWN_GAP = 4;
  * hang under it, so with the card and its gap this has to fit inside the
  * plate room the action bar leaves (a Scoba's readout is taller than that).
  */
-const PAWN_SINK = 15;
+const PAWN_SINK = 21;
+/**
+ * Room kept free over the action bar, in world units, so the sigils under the
+ * Pawn cards clear it rather than being cut off at its edge.
+ */
+const FIELD_LIFT = 5;
+/** The most of the view the action block and the readouts under the field are ever given. */
+const SAFE_MAX = 0.65;
 
 /**
  * Slack around a Scoba's drawn pixels, in world units: air under the ring and
@@ -626,6 +637,11 @@ export class BattleStage {
   private hold = 0;
   /** Caster movements in flight, stepped alongside the queue. */
   private motions: Motion[] = [];
+  /**
+   * Rolls for what is only drawn: which of a numbered set of art is thrown, and
+   * where a risen piece starts. Nothing the battle decides reads it.
+   */
+  private readonly roll = rngFrom(`${Date.now()}:scene`);
   /** True while the opening is running, so the readouts hold off. */
   private opening = false;
   /** False until a frame has been drawn, so the view size is real. */
@@ -693,13 +709,21 @@ export class BattleStage {
     if (changed && this.queue.length === 0) this.resnap();
   }
 
-  setSafeBottom(px: number): void {
+  /**
+   * How much of the bottom of the screen the scene has to keep clear, from two
+   * measurements in screen pixels: the action block with a Scoba's readout and
+   * its sigils, and the block with a Pawn's. The Pawn row stands `PAWN_SINK`
+   * below the foot of the field, so its readout needs that much more.
+   */
+  setSafeBottom(px: number, pawnPx = 0): void {
     // A reading before the first draw is against the placeholder view, and the
     // opening places a wild Scoba once from whatever reading it starts with.
     if (!this.drawn) return;
-    // Up to six tenths of the view: the block takes four, and the readouts
-    // hanging under the front rank need the rest to clear it.
-    this.safeWant = Math.min(this.view.h * 0.6, Math.max(0, px) * this.cssScale());
+    const s = this.cssScale();
+    const want = Math.max(Math.max(0, px) * s, pawnPx > 0 ? pawnPx * s + PAWN_SINK : 0);
+    // Up to about two thirds of the view: the block takes four tenths, and the
+    // Pawn row with its readouts and sigils needs most of the rest to clear it.
+    this.safeWant = Math.min(this.view.h * SAFE_MAX, want);
     // The first reading is the layout, not a change to it.
     if (this.safeBottom === 0) {
       this.safeBottom = this.safeWant;
@@ -713,7 +737,7 @@ export class BattleStage {
    * at `STAGE_DEPTH` and sat against the bottom of it.
    */
   private band(): { top: number; height: number } {
-    const room = Math.max(1, this.view.h - this.safeBottom);
+    const room = Math.max(1, this.view.h - this.safeBottom - FIELD_LIFT);
     const height = Math.min(room, STAGE_DEPTH);
     return { top: room - height, height };
   }
@@ -1489,12 +1513,15 @@ export class BattleStage {
       m.f.ox = 0;
       m.f.oy = 0;
       m.f.alpha = 1;
+      m.f.actor.dir = m.f.side === 0 ? 1 : -1;
     }
     this.motions = this.motions.filter((m) => m.t < m.dur);
   }
 
   /** Starts one, replacing whatever that Scoba was already in the middle of. */
   private startMotion(f: Fighter, anim: CasterAnim, seconds?: number): void {
+    // A dance cut short would leave it facing whichever way it last stepped.
+    f.actor.dir = f.side === 0 ? 1 : -1;
     this.motions = this.motions.filter((m) => m.f !== f);
     if (this.instant) return;
     this.motions.push({ f, anim, t: 0, dur: seconds ?? castDuration(anim) });
@@ -1589,14 +1616,19 @@ export class BattleStage {
         for (const f of this.fighters) {
           if (this.ownerOf(f) !== who) continue;
           f.alpha = 1;
+          if (this.teleports(f)) this.holdOnMark(f);
         }
       },
-      run: (_k, dt) => {
+      run: (k, dt) => {
         const home = this.personAnchor(person.side, person.slot);
         person.actor.seek(dt, home.x, home.y, ARRIVED, NO_MAP, 1.5, WALK_ON);
         if (!withScoba) return;
         for (const f of this.fighters) {
           if (this.ownerOf(f) !== who) continue;
+          if (this.teleports(f)) {
+            if (k >= TELEPORT_IN) this.blinkIn(f);
+            continue;
+          }
           const a = this.anchor(f.side, f.slot);
           f.actor.seek(dt, a.x, a.y, ARRIVED, NO_MAP, 1.4, WALK_ON);
         }
@@ -1610,12 +1642,33 @@ export class BattleStage {
         person.actor.dir = 1;
         for (const f of this.fighters) {
           f.actor.dir = f.side === 0 ? 1 : -1;
+          if (withScoba && this.ownerOf(f) === who && this.teleports(f)) this.blinkIn(f);
           if (!f.pawn) f.settled = true;
         }
       },
     });
 
     return this.flush();
+  }
+
+  /** Whether this one gets onto the field by teleporting rather than walking on. */
+  private teleports(f: Fighter): boolean {
+    return f.actor.skin.motion === "teleport";
+  }
+
+  /** Stands a teleporter on its mark, unseen until it blinks in. */
+  private holdOnMark(f: Fighter): void {
+    const a = this.anchor(f.side, f.slot);
+    f.actor.x = a.x;
+    f.actor.y = a.y;
+    f.alpha = 0;
+  }
+
+  /** Shows a teleporter on its mark in a white flash, once. */
+  private blinkIn(f: Fighter): void {
+    if (f.alpha > 0) return;
+    f.alpha = 1;
+    f.actor.blink();
   }
 
   /** Which character a Scoba on the field belongs to, if any. */
@@ -1718,15 +1771,20 @@ export class BattleStage {
           const a = this.anchor(f.side, f.slot);
           f.actor.x = f.side === 0 ? -16 : this.view.w + 16;
           f.actor.y = a.y;
+          if (this.teleports(f)) this.holdOnMark(f);
         }
       },
-      run: (_k, dt) => {
+      run: (k, dt) => {
         for (const p of this.people) {
           const home = this.personAnchor(p.side, p.slot);
           p.actor.seek(dt, home.x, home.y, ARRIVED, NO_MAP, 1.5, WALK_ON);
         }
         for (const f of this.fighters) {
           if (f.pawn || (f.side === 1 && !enemyWalksIn)) continue;
+          if (this.teleports(f)) {
+            if (k >= TELEPORT_IN) this.blinkIn(f);
+            continue;
+          }
           const a = this.anchor(f.side, f.slot);
           f.actor.seek(dt, a.x, a.y, ARRIVED, NO_MAP, 1.4, WALK_ON);
         }
@@ -1741,6 +1799,7 @@ export class BattleStage {
         for (const p of this.people) p.actor.dir = p.side === 0 ? 1 : -1;
         for (const f of this.fighters) {
           f.actor.dir = f.side === 0 ? 1 : -1;
+          if (this.teleports(f)) this.blinkIn(f);
           if (!f.pawn) f.settled = true;
         }
       },
@@ -1763,11 +1822,48 @@ export class BattleStage {
     if (!events.some((e) => e.kind === "travel")) this.inPast = !!this.st.travelling;
     let caster: TargetRef | undefined;
     const groups = volleys(events);
-    events.forEach((ev, i) => {
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i]!;
       if (ev.kind === "spell") caster = ev.at;
+      const run = landingRun(events, i);
+      if (run > 1) {
+        this.queueLandings(events.slice(i, i + run), onEach);
+        i += run - 1;
+        continue;
+      }
       this.queueEvent(ev, caster, onEach, groups.lead.get(i), groups.follows.has(i));
-    });
+    }
     return this.flush();
+  }
+
+  /**
+   * A status landing on one Scoba after another, played as one beat with one
+   * line rather than a line each: a court of Pawns all charged at the end of a
+   * turn reads as the court being charged. Each one still flashes and has its
+   * sigils brought up to date.
+   */
+  private queueLandings(run: BattleEvent[], onEach: (ev: BattleEvent) => void): void {
+    const nameOf = (ref: TargetRef): string => {
+      const c = this.st.teams[ref.side][ref.index];
+      return c ? displayName(c.scoba) : "";
+    };
+    const line: BattleEvent = { ...run[0]!, text: landingLine(run, nameOf) };
+    this.push({
+      dur: LANDINGS_TIME,
+      start: () => {
+        onEach(line);
+        const lit = new Set<Fighter>();
+        for (const ev of run) {
+          this.applyShown(ev);
+          const target = this.find(ev.at);
+          if (!target || lit.has(target)) continue;
+          lit.add(target);
+          const b = this.centerOf(target);
+          this.effects.push({ kind: "flames", t: 0, dur: 0.45, from: b, to: b, color: "#e7a03c" });
+        }
+        sfx.play(STATUSES[run[0]!.status ?? ""]?.sound, MIX.status);
+      },
+    });
   }
 
   private queueEvent(
@@ -2073,9 +2169,14 @@ export class BattleStage {
             const a = this.anchor(walking.side, walking.slot);
             walking.actor.x = walking.side === 0 ? -20 : this.view.w + 20;
             walking.actor.y = a.y;
+            if (this.teleports(walking)) this.holdOnMark(walking);
           },
-          run: (_k, dt) => {
+          run: (k, dt) => {
             if (!walking) return;
+            if (this.teleports(walking)) {
+              if (k >= TELEPORT_IN) this.blinkIn(walking);
+              return;
+            }
             const a = this.anchor(walking.side, walking.slot);
             walking.actor.seek(dt, a.x, a.y, ARRIVED, NO_MAP, 1.6, WALK_ON);
           },
@@ -2086,6 +2187,7 @@ export class BattleStage {
           },
           end: () => {
             if (walking) {
+              if (this.teleports(walking)) this.blinkIn(walking);
               walking.settled = true;
               walking.actor.dir = walking.side === 0 ? 1 : -1;
             }
@@ -2238,17 +2340,31 @@ export class BattleStage {
         // What the scene waits for is not always how long the drawing lasts. A
         // ghosted piece spreads out of whatever it landed on, so the blow it
         // belongs to has to land while it is spreading rather than after it has
-        // gone: the drawing runs its own life beside the queue.
-        const hold = step.path === "ghost" ? 0 : dur;
+        // gone: the drawing runs its own life beside the queue. A risen piece
+        // drifts off beside whatever comes next in the same way.
+        const hold = step.path === "ghost" || step.path === "rise" ? 0 : dur;
         // A machine takes whoever it is shown on with it: they fade into it as
         // it closes and are hidden for as long as it is carrying them.
         const carried: Fighter[] = [];
         this.push({
           dur: hold,
           start: () => {
-            const sprite = this.paintedBy(ev.at, artNamed(this.art, step.art, move?.tint));
+            const pick = (): ScobaImage | undefined =>
+              this.paintedBy(ev.at, artNamed(this.art, step.art, move?.tint, this.roll));
+            const sprite = pick();
             for (const f of reached()) {
-              if (step.path === "wheel" || step.path === "clock") {
+              if (step.art.toLowerCase() === SELF_ART) {
+                this.showItself(f, step.path, dur, color);
+              } else if (step.path === "rise") {
+                // Somewhere about the body, and off upward, a different piece each time.
+                const b = this.posOf(f);
+                const from = {
+                  x: b.x + (this.roll() - 0.5) * Math.max(8, f.bounds.width * 1.3),
+                  y: b.y - f.bounds.top * (0.35 + this.roll() * 0.6),
+                };
+                const to = { x: from.x + (this.roll() - 0.5) * 6, y: from.y - RISE_HEIGHT };
+                this.effects.push({ kind: "rise", t: 0, dur, from, to, color, sprite: pick() });
+              } else if (step.path === "wheel" || step.path === "clock") {
                 // Over the head rather than on it, so the wheel reads as
                 // something being consulted rather than something landing.
                 const b = this.posOf(f);
@@ -2321,7 +2437,7 @@ export class BattleStage {
             const from = bounce ?? this.find(ev.at);
             const sprite = step.drawn
               ? ev.face ? faceArt(this.art, ev.face, move?.tint) : undefined
-              : this.paintedBy(ev.at, artNamed(this.art, step.art, move?.tint));
+              : this.paintedBy(ev.at, artNamed(this.art, step.art, move?.tint, this.roll));
             let thrown = false;
             for (const ref of ev.to ?? []) {
               const target = this.find(ref);
@@ -2413,6 +2529,28 @@ export class BattleStage {
     }
   }
 
+  /**
+   * Shows a Scoba's own drawing, as it stands and facing the way it faces,
+   * centred on the drawing rather than on where throws land. A ghost of it
+   * starts at its own size, so it reads as swelling out of the Scoba.
+   */
+  private showItself(f: Fighter, path: ShowPath, dur: number, color: string): void {
+    const s = f.actor.skin.sprite;
+    const drawn = croppedDrawing(s.img);
+    if (!drawn) return;
+    const dir = f.actor.dir;
+    const b = this.posOf(f);
+    const mid = {
+      x: b.x + ((drawn.box.x + drawn.box.w / 2 - s.px) / ART) * dir,
+      y: b.y + (drawn.box.y + drawn.box.h / 2 - s.py) / ART,
+    };
+    const kind = path === "ghost" || path === "glow" || path === "burst" || path === "flames" ? path : "ghost";
+    this.effects.push({
+      kind, t: 0, dur, from: mid, to: mid, color, sprite: drawn.img, flip: dir < 0,
+      ...(kind === "ghost" ? { grow: { from: 1, to: SELF_GHOST_TO } } : {}),
+    });
+  }
+
   /** The caster's own motion while its move goes off. */
   private runCasterAnim(self: Fighter, anim: CasterAnim, k: number): void {
     const facing = self.side === 0 ? 1 : -1;
@@ -2444,6 +2582,14 @@ export class BattleStage {
           self.alpha = (k - 0.8) / 0.2;
           self.ox = 0;
         }
+        break;
+      }
+      case "dance": {
+        // Two sways each way in little hops, turned to face the way it steps.
+        const step = k * Math.PI * 4;
+        self.ox = Math.sin(step) * this.view.w * 0.02;
+        self.oy = -Math.abs(Math.sin(step * 2)) * this.view.h * 0.025;
+        self.actor.dir = Math.cos(step) >= 0 ? 1 : -1;
         break;
       }
       case "focus":
@@ -2635,14 +2781,61 @@ export class BattleStage {
       const wash = this.washes[side];
       const def = wash.id ? FIELDS[wash.id] : null;
       if (!def || wash.a <= 0.01) continue;
+      const x = side === 0 ? 0 : mid;
+      const across = side === 0 ? mid : w - mid;
+      if (onlyDrawn) {
+        this.washDrawn(ctx, def.tint, wash.a * FIELD_WASH, x, across);
+        continue;
+      }
       ctx.save();
-      ctx.globalCompositeOperation = onlyDrawn ? "source-atop" : "soft-light";
+      ctx.globalCompositeOperation = "soft-light";
       const lit = ctx.globalCompositeOperation === "soft-light";
-      ctx.globalAlpha = wash.a * (lit || onlyDrawn ? FIELD_WASH : FIELD_WASH_FLAT);
+      ctx.globalAlpha = wash.a * (lit ? FIELD_WASH : FIELD_WASH_FLAT);
       ctx.fillStyle = def.tint;
-      ctx.fillRect(side === 0 ? 0 : mid, 0, side === 0 ? mid : w - mid, h);
+      ctx.fillRect(x, 0, across, h);
       ctx.restore();
     }
+  }
+
+  /** Where the near canvas's wash is cut to the shape of what is standing on it. */
+  private washShape: HTMLCanvasElement | null = null;
+
+  /**
+   * One side's wash over the near canvas, in the same soft light as the main
+   * one, so black line art stays black. A blend also fills the canvas's empty
+   * parts, where the readouts show through, so it is laid down as the tint cut
+   * to the shape of whatever is drawn in that half.
+   */
+  private washDrawn(ctx: CanvasRenderingContext2D, tint: string, alpha: number, x: number, across: number): void {
+    const node = ctx.canvas;
+    const shape = (this.washShape ??= document.createElement("canvas"));
+    if (shape.width !== node.width || shape.height !== node.height) {
+      shape.width = node.width;
+      shape.height = node.height;
+    }
+    const s = shape.getContext("2d");
+    if (!s) return;
+    const at = ctx.getTransform();
+    s.save();
+    s.setTransform(1, 0, 0, 1, 0, 0);
+    s.globalCompositeOperation = "source-over";
+    s.clearRect(0, 0, shape.width, shape.height);
+    s.setTransform(at);
+    s.beginPath();
+    s.rect(x, 0, across, this.view.h);
+    s.clip();
+    s.setTransform(1, 0, 0, 1, 0, 0);
+    s.drawImage(node, 0, 0);
+    s.globalCompositeOperation = "source-atop";
+    s.fillStyle = tint;
+    s.fillRect(0, 0, shape.width, shape.height);
+    s.restore();
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "soft-light";
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(shape, 0, 0);
+    ctx.restore();
   }
 
   /**
@@ -2948,6 +3141,7 @@ function castDuration(anim: CasterAnim): number {
   if (anim === "blink") return 0.28;
   if (anim === "lunge") return 0.22;
   if (anim === "rear") return 0.26;
+  if (anim === "dance") return 1.2;
   return 0.2;
 }
 
@@ -2991,7 +3185,40 @@ const SHOW_TIME: Record<ShowPath, number> = {
   flames: 0.45,
   liftoff: 1.1,
   landing: 1.0,
+  rise: 1.1,
 };
+
+/**
+ * How many events from `i` on are the same status landing again and again, on
+ * the same Scoba or on others, in a row. One where it is not a landing at all.
+ */
+function landingRun(events: BattleEvent[], i: number): number {
+  const first = events[i];
+  if (!first || first.kind !== "status" || first.status === undefined || first.stacks === undefined) return 1;
+  let n = 1;
+  while (true) {
+    const next = events[i + n];
+    if (!next || next.kind !== "status" || next.status !== first.status || next.stacks === undefined) break;
+    n += 1;
+  }
+  return n;
+}
+
+/** How long a run of landings read as one line holds the scene: a little over one landing's beat. */
+const LANDINGS_TIME = 0.45;
+
+/** How far through its step onto the field a teleporting Scoba blinks in. */
+const TELEPORT_IN = 0.35;
+
+/** How far a risen piece drifts up before it is gone, in world units. */
+const RISE_HEIGHT = 14;
+
+/** The art name a `show` step gives for the Scoba's own drawing. */
+const SELF_ART = "itself";
+
+/** How far a ghost of a Scoba's own drawing swells, starting from its own size, and how solid it starts. */
+const SELF_GHOST_TO = 2.2;
+const SELF_GHOST_ALPHA = 0.7;
 
 /** Sounds the game makes itself rather than reading from a file, by the name a step uses. */
 const TONES: Record<string, () => void> = {
@@ -3054,10 +3281,63 @@ function tinted(img: HTMLCanvasElement | HTMLImageElement, tint: string): HTMLCa
   return cv;
 }
 
-/** Art by name, in a rewritten move's color where it has one. */
-function artNamed(art: Art, name: string | undefined, tint: string | undefined): HTMLCanvasElement | HTMLImageElement | undefined {
+const croppedDrawings = new WeakMap<object, { img: HTMLCanvasElement; box: { x: number; y: number; w: number; h: number } } | null>();
+
+/**
+ * A drawing cut down to its own pixels, and where they sat on the sheet. A
+ * sheet is mostly empty, and something swelling about the middle of the sheet
+ * swells about a point nowhere near the drawing.
+ */
+function croppedDrawing(img: ScobaImage): { img: HTMLCanvasElement; box: { x: number; y: number; w: number; h: number } } | null {
+  const hit = croppedDrawings.get(img);
+  if (hit !== undefined) return hit;
+  const { w, h } = sizeOf(img);
+  const scan = document.createElement("canvas");
+  scan.width = w;
+  scan.height = h;
+  const sctx = scan.getContext("2d")!;
+  sctx.drawImage(img, 0, 0);
+  const px = sctx.getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (px[(y * w + x) * 4 + 3]! < 8) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) {
+    croppedDrawings.set(img, null);
+    return null;
+  }
+  const box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  const out = document.createElement("canvas");
+  out.width = box.w;
+  out.height = box.h;
+  out.getContext("2d")!.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+  const built = { img: out, box };
+  croppedDrawings.set(img, built);
+  return built;
+}
+
+/**
+ * Art by name, in a rewritten move's color where it has one. A name with no
+ * file of its own picks one of the numbered files beside it off `roll`, so
+ * `grinkle` finds `grinkle1`, `grinkle2` and so on.
+ */
+function artNamed(
+  art: Art, name: string | undefined, tint: string | undefined, roll?: () => number,
+): HTMLCanvasElement | HTMLImageElement | undefined {
+  if (!name) return undefined;
   // Art is filed by lower-case file name, so a script can write a name either way.
-  const drawn = name ? art.powers[name.toLowerCase()] : undefined;
+  const key = name.toLowerCase();
+  let drawn = art.powers[key];
+  if (!drawn) {
+    const numbered = growthArt(art, key);
+    drawn = numbered[Math.floor((roll ? roll() : 0) * numbered.length)] ?? numbered[0];
+  }
   if (!drawn) return undefined;
   return tint ? tinted(drawn, tint) : drawn;
 }
@@ -3351,8 +3631,19 @@ function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
     } else if (e.kind === "ghost") {
       // Swells out past its own size and thins away with it, so it reads as
       // something spreading from what it landed on rather than landing on it.
-      scale = GHOST_FROM + (GHOST_TO - GHOST_FROM) * (1 - (1 - k) * (1 - k));
-      alpha = (1 - k) * (1 - k);
+      const from = e.grow?.from ?? GHOST_FROM;
+      const to = e.grow?.to ?? GHOST_TO;
+      scale = from + (to - from) * (1 - (1 - k) * (1 - k));
+      // A copy of the Scoba itself starts over it at full size, so it starts
+      // faint enough to read as a copy rather than as the Scoba moving.
+      alpha = (1 - k) * (1 - k) * (e.grow ? SELF_GHOST_ALPHA : 1);
+    } else if (e.kind === "rise") {
+      // Drifts up with a little sway, easing off as it goes, and fades out over its last stretch.
+      const p = 1 - (1 - k) * (1 - k);
+      x = e.from.x + (e.to.x - e.from.x) * p + Math.sin(k * Math.PI * 2) * 1.5;
+      y = e.from.y + (e.to.y - e.from.y) * p;
+      scale = 0.6 + Math.min(1, k * 5) * 0.4;
+      alpha = k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45;
     } else {
       // A burst on the spot: up to full size quickly, then out.
       scale = 0.6 + Math.min(1, k * 3) * 0.4;
@@ -3370,6 +3661,11 @@ function drawEffect(ctx: CanvasRenderingContext2D, e: Effect): void {
       const turns = e.kind === "toss" ? (e.spin ?? 1) : (e.to.x >= e.from.x ? 1 : -1) * LOB_SPINS;
       ctx.translate(x, y);
       ctx.rotate(k * Math.PI * 2 * turns);
+      ctx.translate(-x, -y);
+    }
+    if (e.flip) {
+      ctx.translate(x, y);
+      ctx.scale(-1, 1);
       ctx.translate(-x, -y);
     }
     ctx.drawImage(e.sprite, x - (w * scale) / 2, y - (h * scale) / 2, w * scale, h * scale);

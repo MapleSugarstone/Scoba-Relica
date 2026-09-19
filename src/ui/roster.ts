@@ -28,6 +28,7 @@ import {
   PARTY_PER_CHARACTER,
   boxOf,
   lend,
+  markMet,
   otherSlot,
   partyHasRoom,
   partyOf,
@@ -324,6 +325,7 @@ function openSpawn(ui: UI, art: Art, save: SaveData, onChange: () => void, onBac
       if (spawnWith.shiny) made.shiny = true;
       else delete made.shiny;
       made.owner = save.localSlot;
+      markMet(made, save.characters[save.localSlot].name);
       save.box.push(made);
       sfx.confirm();
       onChange();

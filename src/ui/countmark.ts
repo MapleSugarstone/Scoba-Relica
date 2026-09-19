@@ -25,6 +25,12 @@ const DIGITS: Record<string, string[]> = {
   "8": [".####.", "##..##", "##..##", "##..##", ".####.", "##..##", "##..##", "##..##", ".####."],
   "9": [".####.", "##..##", "##..##", "##..##", ".#####", "....##", "....##", "...##.", ".###.."],
 };
+/** The few letters a readout's labels need, drawn to the same grid as the digits. */
+const LETTERS: Record<string, string[]> = {
+  "H": ["##..##", "##..##", "##..##", "##..##", "######", "##..##", "##..##", "##..##", "##..##"],
+  "P": ["#####.", "##..##", "##..##", "##..##", "#####.", "##....", "##....", "##....", "##...."],
+  "%": ["##...#", "##..##", "...##.", "...##.", "..##..", ".##...", ".##...", "##..##", "#...##"],
+};
 const W = 6;
 const H = 9;
 /** How far the ink backdrop reaches out from the digits, in art pixels. */
@@ -75,5 +81,27 @@ export function countMark(n: number): HTMLCanvasElement {
     const [x, y] = at.split(",").map(Number) as [number, number];
     g.fillRect(x, y, 1, 1);
   }
+  return cv;
+}
+
+/**
+ * A short label in the same pixel digits, with no backdrop, for writing on a
+ * panel rather than over a sigil: "HP" and a share like "40%" beside a bar.
+ */
+export function pixelLabel(text: string, color = "--p-dim"): HTMLCanvasElement {
+  const glyphs = text.split("").map((ch) => DIGITS[ch] ?? LETTERS[ch.toUpperCase()]).filter((g): g is string[] => !!g);
+  const w = Math.max(1, glyphs.length * (W + 1) - 1);
+  const cv = document.createElement("canvas");
+  cv.width = w;
+  cv.height = H;
+  cv.style.width = `${w / FIELD}px`;
+  cv.style.height = `${H / FIELD}px`;
+  const g = cv.getContext("2d")!;
+  g.fillStyle = token(color);
+  glyphs.forEach((rows, i) => {
+    rows.forEach((row, y) => {
+      for (let x = 0; x < W; x++) if (row[x] === "#") g.fillRect(i * (W + 1) + x, y, 1, 1);
+    });
+  });
   return cv;
 }

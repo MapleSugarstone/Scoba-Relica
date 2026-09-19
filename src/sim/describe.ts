@@ -103,6 +103,8 @@ const SCOPES: Record<Extract<Who, string>, Subject> = {
   "field-enemies": many("all enemies", "every enemy's"),
   "ally-scobas": many("all ally Scobas", "every ally Scoba's"),
   "enemy-scobas": many("all enemy Scobas", "every enemy Scoba's"),
+  "ally-pawns": many("all ally Pawns", "every ally Pawn's"),
+  "enemy-pawns": many("all enemy Pawns", "every enemy Pawn's"),
 };
 
 /** Who a step reaches, named: a word, the next Scoba from a group, or the first of two that reaches anyone. */
@@ -214,12 +216,15 @@ function state(e: StatusEffect, def: StatusDef, who: Subject): string | null {
   switch (e.kind) {
     case "root": return "cannot switch out";
     case "no-hyper": return "cannot enter Hyper-Mode";
+    case "no-spells": return "cannot cast abilities";
     case "echo": return `casts everything a second time, for ${pct(e.frac)} of the first`;
     case "stat-power": {
       const p = def.power;
       if (!p) return null;
-      const share = `${pct(Math.abs(p.frac * e.mult))} of ${powerOf(p.basis, who)}`;
-      return `${e.mult < 0 ? "loses" : "gains"} ${share} as ${stat(e.stat)}`;
+      const parts: string[] = [];
+      if (p.basis !== undefined) parts.push(`${pct(Math.abs(p.frac * e.mult))} of ${powerOf(p.basis, who)}`);
+      if (p.flatAtCeiling !== undefined) parts.push(`${perLevel(Math.abs(p.flatAtCeiling * e.mult))} a level`);
+      return `${e.mult < 0 ? "loses" : "gains"} ${parts.join(" plus ")} as ${stat(e.stat)}`;
     }
     case "immune": return `takes no ${type(e.element)} damage`;
     case "vulnerable": return `takes ${pct(e.mult)} ${type(e.element)} damage`;
@@ -302,6 +307,49 @@ interface StatusOpts {
   nested?: boolean;
   /** Where a status is looked up, so a test can describe one that is not in the game. */
   statuses?: Record<string, StatusDef>;
+  /** The level of whoever leaves it, so a flat power reads as the number it comes to. */
+  level?: number;
+}
+
+/** A stat amount: whole from 10 up, and one decimal under that, since stats are only rounded once everything is added. */
+export const shownAmount = (n: number): string => {
+  const size = Math.abs(n);
+  return size >= 10 ? String(Math.floor(size)) : String(Number(size.toFixed(1)));
+};
+
+/** Which stats a line moves: "all stats", "Speed", "Strength and Defense". */
+function statsNamed(stats: StatName[]): string {
+  if (stats.length >= STAT_NAMES.length) return "all stats";
+  const names = stats.map(stat);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? "";
+}
+
+/** "Increases all stats by 7." What a status's power comes to on the Scoba carrying it. */
+export function shiftLine(amount: number, stats: StatName[]): string {
+  return `${amount < 0 ? "Reduces" : "Increases"} ${statsNamed(stats)} by ${shownAmount(amount)}.`;
+}
+
+type StatPower = Extract<StatusEffect, { kind: "stat-power" }>;
+
+/**
+ * What a status's power moves stats by, as one verb phrase: "increases all
+ * stats by 1". Null where the stats it moves are moved by different shares.
+ */
+function powerLine(def: StatusDef, moved: StatPower[], who: Subject, level?: number): string | null {
+  const p = def.power;
+  const first = moved[0];
+  if (!p || !first || moved.some((e) => e.mult !== first.mult)) return null;
+  const stats = [...new Set(moved.map((e) => e.stat))];
+  const what = !who.noun ? statsNamed(stats)
+    : stats.length >= STAT_NAMES.length ? `all of ${who.poss} stats` : `${who.poss} ${statsNamed(stats)}`;
+  const size = Math.abs(first.mult);
+  const parts: string[] = [];
+  if (p.basis !== undefined) parts.push(`${pct(p.frac * size)} of ${powerOf(p.basis, who)}`);
+  if (p.flatAtCeiling !== undefined) {
+    const flat = p.flatAtCeiling * size;
+    parts.push(level !== undefined ? shownAmount((flat * level) / MAX_LEVEL) : `${perLevel(flat)} a level`);
+  }
+  return `${first.mult < 0 ? "reduces" : "increases"} ${what} by ${parts.join(" plus ")}`;
 }
 
 /** What a fired effect does, as a verb phrase in the third person. */
@@ -313,12 +361,19 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
       return `takes ${dealt}${flat ? ` plus ${perLevel(flat)} damage per level` : ""}`;
     }
     case "heal": return `heals ${healAmount(e.basis, e.frac, who)}`;
-    case "summon": return summons(e.species, e.level, who);
+    case "summon": return summons(e, who);
     case "mana": return `gains ${e.amount}% mana${e.second ? " in its second mana bar" : ""}`;
     case "inflict": {
       const table = opts.statuses ?? STATUSES;
       const inner = table[e.status];
       if (!inner) return `gains ${e.status}`;
+      // A status that only moves stats by its power is named rather than spelled
+      // out, since its own sigil says what it comes to on whoever carries it.
+      if (inner.effects.length > 0 && inner.effects.every((x) => x.kind === "stat-power")) {
+        const sub = scopeOf(e.on);
+        const name = statusName(e.status);
+        return sub.noun ? `${sub.noun} ${sub.plural ? "gain" : "gains"} ${name}` : `gains ${name}`;
+      }
       // A source that overrides how long the mark stands is described by what
       // it actually leaves behind rather than by the mark's own clock.
       const held = e.turns === undefined ? inner : { ...inner, duration: e.turns };
@@ -362,12 +417,16 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
   }
 }
 
-function summons(species: string, level: number, who: Subject): string {
-  const sp = SPECIES[species];
-  const name = sp?.name ?? species;
+function summons(e: Extract<StatusEffect, { kind: "summon" }>, who: Subject): string {
+  const sp = SPECIES[e.species];
+  const name = sp?.name ?? e.species;
+  const copies = e.copying !== undefined ? ` with ${who.their} moves and statuses` : "";
+  if (e.levelShare !== undefined) {
+    return `calls up a ${name}${sp?.pawn ? " Pawn" : ""} at ${pct(e.levelShare)} of ${who.their} level${copies}`;
+  }
   return sp?.pawn
-    ? `calls up a ${name} Pawn at ${who.their} level`
-    : `calls a level ${level} ${name} to ${who.their} side`;
+    ? `calls up a ${name} Pawn at ${who.their} level${copies}`
+    : `calls a level ${e.level} ${name} to ${who.their} side${copies}`;
 }
 
 /**
@@ -395,7 +454,10 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
         : `Gains ${list}${dur}.`;
     out.push({ text, triggered: false });
   }
+  const moved = powerLine(def, standing.filter((e): e is StatPower => e.kind === "stat-power"), who, opts.level);
+  if (moved !== null) out.push({ text: `${cap(moved)}${perStack}${dur}.`, triggered: false });
   for (const e of standing) {
+    if (moved !== null && e.kind === "stat-power") continue;
     const s = state(e, def, who);
     if (!s) continue;
     out.push({ text: `${who.noun ? `${cap(who.noun)} ${s}` : cap(s)}${dur}.`, triggered: false });
@@ -502,7 +564,7 @@ export function describeAbility(id: string): string {
   const parts = abilityStatuses(id).map((sid) => describeStatus(sid)).filter((s) => s !== "");
   const grant = grantLine(id);
   if (grant !== "" && !parts.includes(grant)) parts.unshift(grant);
-  return parts.join(" ");
+  return parts.length > 0 ? parts.join(" ") : "Does nothing on its own.";
 }
 
 /** The move a passive hands over, as a sentence, or nothing for one that hands none over. */
@@ -662,7 +724,7 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       return [{ text: `Copies ${from.poss || "its"} statuses onto ${to.noun || "itself"}.`, triggered: false }];
     }
     case "summon":
-      return [{ text: `${cap(summons(e.species, e.level, SELF))}.`, triggered: false }];
+      return [{ text: `${cap(summons(e, SELF))}.`, triggered: false }];
     case "grant-item":
       return [{ text: `Finds ${e.count} ${cap(e.item)}.`, triggered: false }];
     case "deal-card": {

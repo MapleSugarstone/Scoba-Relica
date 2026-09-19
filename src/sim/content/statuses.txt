@@ -261,13 +261,40 @@ status ultimate-multiplication "Ultimate Multiplication"
   text "Ready to fuse with an ally in Hyper-Mode that has Ultimate Addition."
 
 # The sigils Multiply Enemies and Multiply Allies show on the Scobas they reach.
-# Nothing carries these: they are shown for as long as the reach lasts.
+# Nothing carries these: they are shown for as long as the reach lasts, with a
+# stack for each Scoba on the field reaching it.
 status multiply-enemies-reach "Multiply Enemies"
   bad
   icon givingmultiply
-  text "A Scoba with Multiply Enemies is on the field, so its negative statuses are 15% more effective."
+  text "Each enemy on the field with Multiply Enemies makes this Scoba's negative statuses 15% more effective."
 
 status multiply-allies-reach "Multiply Allies"
   good
   icon multiplygood
-  text "A Scoba with Multiply Allies is on the field, so its positive statuses are 15% more effective."
+  text "Each ally on the field with Multiply Allies makes this Scoba's positive statuses 15% more effective."
+
+# Grinkle Pylon's. What Power Grid gives ally Pawns, and what Silly Dance and Mass give.
+status charged "Charged"
+  good
+  icon pawnstatsup
+  stacks up to 30
+  power 1 at max level
+  while carried:
+    all stats + power
+
+status dancing "Dancing"
+  good
+  icon dance
+  stacks up to 3
+  lost on switching out
+  power 60% of source magic + 50 at max level
+  while carried:
+    speed + power
+
+status massive "Massive"
+  good
+  icon mass
+  stacks up to 2
+  lost on switching out
+  while carried:
+    all stats x2

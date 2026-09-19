@@ -4,7 +4,7 @@
 // back the same way. `docs/move-script.md` describes them all for an author.
 import type { Ability, Move } from "../species";
 import type {
-  Basis, ChanceColorChange, FieldDef, FieldEffect, HobbyDef, MoveChange, Scaling, Standing, StatusDamage,
+  Basis, ChanceColorChange, FieldDef, FieldEffect, HitCategory, HobbyDef, MoveChange, Scaling, Standing, StatusDamage,
   StatusDef, StatusTrigger, Step, Who,
 } from "../status";
 import type { TargetSpec } from "../targeting";
@@ -228,6 +228,7 @@ const TEAM_WORDS: Record<string, Who> = {
   allies: "allies", enemies: "enemies", everyone: "everyone", others: "others",
   "allies on the field": "field-allies", "enemies on the field": "field-enemies",
   "ally scobas": "ally-scobas", "enemy scobas": "enemy-scobas",
+  "ally pawns": "ally-pawns", "enemy pawns": "enemy-pawns",
 };
 
 function whoWords(scope: Scope): Record<string, Who> {
@@ -533,16 +534,37 @@ function readStep(line: Line, scope: Scope): Step {
       return { kind: "transfer", from, to, frac, deliver: "heal" };
     }
     case "summon": {
-      const usage = "summon <species> at level <n>";
+      const usage = "summon <species> at level <n> | summon <species> at <share> level, copying <who>, except <status>";
       noBlock(line, usage);
-      const c = single(line, usage);
+      const c = clause(line, 0, usage);
       c.expect("summon");
       const species = c.id("the species");
       scope.refs.push({ table: "species", id: species, line: line.no });
-      c.expect("at level");
-      const level = c.count("the level");
+      c.expect("at");
+      const step: Step = { kind: "summon", species, level: 0 };
+      if (c.take("level")) {
+        step.level = c.count("the level");
+      } else {
+        step.levelShare = c.percent("the share of its own level");
+        c.expect("level");
+      }
       c.done();
-      return { kind: "summon", species, level };
+      for (let i = 1; i < line.clauses.length; i++) {
+        const o = clause(line, i, usage);
+        if (o.take("copying")) {
+          step.copying = readWho(o, scope);
+        } else {
+          o.expect("except");
+          const id = o.id("the status the copy leaves out");
+          scope.refs.push({ table: "statuses", id, line: line.no });
+          step.except = [...step.except ?? [], id];
+        }
+        o.done();
+      }
+      if (step.except && !step.copying) {
+        throw new ScriptError(line.no, `leaves a status out of a copy it does not make. It is written: ${usage}`);
+      }
+      return step;
     }
     case "find": {
       const usage = "find <n> <item>";
@@ -665,14 +687,15 @@ function readStep(line: Line, scope: Scope): Step {
       return { kind: "deal-card", to, payoff, hand };
     }
     case "if": {
-      const usage = "if <who> fell:";
+      const usage = "if <who> fell: | if <who> stands:";
       needsBlock(line, usage);
       const c = single(line, usage);
       c.expect("if");
-      const fell = readWho(c, scope);
-      c.expect("fell");
+      const who = readWho(c, scope);
+      const test = c.take("stands") ? "stands" : "fell";
+      if (test === "fell") c.expect("fell");
       c.done();
-      return { kind: "if", fell, then: readSteps(line.children, scope) };
+      return { kind: "if", who, test, then: readSteps(line.children, scope) };
     }
     case "refund": {
       const usage = "refund";
@@ -867,7 +890,8 @@ function readHit(line: Line, scope: Scope): Step {
       if (named) step.element = o.vocab(ELEMENT_WORDS, "an element");
       if (o.take("physical")) step.category = "physical";
       else if (o.take("magic")) step.category = "magic";
-      else if (!named) o.fail("says what the attack is read as, like \"as sun\" or \"as magic\"");
+      else if (o.take("mixed")) step.category = "mixed";
+      else if (!named) o.fail("says what the attack is read as, like \"as sun\", \"as magic\" or \"as mixed\"");
     }
     o.done();
   }
@@ -1012,6 +1036,10 @@ function readStanding(line: Line, forField: boolean): Standing[] {
     c.done();
     return [{ kind: "no-hyper" }];
   }
+  if (c.take("cannot cast spells")) {
+    c.done();
+    return [{ kind: "no-spells" }];
+  }
   if (c.take("casts again at")) {
     const frac = c.percent("how much the second cast is worth");
     if (frac <= 0 || frac > 1) c.fail("a second cast is worth from 1% to 100%");
@@ -1144,7 +1172,7 @@ export function summarize(cast: Step[]): { kind: Move["kind"]; scale: number } {
   for (const s of cast) {
     if (s.kind === "hit") {
       return {
-        kind: hitCategory(s) === "physical" ? "physical" : "magical",
+        kind: hitCategory(s) === "magic" ? "magical" : "physical",
         scale: s.perLevel !== undefined ? 0 : s.scaling[0]?.scale ?? 0,
       };
     }
@@ -1161,7 +1189,7 @@ export function summarize(cast: Step[]): { kind: Move["kind"]; scale: number } {
  * How a hit is mitigated: what it says, or what its first stat makes it. Magic
  * and Resistance are magical, and everything else is physical.
  */
-export function hitCategory(s: Extract<Step, { kind: "hit" }>): "physical" | "magic" {
+export function hitCategory(s: Extract<Step, { kind: "hit" }>): HitCategory {
   const first = s.scaling[0]?.stat;
   return s.category ?? (first === "mag" || first === "res" ? "magic" : "physical");
 }
@@ -1424,9 +1452,19 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
       growth = c.token("the art it grows");
       c.done();
     } else if (c0.sees("power")) {
-      const c = plain("power <share> of <whose> <stat>");
+      const c = plain("power <share> of <whose> <stat> + <n> at max level | power <n> at max level");
       c.expect("power");
-      power = readShare(c, scope);
+      if (c.seesNumber()) {
+        const flatAtCeiling = c.count("the flat amount");
+        c.expect("at max level");
+        power = { frac: 0, flatAtCeiling };
+      } else {
+        power = readShare(c, scope);
+        if (c.take("+")) {
+          power.flatAtCeiling = c.count("the flat amount");
+          c.expect("at max level");
+        }
+      }
       c.done();
     } else {
       unknownLine(line, known);

@@ -28,7 +28,14 @@ export const MOTIONS: Record<MovementStyle, Motion> = {
   // Slow, high jumps from side to side that hang at the top, as if the ground
   // pulled only a little.
   moonhop: { rate: 1.3, hop: 20, tilt: 0.1, float: 0, idle: 0, sway: 5, hang: 0.45 },
+  // Stands dead still. It gets anywhere by teleporting, which is not a gait.
+  teleport: { rate: 0, hop: 0, tilt: 0, float: 0, idle: 0 },
 };
+
+/** How fast a teleport's white flash fades, in flashes a second. */
+const BLINK_FADE = 2.5;
+/** The white it flashes, which is the game's own white rather than a pure one. */
+const BLINK_COLOR = "#fff4dd";
 
 /**
  * How far an actor has to travel before the y-sorted pass accepts that it is at
@@ -73,6 +80,8 @@ export class Actor {
    * and leaving a ghost where they were last seen reads as a bug.
    */
   hidden = false;
+  /** A white flash over the sprite, 1 at full, fading as it steps. */
+  flash = 0;
   private fadeRate = 0;
   /**
    * Points of light this one has shed. They live in world space, so they stay
@@ -131,7 +140,13 @@ export class Actor {
     return this.fade <= 0;
   }
 
+  /** Flashes it white, which is what a teleport looks like. */
+  blink(): void {
+    this.flash = 1;
+  }
+
   private stepFade(dt: number): void {
+    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * BLINK_FADE);
     if (this.fadeRate === 0) return;
     this.fade = Math.max(0, Math.min(1, this.fade + this.fadeRate * dt));
     if (this.fade === 0 || this.fade === 1) this.fadeRate = 0;
@@ -269,6 +284,7 @@ export class Actor {
     if (!solid) ctx.globalAlpha = this.fade;
     drawDoll(ctx, this.skin.sprite, sx, sy, this.dir, bounce(this.motion(), this.hopT, this.hopEase));
     if (!solid) ctx.globalAlpha = 1;
+    if (this.flash > 0) this.drawTint(ctx, camX, camY, BLINK_COLOR, this.flash);
     // Shed light is drawn where it fell, so the camera offsets go in raw.
     if (this.sparks.length > 0) drawSparks(ctx, this.sparks, camX, camY, this.fade);
   }
