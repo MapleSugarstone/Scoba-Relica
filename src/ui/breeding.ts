@@ -46,7 +46,7 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
   /** Everything that could be a parent at all: no special Scobas, no Pawns, no hybrids. */
   const eligible = (): ScobaInstance[] => pool().filter((m) => {
     const sp = SPECIES[m.speciesId];
-    return !!sp && !sp.special && !sp.pawn && !m.hybrid;
+    return !!sp && !sp.special && !sp.pawn && !sp.fusion && !m.hybrid;
   });
 
   /**

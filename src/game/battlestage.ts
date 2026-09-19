@@ -14,7 +14,7 @@ import { sfx } from "../engine/sfx";
 import { Actor, MOTIONS } from "./actors";
 import { stagePace } from "./pace";
 import {
-  accessoryAnchor, centerAnchor, critterLook, critterBounds, lookOf, originAnchor, personSkin,
+  accessoryAnchor, centerAnchor, critterLook, critterBounds, lookOf, originAnchor, personSkin, pieceWorn,
   type CritterBounds, type FormTag,
   growthArt,
   growthMiddle,
@@ -25,7 +25,7 @@ import {
   type ScobaImage,
 } from "./critters";
 import {
-  formsOf, statusSummary,
+  formsOf, fusionBars, fusionHalves, statusSummary,
   type BattleEvent, type BattleState, type Combatant, type StatusMark, type VisualStep,
 } from "../sim/battle";
 import { ACE_EXTRA, BLACKJACK, CARD_BACK, CARD_HIGH, cardOfValue, type CardFace } from "../sim/cards";
@@ -39,7 +39,7 @@ import type { Tint } from "../sim/scoba";
 import { rngFrom } from "../sim/rng";
 import { TYPE_COLORS } from "../sim/types";
 import {
-  ALL_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, isPawnSlot, isTravelSlot, sameRef, type TargetRef,
+  ALL_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, isFusionSlot, isPawnSlot, isTravelSlot, sameRef, type TargetRef,
 } from "../sim/targeting";
 import type { SaveData, SlotId } from "../save/save";
 
@@ -143,11 +143,35 @@ interface SyncOpts {
   hold?: boolean;
 }
 
+/** One of a fusion's HP bars and the mana bar of the same half, as a readout shows them. */
+export interface ShownBar {
+  hp: number;
+  hpTrail: number;
+  max: number;
+  mana: number;
+  manaTrail: number;
+}
+
+/** A fusion's bars as the battle holds them, or undefined for anyone else. */
+function liveBars(st: BattleState, c: Combatant): { hp: number; max: number; mana: number }[] | undefined {
+  const bars = fusionBars(c);
+  if (!bars) return undefined;
+  const halves = fusionHalves(st, c);
+  return bars.map((b, i) => ({ ...b, mana: halves[i]?.mana ?? 0 }));
+}
+
+/** Bars read straight off the battle, with nothing left to trail. */
+function barsAt(live: { hp: number; max: number; mana: number }[]): ShownBar[] {
+  return live.map((b) => ({ hp: b.hp, hpTrail: b.hp, max: b.max, mana: b.mana, manaTrail: b.mana }));
+}
+
 interface Shown {
   hp: number;
   hpTrail: number;
   mana: number;
   manaTrail: number;
+  /** A fusion's two bars, first slot's first. Nobody else has any. */
+  bars?: ShownBar[];
   fainted: boolean;
   /**
    * The marks the readout is showing. Snapshotted like the numbers are,
@@ -205,7 +229,14 @@ interface Effect {
  * body standing there wearing the new one's name.
  */
 function drawnAs(c: Combatant): string {
-  return [bodyKey(c), ...formsOf(c)].join("+");
+  const sp = SPECIES[c.scoba.speciesId];
+  const piece = sp ? pieceWorn(sp, carriedBy(c), formsOf(c)) : null;
+  return [bodyKey(c), ...formsOf(c), ...(piece ? [`piece:${piece}`] : [])].join("+");
+}
+
+/** The ids of every status a combatant carries, which is what decides the piece it wears. */
+function carriedBy(c: Combatant): string[] {
+  return c.statuses.map((s) => s.id);
 }
 
 /**
@@ -407,6 +438,12 @@ const ARC_MAX = 26;
 const SUMMON_TIME = 0.85;
 const SUMMON_CALL = 0.55;
 /**
+ * How long a fusion takes to form, and how far into it the two halves meet in
+ * the middle, at their palest, and become one.
+ */
+const FUSE_TIME = 1.2;
+const FUSE_MEET = 0.55;
+/**
  * How long calling up a field takes, and how much of it is the caller
  * rattling. The wash starts coming in on the beat the rattle ends, the way a
  * summon's poof does, so what the Scoba did and what turned up read as one
@@ -496,6 +533,13 @@ export class BattleStage {
   private done: (() => void) | null = null;
   private view = { w: 320, h: 180 };
   private shown = new Map<string, Shown>();
+  /**
+   * The fusions the scene has shown forming, by body. The battle resolves a
+   * whole round before any of it plays, so a fusion is on the board from the
+   * start of the round it formed in, and until its own fuse plays the scene
+   * keeps drawing the two it is made of.
+   */
+  private fusions = new Set<string>();
   /** Valid targets while a move is being aimed, and the one under the cursor. */
   private aim: { options: TargetRef[]; hover: TargetRef | null } | null = null;
   /**
@@ -603,7 +647,16 @@ export class BattleStage {
   ) {
     this.instant = (window as { __scobaFast?: boolean }).__scobaFast === true;
     this.buildPeople();
+    // A fight handed over part way through can already have a fusion in it.
+    this.noteFusions();
     this.sync();
+  }
+
+  /** Counts every fusion on the board as shown. */
+  private noteFusions(): void {
+    for (const team of this.st.teams) {
+      for (const c of team) if (c.fusion) this.fusions.add(bodyKey(c));
+    }
   }
 
   // --- layout ---
@@ -641,11 +694,18 @@ export class BattleStage {
   }
 
   setSafeBottom(px: number): void {
+    // A reading before the first draw is against the placeholder view, and the
+    // opening places a wild Scoba once from whatever reading it starts with.
+    if (!this.drawn) return;
     // Up to six tenths of the view: the block takes four, and the readouts
     // hanging under the front rank need the rest to clear it.
     this.safeWant = Math.min(this.view.h * 0.6, Math.max(0, px) * this.cssScale());
     // The first reading is the layout, not a change to it.
-    if (this.safeBottom === 0) this.safeBottom = this.safeWant;
+    if (this.safeBottom === 0) {
+      this.safeBottom = this.safeWant;
+      // A step that has not started yet places everyone itself.
+      if (!this.started) this.resnap();
+    }
   }
 
   /**
@@ -700,6 +760,12 @@ export class BattleStage {
     if (isTravelSlot(slot)) {
       const b = this.band();
       return { x: mid + out * TRAVEL_ACROSS, y: b.top + b.height + PAWN_SINK };
+    }
+    // A fusion stands between the two marks it was made from.
+    if (isFusionSlot(slot)) {
+      const front = this.anchor(side, 0);
+      const back = this.anchor(side, 1);
+      return { x: (front.x + back.x) / 2, y: (front.y + back.y) / 2 };
     }
     const across = SCOBA_ACROSS[slot] ?? SCOBA_ACROSS[0]!;
     return { x: mid + out * across, y: this.rankY(slot === 0 ? RANK.front : RANK.back) };
@@ -784,8 +850,8 @@ export class BattleStage {
     const worn = drawnAs(c);
     if (f.worn === worn) return;
     if (!arriving && f.worn.split("+")[0] !== c.scoba.uid) return;
-    f.actor.skin = critterLook(this.art, sp, c.scoba, forms);
-    f.bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms));
+    f.actor.skin = critterLook(this.art, sp, c.scoba, forms, carriedBy(c));
+    f.bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms, carriedBy(c)));
     f.head = f.bounds.top + idleLift(sp.movement, f.actor.idleMix);
     f.worn = worn;
   }
@@ -807,6 +873,8 @@ export class BattleStage {
    */
   sync({ fresh = false, arriving, hold = false }: SyncOpts = {}): void {
     const before = this.rosterKey();
+    // A rewind lands on a board the scene has never shown, fusions and all.
+    if (fresh) this.noteFusions();
     const wanted: Fighter[] = [];
     /** Bodies already claimed by a mark this pass, so none serves two. */
     const taken = new Set<Fighter>();
@@ -816,6 +884,13 @@ export class BattleStage {
         if (index < 0) continue;
         const c = this.st.teams[side][index];
         if (!c) continue;
+        // Once its fusion has been shown forming, a half is inside it. Until
+        // then it is still standing on its own mark as far as the player knows.
+        if (c.fusedInto !== undefined && !c.fainted) {
+          const body = this.st.teams[side][c.fusedInto];
+          if (body && this.fusions.has(bodyKey(body))) continue;
+        }
+        if (c.fusion && !this.fusions.has(bodyKey(c))) continue;
         // A Scoba the battle has already downed stays on the field until its
         // own faint animation has played.
         if (this.shownOf(side, index).fainted) continue;
@@ -855,14 +930,14 @@ export class BattleStage {
         // that event reveals it.
         const brought = arriving !== undefined && sameRef({ side, index }, arriving);
         const at = this.anchor(side, slot);
-        const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba, forms));
+        const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba, forms, carriedBy(c)));
         actor.dir = side === 0 ? 1 : -1;
         actor.speed = ENTER_SPEED;
         actor.radius = 3;
         // Standing ready: hopping species keep bouncing, hovering ones are
         // already at full float and are left alone.
         actor.idleMix = 0.45;
-        const bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms));
+        const bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms, carriedBy(c)));
         // Deterministic per slot, so the bob is out of step with the others
         // but lands the same way on both clients.
         actor.desync(((side * 2 + slot) * 0.37 + index * 0.19) % 1);
@@ -967,13 +1042,22 @@ export class BattleStage {
       this.st.teams[side].forEach((c, index) => {
         const k = BattleStage.key(side, index);
         const held = this.shown.get(k);
+        const live = liveBars(this.st, c);
         if (held) {
           held.mana = c.mana;
           held.fainted = c.fainted;
+          // Mana moves between rounds and HP does not, the same as for anyone.
+          if (live) {
+            held.bars = live.map((b, i) => {
+              const was = held.bars?.[i];
+              return was ? { ...was, mana: b.mana } : barsAt([b])[0]!;
+            });
+          }
           return;
         }
         this.shown.set(k, {
           hp: c.hp, hpTrail: c.hp, mana: c.mana, manaTrail: c.mana,
+          ...(live ? { bars: barsAt(live) } : {}),
           fainted: c.fainted, marks: statusSummary(c),
         });
       });
@@ -983,6 +1067,7 @@ export class BattleStage {
   /** What the readout for a combatant should say this frame. */
   shownOf(side: 0 | 1, index: number): {
     hp: number; hpTrail: number; mana: number; manaTrail: number;
+    bars?: ShownBar[];
     fainted: boolean; marks: StatusMark[];
   } {
     const held = this.shown.get(BattleStage.key(side, index));
@@ -990,8 +1075,10 @@ export class BattleStage {
     if (!held) {
       const hp = c?.hp ?? 0;
       const mana = c?.mana ?? 0;
+      const live = c ? liveBars(this.st, c) : undefined;
       return {
         hp, hpTrail: hp, mana, manaTrail: mana,
+        ...(live ? { bars: barsAt(live) } : {}),
         fainted: c?.fainted ?? false, marks: c ? statusSummary(c) : [],
       };
     }
@@ -1000,6 +1087,11 @@ export class BattleStage {
       hpTrail: Math.max(0, held.hpTrail),
       mana: held.mana,
       manaTrail: Math.max(0, held.manaTrail),
+      ...(held.bars ? {
+        bars: held.bars.map((b) => ({
+          ...b, hp: Math.max(0, Math.round(b.hp)), hpTrail: Math.max(0, b.hpTrail), manaTrail: Math.max(0, b.manaTrail),
+        })),
+      } : {}),
       fainted: held.fainted,
       marks: held.marks,
     };
@@ -1015,17 +1107,30 @@ export class BattleStage {
       this.st.teams[side].forEach((c, index) => {
         const k = BattleStage.key(side, index);
         const held = this.shown.get(k);
+        const live = liveBars(this.st, c);
         this.shown.set(k, {
           hp: c.hp,
           hpTrail: this.instant ? c.hp : held?.hpTrail ?? c.hp,
           mana: c.mana,
           manaTrail: this.instant ? c.mana : held?.manaTrail ?? c.mana,
+          ...(live ? {
+            bars: live.map((b, i) => ({
+              hp: b.hp,
+              hpTrail: this.instant ? b.hp : held?.bars?.[i]?.hpTrail ?? b.hp,
+              max: b.max,
+              mana: b.mana,
+              manaTrail: this.instant ? b.mana : held?.bars?.[i]?.manaTrail ?? b.mana,
+            })),
+          } : {}),
           fainted: c.fainted,
           marks: statusSummary(c),
         });
       });
     }
     for (const side of [0, 1] as const) this.setWash(side, this.st.fields[side]?.id ?? null);
+    // Every fuse this round has played by now, so any fusion on the board is one
+    // the scene has shown.
+    this.noteFusions();
     // The round has played out, so the scene and the battle agree again about
     // which time everyone is standing in.
     this.inPast = !!this.st.travelling;
@@ -1043,8 +1148,10 @@ export class BattleStage {
     this.shown.clear();
     for (const side of [0, 1] as const) {
       this.st.teams[side].forEach((c, index) => {
+        const live = liveBars(this.st, c);
         this.shown.set(BattleStage.key(side, index), {
           hp: c.hp, hpTrail: c.hp, mana: c.mana, manaTrail: c.mana,
+          ...(live ? { bars: barsAt(live) } : {}),
           fainted: c.fainted, marks: statusSummary(c),
         });
       });
@@ -1333,6 +1440,10 @@ export class BattleStage {
     for (const v of this.shown.values()) {
       v.hpTrail = easeTrail(v.hpTrail, v.hp, dt);
       v.manaTrail = easeTrail(v.manaTrail, v.mana, dt);
+      for (const b of v.bars ?? []) {
+        b.hpTrail = easeTrail(b.hpTrail, b.hp, dt);
+        b.manaTrail = easeTrail(b.manaTrail, b.mana, dt);
+      }
     }
 
     const step = this.queue[0];
@@ -1383,10 +1494,10 @@ export class BattleStage {
   }
 
   /** Starts one, replacing whatever that Scoba was already in the middle of. */
-  private startMotion(f: Fighter, anim: CasterAnim): void {
+  private startMotion(f: Fighter, anim: CasterAnim, seconds?: number): void {
     this.motions = this.motions.filter((m) => m.f !== f);
     if (this.instant) return;
-    this.motions.push({ f, anim, t: 0, dur: castDuration(anim) });
+    this.motions.push({ f, anim, t: 0, dur: seconds ?? castDuration(anim) });
   }
 
   // --- the opening ---
@@ -1801,6 +1912,72 @@ export class BattleStage {
         });
         return;
       }
+      case "fuse": {
+        // The two halves slide together, rattling and paling as they go, and
+        // where they meet the fusion comes up out of the cream. Both are looked
+        // up as the step runs: the fusion is not on the stage until it does.
+        const bodyRef = ev.at;
+        const halfRefs = ev.to ?? [];
+        let halves: Fighter[] = [];
+        let fused: Fighter | null = null;
+        let merged = false;
+        say(FUSE_TIME, {
+          start: () => {
+            halves = halfRefs.map((r) => this.find(r)).filter((f): f is Fighter => f !== null);
+            const c = bodyRef ? this.st.teams[bodyRef.side][bodyRef.index] : undefined;
+            if (c) this.fusions.add(bodyKey(c));
+            this.sync({ arriving: bodyRef });
+            fused = this.find(bodyRef);
+            if (fused) {
+              fused.alpha = 0;
+              fused.plate = 0;
+              fused.settled = false;
+            }
+            // Their readouts go as they start moving; the fusion's comes in once it stands.
+            for (const h of halves) h.settled = false;
+            sfx.confirm();
+          },
+          run: (k) => {
+            const to = fused ? this.anchor(fused.side, fused.slot) : null;
+            const p = Math.min(1, k / FUSE_MEET);
+            for (const h of halves) {
+              if (merged) break;
+              const from = this.anchor(h.side, h.slot);
+              if (to) {
+                h.ox = (to.x - from.x) * p;
+                h.oy = (to.y - from.y) * p;
+              }
+              h.shake = 2.4;
+              h.flare = p;
+            }
+            if (merged || k < FUSE_MEET) return;
+            merged = true;
+            for (const h of halves) {
+              h.alpha = 0;
+              h.shake = 0;
+            }
+            if (!fused) return;
+            fused.alpha = 1;
+            fused.flare = 1;
+            const b = this.centerOf(fused);
+            this.effects.push({ kind: "glow", t: 0, dur: 0.6, from: b, to: b, color: "#f4ecd8" });
+          },
+          end: () => {
+            this.fighters = this.fighters.filter((f) => !halves.includes(f));
+            for (const h of halves) {
+              h.ox = 0;
+              h.oy = 0;
+            }
+            if (fused) {
+              fused.alpha = 1;
+              fused.settled = true;
+              fused.actor.dir = fused.side === 0 ? 1 : -1;
+            }
+            this.onRoster?.();
+          },
+        });
+        return;
+      }
       case "hit": {
         // A hit that the volley ahead of it already landed is only its own log
         // line: the arrival and the flash all happened together.
@@ -2040,7 +2217,12 @@ export class BattleStage {
         // The movement runs beside the queue, so whatever comes next leaves
         // while the movement is still happening rather than after it. The step
         // is only the beat before it.
-        this.push({ dur: CAST_LEAD, start: () => { for (const f of reached()) this.startMotion(f, step.anim); } });
+        this.push({
+          // A motion stretched out still lets the next step go as it reaches
+          // the target, which for a long one is later than the usual beat.
+          dur: step.seconds === undefined ? CAST_LEAD : Math.max(CAST_LEAD, arrivalShare(step.anim) * step.seconds),
+          start: () => { for (const f of reached()) this.startMotion(f, step.anim, step.seconds); },
+        });
         return;
       case "wear":
         this.push({ dur: 0, start: () => this.reskinAll() });
@@ -2134,7 +2316,9 @@ export class BattleStage {
         this.push({
           dur: travel,
           start: () => {
-            const from = this.find(ev.at);
+            // A bounce leaves from whoever it bounced off rather than the thrower.
+            const bounce = ev.off ? this.find(ev.off) : null;
+            const from = bounce ?? this.find(ev.at);
             const sprite = step.drawn
               ? ev.face ? faceArt(this.art, ev.face, move?.tint) : undefined
               : this.paintedBy(ev.at, artNamed(this.art, step.art, move?.tint));
@@ -2150,7 +2334,8 @@ export class BattleStage {
               // it is falling on.
               const a = step.path === "drop"
                 ? { x: b.x, y: b.y - this.view.h * DROP_HEIGHT }
-                : from ? this.originOf(from, step.from?.toLowerCase()) : b;
+                : bounce ? this.centerOf(bounce)
+                  : from ? this.originOf(from, step.from?.toLowerCase()) : b;
               // A turning piece is given its spin here rather than where it is
               // drawn, so it keeps the same one the whole way across. Off the
               // seed, so both clients throw it the same way.
@@ -2186,8 +2371,29 @@ export class BattleStage {
   private applyShown(ev: BattleEvent): void {
     const ref = ev.at;
     if (!ref) return;
-    const held = this.shown.get(BattleStage.key(ref.side, ref.index));
+    const k = BattleStage.key(ref.side, ref.index);
+    // A fusion made this round has no readout copy yet: its fuse makes one.
+    if (!this.shown.has(k) && ev.bars) {
+      const live = this.st.teams[ref.side][ref.index];
+      this.shown.set(k, {
+        hp: ev.hp ?? 0, hpTrail: ev.hp ?? 0, mana: 0, manaTrail: 0,
+        fainted: false, marks: live ? statusSummary(live) : [],
+      });
+    }
+    const held = this.shown.get(k);
     if (!held) return;
+    const bars = ev.bars;
+    if (bars) {
+      held.bars = bars.hp.map((hp, i) => {
+        const was = held.bars?.[i];
+        const mana = bars.mana[i] ?? 0;
+        return {
+          hp, max: bars.max[i] ?? 1, mana,
+          hpTrail: this.instant || !was ? hp : was.hpTrail,
+          manaTrail: this.instant || !was ? mana : was.manaTrail,
+        };
+      });
+    }
     if (ev.hp !== undefined) {
       held.hp = ev.hp;
       if (this.instant) held.hpTrail = ev.hp;
@@ -2201,7 +2407,7 @@ export class BattleStage {
     // round that resolved it. Read off the combatant at that moment, so every
     // mark it is carrying by then shows together: what the events say is which
     // Scoba was marked and when, not one status at a time.
-    if (ev.kind === "status" || ev.kind === "faint" || ev.kind === "hyper") {
+    if (ev.kind === "status" || ev.kind === "faint" || ev.kind === "hyper" || ev.kind === "fuse") {
       const live = this.st.teams[ref.side][ref.index];
       if (live) held.marks = statusSummary(live);
     }
@@ -2743,6 +2949,18 @@ function castDuration(anim: CasterAnim): number {
   if (anim === "lunge") return 0.22;
   if (anim === "rear") return 0.26;
   return 0.2;
+}
+
+/**
+ * How far into a motion the caster is at its target, as a share of the whole:
+ * a blink has reappeared over it, a lunge is at full reach and a rear is at the
+ * top. A motion that stays put is there from the start.
+ */
+function arrivalShare(anim: CasterAnim): number {
+  if (anim === "blink") return 0.2;
+  if (anim === "lunge") return 0.45;
+  if (anim === "rear") return 0.5;
+  return 0;
 }
 
 /** A wash over whatever was just struck or just mended. */

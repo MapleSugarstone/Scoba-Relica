@@ -157,6 +157,7 @@ passive sticky-treat "Sticky Treat"
 
 passive cherry-on-top "Cherry on Top"
   text "Can cast Cherry on Top once per battle."
+  icon cherry
   wears cherry
   grants move cherry-on-top
 
@@ -239,3 +240,57 @@ passive time-travel "Time Travel"
   when it takes the field:
     clear deathlock from holder
     give holder time-shatter in slot 4
+
+passive multiply-enemies "Multiply Enemies"
+  text "While on the field, enemies' negative statuses are 15% more effective."
+  icon multiplyenemies
+  while carried:
+    bad marks on enemies hit x1.15, shown as multiply-enemies-reach
+
+passive multiply-allies "Multiply Allies"
+  text "While on the field, allies' positive statuses are 15% more effective."
+  icon multiplyallies
+  while carried:
+    good marks on allies hit x1.15, shown as multiply-allies-reach
+
+passive add "Add"
+  text "On entry, heals all allies for [heal:add]. Whenever it casts an ability, heals the other ally Scoba for [heal:add:2], or itself if there is none."
+  icon add
+  when it takes the field:
+    show miniadd as burst on allies on the field
+    heal allies on the field 10% of source magic
+  when it casts:
+    show miniadd as burst on next ally scoba from holder or holder
+    heal next ally scoba from holder or holder 3% of source magic
+
+passive sum "Sum"
+  text "While on the field, every heal an ally receives restores 1 more HP per level."
+  icon sum
+  while carried:
+    heals on allies + 30 at max level
+
+# Addiza's and Poki's Hyper-Mode passives. Each gives its Scoba a mark on entry
+# and fuses with an ally carrying the other's, so whichever of the two takes the
+# field in Hyper-Mode second is the one that fuses them.
+passive flame-blade "Flame Blade"
+  text "Sun physical abilities leave the enemy [status:seared|Seared] for [damage:seared] damage a turn for 2 turns. Stacks up to 5 times. On entry, gains [status:ultimate-multiplication|Ultimate Multiplication]. If an ally Scoba has Ultimate Addition, fuses with them into Equalizea. Equalizea picks 2 abilities a turn and has 2 HP bars and 2 mana bars. It can't block or switch out."
+  icon flameblade
+  fuses with ultimate-addition into equalizea
+  when it lands sun physical:
+    inflict seared on other
+  when it takes the field:
+    inflict ultimate-multiplication on holder
+
+passive moon-cannon "Moon Cannon"
+  text "Basic attacks become Moon Shots, dealing Moon magic damage off magic. On entry, gains [status:ultimate-addition|Ultimate Addition]. If an ally Scoba has Ultimate Multiplication, fuses with them into Equalizea. Equalizea picks 2 abilities a turn and has 2 HP bars and 2 mana bars. It can't block or switch out."
+  icon mooncannon
+  basic attack is moon-shot
+  fuses with ultimate-multiplication into equalizea
+  when it takes the field:
+    inflict ultimate-addition on holder
+
+passive twin-mana "Twin Mana"
+  text "At the end of each turn, the second mana bar gains 20 mana."
+  icon twinmana
+  when a turn ends:
+    give holder 20 mana, second bar

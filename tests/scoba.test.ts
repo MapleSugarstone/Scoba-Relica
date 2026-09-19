@@ -47,6 +47,11 @@ describe("leveling", () => {
   it("gives a species no more slots than its own set, capped at four", () => {
     for (const sp of Object.values(SPECIES)) {
       const moves = speciesMoves(sp);
+      // A fusion casts its two halves' moves and has none of its own.
+      if (sp.fusion) {
+        expect(moves).toEqual([]);
+        continue;
+      }
       expect(moves.length).toBeGreaterThan(0);
       expect(moves.length).toBeLessThanOrEqual(MAX_MOVES);
       expect(new Set(moves).size).toBe(moves.length);

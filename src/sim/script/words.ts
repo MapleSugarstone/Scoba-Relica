@@ -68,7 +68,7 @@ export const FIELD_SCOPE_WORDS = vocab<FieldScope>([
 ]);
 
 /** The triggers that take no number or element. */
-type PlainTrigger = Exclude<StatusTrigger["on"], "passive" | "hit-element" | "hp-below">;
+type PlainTrigger = Exclude<StatusTrigger["on"], "passive" | "hit-element" | "hp-below" | "deal-element">;
 
 export const TRIGGER_WORDS = vocab<PlainTrigger>([
   ["the battle starts", "battle-start"],

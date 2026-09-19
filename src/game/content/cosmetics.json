@@ -127,6 +127,31 @@
         "dx": -13,
         "dy": 38,
         "front": true
+      },
+      "equalizea": {
+        "dx": -2,
+        "dy": 7,
+        "front": true
+      },
+      "addiza": {
+        "dx": 1,
+        "dy": 19,
+        "front": true
+      },
+      "hyper-addiza": {
+        "dx": 6,
+        "dy": 22,
+        "front": true
+      },
+      "poki": {
+        "dx": -4,
+        "dy": 15,
+        "front": true
+      },
+      "hyper-poki": {
+        "dx": -22,
+        "dy": 27,
+        "front": true
       }
     }
   },
@@ -428,6 +453,94 @@
         "art": "shadowbig",
         "dx": -2,
         "dy": -1
+      }
+    },
+    "equalizea": {
+      "body": {
+        "dx": 53,
+        "dy": -5
+      },
+      "origin": {
+        "dx": 126,
+        "dy": -42
+      },
+      "center": {
+        "dx": 22,
+        "dy": -22
+      },
+      "movement": "moonhop"
+    },
+    "addiza": {
+      "body": {
+        "dx": 3,
+        "dy": 17
+      },
+      "origin": {
+        "dx": 9,
+        "dy": 25
+      },
+      "center": {
+        "dx": 9,
+        "dy": 25
+      },
+      "shadow": {
+        "art": "shadow",
+        "dx": -2,
+        "dy": 0
+      }
+    },
+    "hyper-addiza": {
+      "body": {
+        "dx": 5,
+        "dy": 19
+      },
+      "origin": {
+        "dx": 48,
+        "dy": 58
+      },
+      "center": {
+        "dx": -2,
+        "dy": 24
+      },
+      "shadow": {
+        "art": "shadow",
+        "dx": -3,
+        "dy": 1
+      },
+      "movement": "hop"
+    },
+    "poki": {
+      "body": {
+        "dx": 3,
+        "dy": 14
+      },
+      "origin": {
+        "dx": 8,
+        "dy": 23
+      },
+      "center": {
+        "dx": 8,
+        "dy": 23
+      },
+      "shadow": {
+        "art": "shadow",
+        "dx": -2,
+        "dy": -2
+      },
+      "movement": "scamper"
+    },
+    "hyper-poki": {
+      "body": {
+        "dx": 9,
+        "dy": 16
+      },
+      "origin": {
+        "dx": 32,
+        "dy": 15
+      },
+      "center": {
+        "dx": 1,
+        "dy": 38
       }
     }
   },

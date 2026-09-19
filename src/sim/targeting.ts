@@ -26,7 +26,13 @@ export const PAWN_SLOTS = 3;
  * no spare one and a traveller still has to stand somewhere.
  */
 export const TRAVEL_SLOT = SCOBA_SLOTS + PAWN_SLOTS;
-export const FIELD_SLOTS = TRAVEL_SLOT + 1;
+/**
+ * The mark a fusion stands on, between the two Scoba marks. The two Scobas it
+ * was made of keep their own marks, off the field, because each still answers
+ * for one of its two moves a round.
+ */
+export const FUSION_SLOT = TRAVEL_SLOT + 1;
+export const FIELD_SLOTS = FUSION_SLOT + 1;
 
 /** Every mark on one side, Scoba slots first. */
 export const ALL_SLOTS: number[] = Array.from({ length: FIELD_SLOTS }, (_v, i) => i);
@@ -37,6 +43,10 @@ export function isPawnSlot(slot: number): boolean {
 
 export function isTravelSlot(slot: number): boolean {
   return slot === TRAVEL_SLOT;
+}
+
+export function isFusionSlot(slot: number): boolean {
+  return slot === FUSION_SLOT;
 }
 
 export type TargetMode =
@@ -122,14 +132,15 @@ const other = (side: 0 | 1): 0 | 1 => (side === 0 ? 1 : 0);
 /**
  * Team indices standing on one of the side's marks, Pawns included: a Pawn is
  * on the field and is aimed at, rolled onto and swept up like anything else
- * standing there.
+ * standing there. The two halves of a fusion are not: the fusion stands for
+ * both of them.
  */
 function standing(st: BattleState, side: 0 | 1): number[] {
   const out: number[] = [];
   for (const slot of ALL_SLOTS) {
     const idx = st.active[side][slot] ?? -1;
     const c = idx >= 0 ? st.teams[side][idx] : undefined;
-    if (c && !c.fainted) out.push(idx);
+    if (c && !c.fainted && c.fusedInto === undefined) out.push(idx);
   }
   return out;
 }
@@ -147,8 +158,9 @@ function benched(st: BattleState, side: 0 | 1): number[] {
 function fallen(st: BattleState, side: 0 | 1): number[] {
   const out: number[] = [];
   st.teams[side].forEach((c, i) => {
-    // A Pawn that falls is gone rather than lying there to be raised.
-    if (c.fainted && !c.pawn) out.push(i);
+    // A Pawn that falls is gone rather than lying there to be raised, and so is
+    // a fusion: what fell was the two Scobas it was made of.
+    if (c.fainted && !c.pawn && !c.fusion) out.push(i);
   });
   return out;
 }

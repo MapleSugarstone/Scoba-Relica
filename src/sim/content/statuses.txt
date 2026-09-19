@@ -4,6 +4,7 @@
 status ez "EZ Mode"
   good
   stacks
+  always as written
   while carried:
     all stats +3
 
@@ -92,6 +93,8 @@ status chill "Chill"
 
 status hyper "Hyper-Mode"
   good
+  no sigil
+  always as written
   while carried:
     all stats + 25% of base + 15
 
@@ -215,3 +218,56 @@ status unwound "Unwound"
   while carried:
     all stats x0.8
     cannot enter hyper-mode
+
+# Poki's. Burn Slash's strength, Flame Blade's burn, and what Multiply Wounds leaves.
+status burning-edge "Burning Edge"
+  good
+  stacks up to 3
+  lost on switching out
+  power 10% of source strength
+  while carried:
+    strength + power
+
+status seared "Seared"
+  bad
+  icon burn
+  lasts 2 turns
+  stacks up to 5
+  when a turn ends:
+    damage holder 40% of source magic + 40 at max level, as sun magic, fixed when applied
+
+status multiplied "Multiplied"
+  bad
+  icon multiply
+  while carried:
+    bad marks it carries hit x1.5
+
+# Addiza's. Meditation's magic, and the two marks that let Addiza and Poki fuse.
+status meditating "Meditating"
+  good
+  icon moon
+  lasts 4 turns
+  while carried:
+    magic x2
+
+status ultimate-addition "Ultimate Addition"
+  good
+  icon ultimateaddition
+  text "Ready to fuse with an ally in Hyper-Mode that has Ultimate Multiplication."
+
+status ultimate-multiplication "Ultimate Multiplication"
+  good
+  icon ultimatemultiplication
+  text "Ready to fuse with an ally in Hyper-Mode that has Ultimate Addition."
+
+# The sigils Multiply Enemies and Multiply Allies show on the Scobas they reach.
+# Nothing carries these: they are shown for as long as the reach lasts.
+status multiply-enemies-reach "Multiply Enemies"
+  bad
+  icon givingmultiply
+  text "A Scoba with Multiply Enemies is on the field, so its negative statuses are 15% more effective."
+
+status multiply-allies-reach "Multiply Allies"
+  good
+  icon multiplygood
+  text "A Scoba with Multiply Allies is on the field, so its positive statuses are 15% more effective."

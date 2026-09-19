@@ -226,6 +226,8 @@ interface Scope {
 
 const TEAM_WORDS: Record<string, Who> = {
   allies: "allies", enemies: "enemies", everyone: "everyone", others: "others",
+  "allies on the field": "field-allies", "enemies on the field": "field-enemies",
+  "ally scobas": "ally-scobas", "enemy scobas": "enemy-scobas",
 };
 
 function whoWords(scope: Scope): Record<string, Who> {
@@ -237,9 +239,19 @@ function whoWords(scope: Scope): Record<string, Who> {
   return { holder: "self", source: "source", other: "other", ...TEAM_WORDS };
 }
 
+/** Who a step reaches: a word, "next ally scoba from <who>", and "<who> or <who>" for a fallback. */
 function readWho(c: Clause, scope: Scope, what = "who it reaches"): Who {
+  const first = readOneWho(c, scope, what);
+  if (c.take("or")) return { first, then: readWho(c, scope, what) };
+  return first;
+}
+
+function readOneWho(c: Clause, scope: Scope, what: string): Who {
+  if (c.take("next ally scoba from")) return { next: "ally", from: readOneWho(c, scope, what) };
+  if (c.take("next enemy scoba from")) return { next: "enemy", from: readOneWho(c, scope, what) };
   const words = whoWords(scope);
-  const found = Object.keys(words).find((w) => c.sees(w));
+  // Longest first, so "allies on the field" is not read as "allies" and a stray tail.
+  const found = Object.keys(words).sort((a, b) => b.length - a.length).find((w) => c.sees(w));
   if (found) {
     c.take(found);
     return words[found]!;
@@ -543,11 +555,15 @@ function readStep(line: Line, scope: Scope): Step {
       return { kind: "grant-item", item, count };
     }
     case "give": {
-      const usage = "give <who> <n> mana | give <who> <picked move|a move> as extra | give <who> <picked move|a move> in slot <n>";
+      const usage = "give <who> <n> mana, second bar | give <who> <picked move|a move> as extra | give <who> <picked move|a move> in slot <n>";
       noBlock(line, usage);
-      const c = single(line, usage);
+      const c = clause(line, 0, usage);
       c.expect("give");
       const to = readWho(c, scope);
+      // Only mana takes an option, so a move handed over takes nothing after a comma.
+      if (!c.seesAmount() && line.clauses.length > 1) {
+        throw new ScriptError(line.no, `takes nothing after a comma when it hands over a move. It is written: ${usage}`);
+      }
       if (c.take("picked move")) {
         if (!scope.picked) c.fail("nothing has been picked yet. Write \"pick a random move\" above this line");
         if (c.take("as extra")) {
@@ -577,7 +593,14 @@ function readStep(line: Line, scope: Scope): Step {
       const amount = c.count("how much mana");
       c.expect("mana");
       c.done();
-      return { kind: "mana", on: to, amount };
+      const step: Step = { kind: "mana", on: to, amount };
+      for (let i = 1; i < line.clauses.length; i++) {
+        const o = clause(line, i, usage);
+        o.expect("second bar");
+        step.second = true;
+        o.done();
+      }
+      return step;
     }
     case "lay": {
       const usage = "lay <field> over <its side|the enemy side|both sides>";
@@ -741,7 +764,7 @@ function readChange(line: Line): MoveChange {
 
 /** "caster lunge" or "caster wears cherryless". */
 function readCasterStep(line: Line, scope: Scope): Step {
-  const usage = "<who> <shake|lunge|blink|rear|focus> | <who> wears <form>";
+  const usage = "<who> <shake|lunge|blink|rear|focus>, for <n> seconds | <who> wears <form>";
   const first = line.clauses[0]![0]!;
   const words = whoWords(scope);
   // Before the line's shape, since a word that starts no step is the thing to say first.
@@ -751,20 +774,30 @@ function readCasterStep(line: Line, scope: Scope): Step {
       + ` A step starts with ${STEP_STARTS.join(", ")}, or with who moves and how`);
   }
   noBlock(line, usage);
-  const c = single(line, usage);
+  const c = clause(line, 0, usage);
   const who = readWho(c, scope);
   if (c.take("wears")) {
     const form = c.token("the costume");
     c.done();
+    if (line.clauses.length > 1) throw new ScriptError(line.no, `takes nothing after a comma. It is written: ${usage}`);
     return { kind: "wear", who, form };
   }
   const anim = c.vocab(ANIM_WORDS, "an animation");
   c.done();
-  return { kind: "motion", who, anim };
+  const step: Step = { kind: "motion", who, anim };
+  for (let i = 1; i < line.clauses.length; i++) {
+    const o = clause(line, i, usage);
+    o.expect("for");
+    step.seconds = o.count("how long it lasts");
+    if (step.seconds <= 0) o.fail("an animation lasts longer than nothing");
+    if (!o.take("seconds")) o.expect("second");
+    o.done();
+  }
+  return step;
 }
 
 function readThrow(line: Line, scope: Scope): Step {
-  const usage = "throw <art> as <path> from <piece> to <who>, sound <name> | silent";
+  const usage = "throw <art> as <path> from <piece> to <who>, sound <name> | silent, off <who>";
   noBlock(line, usage);
   const c = clause(line, 0, usage);
   c.expect("throw");
@@ -784,6 +817,7 @@ function readThrow(line: Line, scope: Scope): Step {
   for (let i = 1; i < line.clauses.length; i++) {
     const o = clause(line, i, usage);
     if (o.take("silent")) step.sound = null;
+    else if (o.take("off")) step.off = readWho(o, scope);
     else {
       o.expect("sound");
       step.sound = o.token("the sound");
@@ -898,6 +932,35 @@ function readDamage(line: Line, scope: Scope): Step {
 
 // --- standing effects ---
 
+/** "bad marks on enemies hit x1.15, shown as <status>". */
+function readMarkWorth(line: Line, c: Clause, usage: string): Standing {
+  const polarity = c.vocab(POLARITY_WORDS, "good or bad");
+  c.expect("marks");
+  let reach: "self" | "enemies" | "allies";
+  if (c.take("it carries")) reach = "self";
+  else {
+    c.expect("on");
+    if (c.take("enemies")) reach = "enemies";
+    else {
+      c.expect("allies");
+      reach = "allies";
+    }
+  }
+  c.expect("hit");
+  const mult = c.times("how much more effective");
+  c.done();
+  const effect: Standing = { kind: "mark-worth", reach, polarity, mult };
+  for (let i = 1; i < line.clauses.length; i++) {
+    const o = clause(line, i, usage);
+    o.expect("shown as");
+    const shown = o.id("the status it shows");
+    o.done();
+    if (reach === "self") o.fail("only a reach onto the field shows on anyone else");
+    effect.shown = shown;
+  }
+  return effect;
+}
+
 function readStanding(line: Line, forField: boolean): Standing[] {
   const usage = forField
     ? "<element> moves x<n> | immune to <element> | takes x<n> from <element>"
@@ -906,8 +969,13 @@ function readStanding(line: Line, forField: boolean): Standing[] {
       + " | takes x<n> from <element> | takes x<n> from everything | cannot switch out | cannot enter hyper-mode"
       + " | casts again at <share> | blocks <element> hits"
       + " | cuts the next hit by <share>"
-      + " | marks it leaves hit x<n> if they last <n> turns or more | all stats <change>";
+      + " | marks it leaves hit x<n> if they last <n> turns or more"
+      + " | <good|bad> marks <it carries|on enemies|on allies> hit x<n> | heals on allies + <n> at max level"
+      + " | all stats <change>";
   noBlock(line, usage);
+  // The one standing effect that takes an option: the sigil the Scobas it reaches show.
+  const first = clause(line, 0, usage);
+  if (!forField && (first.sees("good marks") || first.sees("bad marks"))) return [readMarkWorth(line, first, usage)];
   const c = single(line, usage);
   if (c.take("immune to")) {
     const element = c.vocab(ELEMENT_WORDS, "an element");
@@ -961,6 +1029,13 @@ function readStanding(line: Line, forField: boolean): Standing[] {
     if (frac <= 0 || frac > 1) c.fail("how much it cuts should be from 1% to 100%");
     c.done();
     return [{ kind: "soften", frac }];
+  }
+  if (c.take("heals on allies")) {
+    c.expect("+");
+    const flatAtCeiling = c.count("how much more each heal restores");
+    c.expect("at max level");
+    c.done();
+    return [{ kind: "heal-bonus", flatAtCeiling }];
   }
   if (c.take("marks it leaves hit")) {
     const mult = c.times("how much harder");
@@ -1022,6 +1097,14 @@ function readTrigger(c: Clause): StatusTrigger {
   if (c.sees("hit by") && !c.sees("hit by magic") && !c.sees("hit by physical")) {
     c.take("hit by");
     return { on: "hit-element", element: c.vocab(ELEMENT_WORDS, "an element") };
+  }
+  // "it lands sun physical": an element, and a category where one is named.
+  if (c.sees("it lands") && !c.sees("it lands magic") && !c.sees("it lands physical") && !c.sees("it lands a")) {
+    c.take("it lands");
+    const element = c.vocab(ELEMENT_WORDS, "an element");
+    if (c.take("physical")) return { on: "deal-element", element, category: "physical" };
+    if (c.take("magic")) return { on: "deal-element", element, category: "magic" };
+    return { on: "deal-element", element };
   }
   return { on: c.vocab(TRIGGER_WORDS, "a trigger") };
 }
@@ -1196,6 +1279,8 @@ interface Behaviour {
   trigger: StatusTrigger;
   standing: Standing[];
   steps: Step[];
+  /** Every `when` block after the first. */
+  also: { trigger: StatusTrigger; steps: Step[] }[];
   wrote: boolean;
 }
 
@@ -1206,7 +1291,15 @@ function readBehaviour(line: Line, scope: Scope, into: Behaviour): boolean {
     needsBlock(line, "while carried:");
     c.expect("while carried");
     c.done();
-    for (const child of line.children) into.standing.push(...readStanding(child, false));
+    for (const child of line.children) {
+      const read = readStanding(child, false);
+      for (const e of read) {
+        if (e.kind === "mark-worth" && e.shown !== undefined) {
+          scope.refs.push({ table: "statuses", id: e.shown, line: child.no });
+        }
+      }
+      into.standing.push(...read);
+    }
     into.wrote = true;
     return true;
   }
@@ -1214,11 +1307,18 @@ function readBehaviour(line: Line, scope: Scope, into: Behaviour): boolean {
     const usage = "when <trigger>:";
     const c = single(line, usage);
     needsBlock(line, usage);
-    if (into.trigger.on !== "passive") c.fail("a record answers one trigger, and this one already has a \"when\"");
     c.expect("when");
-    into.trigger = readTrigger(c);
+    const trigger = readTrigger(c);
     c.done();
-    into.steps = readSteps(line.children, scope);
+    const steps = readSteps(line.children, scope);
+    // The first block is the record's own trigger, and any after it answer
+    // their own, so one passive can act on entry and on something else as well.
+    if (into.trigger.on === "passive") {
+      into.trigger = trigger;
+      into.steps = steps;
+    } else {
+      into.also.push({ trigger, steps });
+    }
     into.wrote = true;
     return true;
   }
@@ -1239,10 +1339,10 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
   const { id, name } = header(head, "status");
   const known = [
     "good", "bad", "text", "icon", "sound", "lasts", "charges", "stacks", "lost on switching out",
-    "shows a hand of cards", "grows", "power", "while carried", "when",
+    "shows a hand of cards", "grows", "power", "no sigil", "always as written", "while carried", "when",
   ];
   const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs };
-  const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], wrote: false };
+  const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], also: [], wrote: false };
   const def: StatusDef = {
     id, name, polarity: "good", trigger: { on: "passive" }, duration: null, charges: null,
     stacks: false, maxStacks: 1, persists: true, effects: [],
@@ -1307,6 +1407,16 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
       c.expect("shows a hand of cards");
       c.done();
       hand = true;
+    } else if (c0.sees("no sigil")) {
+      const c = plain("no sigil");
+      c.expect("no sigil");
+      c.done();
+      def.unseen = true;
+    } else if (c0.sees("always as written")) {
+      const c = plain("always as written");
+      c.expect("always as written");
+      c.done();
+      def.asWritten = true;
     } else if (c0.sees("grows")) {
       const c = plain("grows <n> <art>");
       c.expect("grows");
@@ -1333,6 +1443,7 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
   def.trigger = b.trigger;
   if (power) def.power = power;
   def.effects = [...b.standing, ...b.steps];
+  if (b.also.length > 0) def.also = b.also;
   if (icon !== undefined) def.icon = icon;
   if (sound !== undefined) def.sound = sound;
   if (hand) def.hand = true;
@@ -1343,15 +1454,20 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
 
 function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: StatusDef | null } {
   const { id, name } = header(head, "passive");
-  const known = ["text", "icon", "wears", "grants move", "once per battle", "charges", "while carried", "when"];
+  const known = [
+    "text", "icon", "wears", "grants move", "fuses with", "basic attack is", "once per battle", "charges",
+    "while carried", "when",
+  ];
   const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs };
-  const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], wrote: false };
+  const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], also: [], wrote: false };
   const ability: Ability = { id, name };
   let charges: number | null = null;
   let grants: string | undefined;
   let wears: string | undefined;
   let text: string | undefined;
   let icon: string | undefined;
+  let fuses: { partner: string; into: string } | undefined;
+  let basicAttack: string | undefined;
   for (const line of head.children) {
     if (readBehaviour(line, scope, b)) continue;
     const c0 = clause(line, 0, "");
@@ -1359,7 +1475,23 @@ function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: Statu
       noBlock(line, usage);
       return single(line, usage);
     };
-    if (c0.sees("text")) {
+    if (c0.sees("basic attack is")) {
+      const c = plain("basic attack is <move>");
+      c.expect("basic attack is");
+      basicAttack = c.id("the move its basic attack becomes");
+      refs.push({ table: "moves", id: basicAttack, line: line.no });
+      c.done();
+    } else if (c0.sees("fuses with")) {
+      const c = plain("fuses with <passive> into <species>");
+      c.expect("fuses with");
+      const partner = c.id("the passive the ally carries");
+      refs.push({ table: "statuses", id: partner, line: line.no });
+      c.expect("into");
+      const into = c.id("the species it fuses into");
+      refs.push({ table: "species", id: into, line: line.no });
+      c.done();
+      fuses = { partner, into };
+    } else if (c0.sees("text")) {
       const c = plain("text \"<words>\"");
       c.expect("text");
       text = c.quoted("the text");
@@ -1397,21 +1529,24 @@ function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: Statu
       unknownLine(line, known);
     }
   }
-  if (!b.wrote) ability.statuses = [];
+  // A passive that fuses, changes the basic attack or shows a sigil has to be
+  // carried to be found, even with nothing else in it.
+  const carried = b.wrote || fuses !== undefined || basicAttack !== undefined || icon !== undefined;
+  if (!carried) ability.statuses = [];
   if (grants !== undefined) ability.grantsMove = grants;
   if (wears !== undefined) ability.accessory = wears;
   if (text !== undefined) ability.text = text;
-  const status: StatusDef | null = b.wrote
+  const status: StatusDef | null = carried
     ? {
       id, name, polarity: "good", trigger: b.trigger, duration: null, charges,
       stacks: false, maxStacks: 1, persists: true, innate: true,
       effects: [...b.standing, ...b.steps],
+      ...(b.also.length > 0 ? { also: b.also } : {}),
       ...(icon !== undefined ? { icon } : {}),
+      ...(fuses !== undefined ? { fuses } : {}),
+      ...(basicAttack !== undefined ? { basicAttack } : {}),
     }
     : null;
-  if (icon !== undefined && !b.wrote) {
-    throw new ScriptError(head.no, "carries nothing, so it never shows a sigil. Take the icon line off");
-  }
   return { ability, status };
 }
 
@@ -1423,7 +1558,7 @@ function readHobby(head: Line): HobbyDef {
   const { id, name } = header(head, "hobby");
   const known = ["doing", "text", "while carried"];
   const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs: [] };
-  const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], wrote: false };
+  const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], also: [], wrote: false };
   let doing: string | undefined;
   let text: string | undefined;
   for (const line of head.children) {

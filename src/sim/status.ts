@@ -37,6 +37,8 @@ export type StatusTrigger =
   | { on: "deal-any" }
   /** The holder lands a hit with a move rather than with a basic attack. */
   | { on: "deal-spell" }
+  /** The holder lands a hit of one element, and of one category where that is named. */
+  | { on: "deal-element"; element: ElementType; category?: "physical" | "magic" }
   /** The holder lands a killing blow with attack damage. */
   | { on: "kill-attack" }
   /** The holder faints. */
@@ -113,8 +115,20 @@ export type Who =
   | "raised"
   /** The Scoba standing in a time it does not belong to, for the steps after a `travel` one. */
   | "traveller"
+  /** Every ally standing on the field, Pawns and the self included. */
+  | "field-allies"
+  /** Every enemy standing on the field, Pawns included. */
+  | "field-enemies"
+  /** Every ally Scoba standing on the field, the self included, and no Pawn. */
+  | "ally-scobas"
+  /** Every enemy Scoba standing on the field, and no Pawn. */
+  | "enemy-scobas"
   /** One of a move's target groups, by the order its aims are written in. */
-  | { aim: number };
+  | { aim: number }
+  /** The first ally or enemy Scoba standing on the field, in mark order, that `from` does not reach. */
+  | { next: "ally" | "enemy"; from: Who }
+  /** Whoever `first` reaches, or whoever `then` reaches where `first` reaches nobody standing. */
+  | { first: Who; then: Who };
 
 /** One stat an attack reads, and how much of it. */
 export interface Scaling {
@@ -215,7 +229,8 @@ export type Step =
   | { kind: "transfer"; from: Who; to: Who; frac: number; deliver: "damage" | "heal" }
   | { kind: "summon"; species: string; level: number }
   | { kind: "grant-item"; item: string; count: number }
-  | { kind: "mana"; on: Who; amount: number }
+  /** `second` puts it in a fusion's second mana bar rather than its first. */
+  | { kind: "mana"; on: Who; amount: number; second?: true }
   | { kind: "field"; field: string; scope: FieldScope }
   /**
    * Draws one card from the deck off the battle seed, and calls it the drawn
@@ -280,7 +295,8 @@ export type Step =
   | { kind: "say"; text: string }
   /** The costume the Scoba is seen in for the rest of the battle. */
   | { kind: "wear"; who: Who; form: string }
-  | { kind: "motion"; who: Who; anim: CasterAnim }
+  /** `seconds` stretches the animation from its own short beat to that long. */
+  | { kind: "motion"; who: Who; anim: CasterAnim; seconds?: number }
   /**
    * Throws art from `self` at each of `to`, leaving from a piece it wears where
    * `from` names one. `sound` is the noise of it leaving, null for none.
@@ -289,6 +305,8 @@ export type Step =
   | {
     kind: "throw"; art?: string; drawn?: boolean; path: MoveVfx; from?: string; to: Who;
     sound?: string | null;
+    /** Where it leaves from in place of the Scoba running the step, for a throw that bounces. */
+    off?: Who;
   }
   /**
    * Shows art in place on or over a Scoba. `pointers` are the hand a `wheel` is
@@ -365,7 +383,26 @@ export type Standing =
    * A status the holder leaves that stands for at least `minTurns` is measured
    * `mult` times over when it lands.
    */
-  | { kind: "mark-power"; mult: number; minTurns: number };
+  | { kind: "mark-power"; mult: number; minTurns: number }
+  /**
+   * Makes statuses of one polarity `mult` times as effective where they sit:
+   * on the holder itself, on every enemy on the field, or on every ally on the
+   * field, the holder included. Read while the statuses are read, so it reaches
+   * statuses already there as well as new ones, and the reach to the field
+   * lasts only while the holder is standing on it. `shown` is a status each
+   * Scoba it reaches on the field shows as a sigil while it does, other than
+   * the holder itself.
+   */
+  | {
+    kind: "mark-worth"; reach: "self" | "enemies" | "allies"; polarity: StatusPolarity; mult: number;
+    shown?: string;
+  }
+  /**
+   * Every heal that lands on an ally standing on the field, the holder
+   * included, restores this much more, for as long as the holder stands there.
+   * An amount at the level ceiling, scaled by the holder's level.
+   */
+  | { kind: "heal-bonus"; flatAtCeiling: number };
 
 export type StatusEffect = Standing | Step;
 
@@ -430,6 +467,23 @@ export interface StatusDef {
   sound?: string;
   /** Its stacks are a hand of cards, drawn over the holder's head. */
   hand?: boolean;
+  /** Never shown in the sigil row, for a state the Scoba's own drawing already shows. */
+  unseen?: boolean;
+  /** Nothing makes it more or less effective: a `mark-worth` effect passes it by. */
+  asWritten?: boolean;
+  /**
+   * A passive that fuses its holder, in Hyper-Mode, with an ally in Hyper-Mode
+   * carrying the `partner` status, into one Scoba of the `into` species. Tried
+   * whenever the holder takes the field, which entering Hyper-Mode counts as.
+   */
+  fuses?: { partner: string; into: string };
+  /** A passive that turns the holder's basic attack into this move, cast for nothing. */
+  basicAttack?: string;
+  /**
+   * The `when` blocks after the first, each with its own trigger and steps. The
+   * first is `trigger` and the steps in `effects`.
+   */
+  also?: { trigger: StatusTrigger; steps: Step[] }[];
   /**
    * Art that grows out of the holder, by file name in `assets/Powers`. A name
    * with numbered files beside it (`randomcoral1`, `randomcoral2`) draws one of
@@ -692,30 +746,64 @@ export interface ReadEffect {
 const CONTINUOUS = new Set<StatusEffect["kind"]>([
   "stat-add", "stat-set", "stat-scale", "stat-share", "stat-offset", "stat-power",
   "stat-boost", "immune", "vulnerable", "frail", "element-power", "root", "no-hyper", "echo", "ward", "soften", "mark-power",
+  "mark-worth", "heal-bonus",
 ]);
 
 export function isContinuous(kind: StatusEffect["kind"]): boolean {
   return CONTINUOUS.has(kind);
 }
 
-/** Continuous effects, in the order they should be applied. */
-export function continuousEffects(list: StatusInstance[]): ReadEffect[] {
+/**
+ * Continuous effects, in the order they should be applied. `worth` is how
+ * effective each status is where it sits, for a holder under something that
+ * makes its statuses stronger or weaker.
+ */
+export function continuousEffects(list: StatusInstance[], worth?: (inst: StatusInstance) => number): ReadEffect[] {
   const out: ReadEffect[] = [];
   for (const inst of list) {
     const def = STATUSES[inst.id];
     if (!def) continue;
+    const w = worth ? worth(inst) : 1;
+    const scale = (inst.scale ?? 1) * w;
     for (const effect of def.effects) {
       if (isContinuous(effect.kind)) {
         out.push({
-          effect: inst.scale === undefined ? effect : shrink(effect, inst.scale),
+          effect: scale === 1 ? effect : shrink(effect, scale),
           stacks: inst.stacks,
-          power: inst.power ?? 0,
+          power: (inst.power ?? 0) * w,
           ...(inst.basis ? { basis: inst.basis } : {}),
         });
       }
     }
   }
   return out;
+}
+
+/**
+ * How effective the holder's own statuses of one polarity are made by what it
+ * carries: a status that says the marks on it hit harder.
+ */
+export function selfWorth(list: StatusInstance[], polarity: StatusPolarity): number {
+  let mult = 1;
+  for (const inst of list) {
+    for (const effect of STATUSES[inst.id]?.effects ?? []) {
+      if (effect.kind === "mark-worth" && effect.reach === "self" && effect.polarity === polarity) {
+        mult *= Math.pow(effect.mult, inst.stacks);
+      }
+    }
+  }
+  return mult;
+}
+
+/**
+ * Whether a status is one a `mark-worth` effect can reach: anything, passives
+ * included, except a status written to stay as it is and one that is itself a
+ * `mark-worth`.
+ */
+export function worthReaches(inst: StatusInstance): boolean {
+  const def = STATUSES[inst.id];
+  if (!def || def.asWritten) return false;
+  return !def.effects.some((e) => e.kind === "mark-worth");
 }
 
 /**
@@ -859,7 +947,11 @@ export type TriggerEvent =
 
 /** Does this status's trigger answer what just happened? */
 export function triggerMatches(def: StatusDef, event: TriggerEvent): boolean {
-  const t = def.trigger;
+  return triggerFits(def.trigger, event);
+}
+
+/** Whether one trigger answers an event. */
+export function triggerFits(t: StatusTrigger, event: TriggerEvent): boolean {
   if (t.on === "passive") return false;
   if (event.on === "hit") {
     switch (t.on) {
@@ -876,6 +968,8 @@ export function triggerMatches(def: StatusDef, event: TriggerEvent): boolean {
       case "deal-magic": return event.category === "magic";
       case "deal-physical": return event.category === "physical";
       case "deal-spell": return event.spell;
+      case "deal-element":
+        return event.element === t.element && (t.category === undefined || event.category === t.category);
       default: return false;
     }
   }

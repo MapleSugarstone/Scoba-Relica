@@ -17,7 +17,9 @@ export function canBreed(mom: ScobaInstance, dad: ScobaInstance): string | null 
   const momSp = SPECIES[mom.speciesId];
   const dadSp = SPECIES[dad.speciesId];
   if (!momSp || !dadSp) return "Unknown species.";
-  if (momSp.special || dadSp.special || momSp.pawn || dadSp.pawn) return "This Scoba cannot breed.";
+  if (momSp.special || dadSp.special || momSp.pawn || dadSp.pawn || momSp.fusion || dadSp.fusion) {
+    return "This Scoba cannot breed.";
+  }
   if (mom.hybrid || dad.hybrid) return "A hybrid cannot breed.";
   return null;
 }
@@ -275,13 +277,17 @@ export function bodyColors(palette: readonly ColorCount[]): ColorCount[] {
  * second colour and still read as its mother's line. What makes it its own is
  * its shape, which a colour swap never touches.
  *
+ * A color both lines are drawn in is already his, so it stays as it is and
+ * neither side pairs it off.
+ *
  * Ties break on the hex itself, so two clients hatching the same pair paint
  * the same pixels.
  */
 export function pickTints(dad: ColorCount[], child: ColorCount[]): Tint[] {
   const worn = new Set(child.map((c) => c.hex));
+  const his = new Set(dad.map((c) => c.hex));
   const donors = bodyColors(dad).filter((c) => !worn.has(c.hex));
-  const mine = bodyColors(child);
+  const mine = bodyColors(child).filter((c) => !his.has(c.hex));
   const primary = mine[0];
   if (!primary) return [];
   const turn = donors[0] ? hueTurn(primary.hex, donors[0].hex) : 0;

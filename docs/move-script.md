@@ -216,10 +216,12 @@ status slowed "Slowed"
 | `stacks` or `stacks up to <n>` | No | Landing it again adds another stack instead of refreshing it. `stacks` alone allows 99. Leave it out and landing it again refreshes the one already there. |
 | `lost on switching out` | No | It comes off when its holder is called back. Leave it out and it stays through a switch. |
 | `shows a hand of cards` | No | Its stack count is a hand of cards, with the last card dealt drawn over the holder's head. `deal drawn card` uses a status like this. |
+| `no sigil` | No | It is never shown in the sigil row. Hyper-Mode takes this line, since the Scoba's drawing already shows it. |
+| `always as written` | No | Nothing makes it more or less effective: a `marks ... hit` effect passes it by. Hyper-Mode and EZ mode take this line. |
 | `grows <n> <art>` | No | Art that grows out of the holder behind its body, by file name in `assets/Powers`. Each stack grows `<n>` pieces, or one where the number is left out. A name with numbered files beside it (`randomcoral1`, `randomcoral2`) draws one of them per piece. Each piece leans away from the middle of the body, so one on a flank sticks out sideways and one on the crown stands up. |
 | `power <share>` | No | A number measured once, as the status lands, and kept on it. A standing `power` effect moves a stat by it. See [Shares](#shares). A status keeps one measured number, so a status with a `power` line cannot also hold a damage step marked `fixed when applied`. |
 | `while carried:` | No | Its standing effects. See [Standing effects](#standing-effects). |
-| `when <trigger>:` | No | The steps it runs when the trigger happens. See [Triggers](#triggers) and [Steps](#steps). A status has at most one `when`. |
+| `when <trigger>:` | No | The steps it runs when the trigger happens. See [Triggers](#triggers) and [Steps](#steps). A status can have several, each answering its own trigger. |
 
 ### How a status lands
 
@@ -250,11 +252,14 @@ A passive is carried as a status with the same id, hung on the Scoba as a battle
 opens. That status is always good, stands for the whole battle, stays through a
 switch, and is never cleansed or copied.
 
-A passive with a `while carried:` block is read in the sigil row like any other
-mark, because what it is doing is true of the Scoba right now. One that only
-waits for a trigger is not, and stays with the abilities on the card. Give every
-passive that holds a sigil of its own with an `icon` line: one without shows the
-placeholder, which says a mark is there but not which.
+A passive is read in the sigil row like any other mark while it has something
+left to do: a `while carried:` block, a `when` block that can go off again, or
+only an `icon` line, such as Cherry on Top, which hands over a move. One that
+only acts as the Scoba enters (`when it takes the field:` or
+`when the battle starts:` and nothing else, or only a `fuses with` line) does
+its work and has nothing more to show, so it stays off the row. Give every
+passive that shows a sigil of its own with an `icon` line: one without shows
+the placeholder, which says a mark is there but not which.
 
 ```
 passive roll-the-wheel "Roll the Wheel"
@@ -276,19 +281,59 @@ passive roll-the-wheel "Roll the Wheel"
 | Line | Required | What it does |
 | --- | --- | --- |
 | `text "<words>"` | No | The line a player reads. With none, the game builds a sentence from what the passive does. |
-| `icon <name>` | No | The sigil it shows in the row, from `assets/Sigils`. Only a passive with a `while carried:` block is shown there, so only one of those takes this line. |
-| `wears <name>` | No | Art worn over a Scoba that inherited this passive from another line, by file name in `assets/AccessoryScoba`. A line with the passive in its own pool already has it drawn in and wears nothing. |
+| `icon <name>` | No | The sigil it shows in the row, from `assets/Sigils`. A passive with an `icon` line is always carried as a status, so it shows even with nothing else in it. One that only acts on entry is never shown there. |
+| `wears <name>` | No | Art worn over a Scoba that inherited this passive from another line, by file name in `assets/AccessoryScoba`. A line with the passive in its own pool already has it drawn in and wears nothing. In a fight the art goes with the status: a fusion wears it when either half brought the passive, and clearing the status takes the art off. |
 | `grants move <move>` | No | A move the Scoba can cast without holding it in a slot. It is offered after the four it knows and costs what the move says. |
+| `fuses with <status> into <species>` | No | Fuses the Scoba with an ally Scoba carrying the named status or passive into one Scoba of the named species. See [Fusions](#fusions). |
+| `basic attack is <move>` | No | The Scoba's basic attack becomes that move, cast for nothing and aimed at one enemy. It is still a basic attack: it sets off `when it makes a basic attack:`, its hits are not a spell, and nothing echoes it. |
 | `once per battle` | No | It goes off once a battle. The same as `charges 1`, and a passive takes one of the two lines rather than both. |
 | `charges <n>` | No | How many times it can go off in a battle. |
 | `while carried:` | No | Its standing effects. See [Standing effects](#standing-effects). |
-| `when <trigger>:` | No | The steps it runs when the trigger happens. A passive has at most one `when`. |
+| `when <trigger>:` | No | The steps it runs when the trigger happens. A passive can have several, each answering its own trigger, so one can act on entry and on something else as well. |
 
-A passive with no `while carried:` and no `when` block, such as one that only
-grants a move, is carried as no status at all.
+A passive with none of `while carried:`, `when`, `fuses with`,
+`basic attack is` or `icon` is carried as no status at all. It shows no sigil,
+and a fusion does not inherit it.
 
 A passive can be bred onto another line, so write the secondary passives of a
 line so they still make sense on a Scoba that is not this one.
+
+### Fusions
+
+A passive with a `fuses with <status> into <species>` line fuses the Scoba
+carrying it with the ally Scoba on the other Scoba mark, where that ally carries
+the named status, into one Scoba of the named species. The status can be a
+passive or any status at all. Both have to be in Hyper-Mode, and neither can
+already be part of a fusion, a Pawn or a visitor from another time. It is tried
+whenever the Scoba carrying the line takes the field, which entering Hyper-Mode
+counts as, before anything else it does on arriving.
+
+Addiza and Poki each gain a mark on entering Hyper-Mode and fuse with an ally
+carrying the other's, so whichever of the two goes Hyper second fuses them:
+
+```
+passive flame-blade "Flame Blade"
+  fuses with ultimate-addition into equalizea
+  when it lands sun physical:
+    inflict seared on other
+  when it takes the field:
+    inflict ultimate-multiplication on holder
+```
+
+The fusion stands on a mark of its own between the two Scoba marks:
+
+1. Its HP is two bars, each the HP one of the two had. Damage empties the first slot's bar first, and a hit that empties it stops there without reaching the second bar. It falls once both are empty, and both Scobas fall with it.
+2. It picks two moves a round, one from each Scoba's own moves, paid for from that Scoba's own mana bar. Each player picks for the Scoba they brought, and each move goes at that Scoba's own Speed.
+3. Its level is both levels added together, so anything scaled by level grows with it.
+4. Its other stats are both Scobas' stats added together and cut by a quarter, with Hyper-Mode in. It fights as every element either had.
+5. It carries every passive and every status either had, and its own species' passive on top. A status that does not stack is kept once. The statuses its `fuses with` lines name are dropped, and nothing can give them back to it.
+6. It cannot block and cannot be switched out, and neither Scoba mark takes anyone else until it falls.
+7. It gains the turn's mana in its first bar only. Its second bar fills through whatever gives it mana, such as a passive with `give holder 20 mana, second bar`.
+8. It is painted in both Scobas' colors: a father's colors or a shiny's turn on either of them carries over to the half of the fusion drawn in that Scoba's colors.
+
+A species meant only to be fused into sets `fusion` true in `species.json`. It
+takes its art and its passive from its own entry, and everything else from the
+two it was made of, so it needs no moves and spends no stat budget.
 
 ## Hobbies
 
@@ -356,7 +401,7 @@ caster. A status or a passive runs its steps as the Scoba carrying it.
 | `caster` | The Scoba casting the move. | Not used. |
 | `holder` | Not used. | The Scoba carrying the status. |
 | `target`, `target2`, or a name from `as` | Everyone that aim group resolved to. | Not used. |
-| `source` | Not used. | Whoever left the status. A passive has no source, so this reaches nobody. |
+| `source` | Not used. | Whoever left the status. Nobody left a passive, so in a passive it is the Scoba carrying it. |
 | `other` | Not used. | Whoever was on the far side of the trigger: the attacker for `when hit`, the Scoba struck for `when it lands a hit`, the victim for `when it kills`, and the killer for `when it faints`. |
 | `raised` | The Pawn a `raise` step above it put on the field. Nobody, where the step raised nothing. | Not used. |
 | `traveller` | The Scoba a `travel back` step above it left standing in another time. Nobody, where no journey is in progress. | Not used. |
@@ -364,6 +409,17 @@ caster. A status or a passive runs its steps as the Scoba carrying it.
 | `enemies` | Every Scoba on the other team that has not fainted, benched ones included. | The same, for the holder's other team. |
 | `everyone` | Every Scoba on both teams that has not fainted. | The same. |
 | `others` | Everyone but the caster. | Everyone but the holder. |
+| `allies on the field` | Every ally standing on the field, Pawns and the caster included. | The same, for the holder. |
+| `enemies on the field` | Every enemy standing on the field, Pawns included. | The same, for the holder. |
+| `ally scobas` | Every ally Scoba standing on the field, the caster included. No Pawn. | The same, for the holder. |
+| `enemy scobas` | Every enemy Scoba standing on the field. No Pawn. | The same, for the holder. |
+| `next ally scoba from <who>` | The first ally Scoba standing on the field, in mark order, that `<who>` does not reach. Nobody where there is none. | The same. `next ally scoba from holder` is the other ally Scoba. |
+| `next enemy scoba from <who>` | The same, for an enemy Scoba. `next enemy scoba from target` is the other enemy Scoba, or the first enemy Scoba where the target was a Pawn. | The same. |
+| `<who> or <who>` | Whoever the first reaches, or whoever the second reaches where the first reaches nobody standing, like `next enemy scoba from target or target`. | The same. |
+
+"Ally" in a player's text means any ally, Pawns included, and "ally Scoba"
+means Scobas only. The words here follow the same line: `allies on the field`
+reaches Pawns and `ally scobas` does not.
 
 ## Shares
 
@@ -379,7 +435,7 @@ status's `power` line are written with one.
 | Whose | In a move | In a status or a passive |
 | --- | --- | --- |
 | `caster` | The caster. | Not used. |
-| `source` | Not used. | Whoever left the status. A passive has nobody behind it, so a share of `source` reads nothing there: write `their`. |
+| `source` | Not used. | Whoever left the status. In a passive it is the Scoba carrying it, so `10% of source magic` is the holder's own Magic. |
 | `their` | The Scoba the step lands on. | The Scoba the step lands on. |
 
 | Measure | Allowed with | What it reads |
@@ -416,6 +472,18 @@ step happens.
 caster lunge
 ```
 
+Write `, for <n> seconds` after it to stretch the animation to that long. The
+next step then waits until the Scoba has reached what it is moving at, which for
+a `blink` is the moment it appears over the target, and the rest of the
+animation plays beside the steps after it. Follow it with a `wait` to hold the
+scene until the animation is over.
+
+```
+caster blink, for 1 second
+hit target 150% strength
+wait 0.5 seconds
+```
+
 **`<who> wears <costume>`** puts a Scoba in a costume for the rest of the battle,
 by the costume's tag in the line's `sprite.forms` in `species.json`. A costume is
 worn only by a line that has art drawn for it. A Scoba wearing a piece from an
@@ -446,6 +514,7 @@ throw the card a `draw a card` step drew, as it was drawn. See
 These rules decide how a throw looks and sounds:
 
 1. `from <piece>` throws from where a worn or drawn piece sits, such as `from cherry`. Without it, the throw leaves from the middle of the Scoba, or from wherever the cosmetics editor moved its throwing point.
+1. `, off <who>` throws from the middle of the first Scoba `<who>` reaches instead, for something that bounces off one Scoba onto another. A bounce onto the Scoba it bounced off has nowhere to travel and is not thrown.
 2. A throw at the Scoba throwing it has nowhere to travel, so nothing is thrown at it.
 3. A throw that travels makes a throwing noise. Write `, sound <name>` to play a sound of your own instead, or `, silent` for no sound.
 4. The thrown art and the blocks drawn without art take the move's element color, or the tint a rewrite gave the move.
@@ -714,7 +783,14 @@ refuses a seventh summon, and a side with no free Pawn slot refuses another Pawn
 **`find <n> <item>`** gives the side of the one running the step that many of an
 item for the rest of the battle.
 
-**`give <who> <n> mana`** adds mana to each Scoba in `<who>`, up to 100.
+**`give <who> <n> mana`** adds mana to each Scoba in `<who>`, up to 100. A
+fusion has two mana bars, and the mana goes to whichever holds less. Write
+`, second bar` after it to put the mana in a fusion's second bar instead. On a
+Scoba that is not a fusion the option changes nothing.
+
+```
+give holder 20 mana, second bar
+```
 
 ### Cards
 
@@ -860,6 +936,28 @@ status.
 | `takes x<n> from everything` | Everything hurts the holder that much more, whatever element it is. |
 | `cuts the next hit by <share>` | The next instance of damage the holder takes is cut by that share, and it spends one of the status's charges. |
 | `marks it leaves hit x<n> if they last <n> turns or more` | Every status the holder leaves that stands at least that many turns measures its `power`, and its `fixed when applied` damage, that many times over. |
+| `bad marks it carries hit x<n>` | Every bad status on the holder is that many times as effective. `good marks it carries hit x<n>` does the same for good ones. |
+| `bad marks on enemies hit x<n>` | Every bad status on every enemy on the field is that many times as effective, for as long as the holder is standing on the field. |
+| `good marks on allies hit x<n>` | Every good status on every ally on the field, the holder included, is that many times as effective, for as long as the holder is standing on the field. |
+| `heals on allies + <n> at max level` | Every heal that lands on an ally on the field, the holder included, restores that much more, for as long as the holder is standing on the field. The amount is at the level ceiling, and a lower holder adds its share of it. |
+
+A status made more effective by one of the three `marks ... hit` effects moves
+every stat it changes by that much more, deals and heals that much more each
+time it goes off, and has any multiplier it applies moved that much further from
+1, so x0.8 at half again as effective reads x0.7. They are read every time a
+status is, so they reach statuses already there as well as new ones. They reach
+passives too. They pass by a status written `always as written`, which
+Hyper-Mode and EZ mode are, and a status carrying one of these effects itself.
+Two of them together multiply.
+
+Write `, shown as <status>` after an effect that reaches enemies or allies to
+give every Scoba it reaches a sigil for it, other than the holder, which already
+shows its own. The status names the sigil, its icon and the line its window
+says. Nothing carries it: it is shown for exactly as long as the reach lasts.
+
+```
+bad marks on enemies hit x1.15, shown as multiply-enemies-reach
+```
 
 The stat words are `hp`, `strength`, `defense`, `resistance`, `magic` and
 `speed`. Changes to stats apply in a fixed order, whatever order the lines are
@@ -887,6 +985,7 @@ A `when` block names one trigger.
 | `when it lands magic:` | The same, for magical damage. |
 | `when it lands physical:` | The same, for physical damage. |
 | `when it lands a spell:` | The same, for a `hit` step in a move rather than a basic attack. |
+| `when it lands <element>:` | The same, for damage of that element. Add `physical` or `magic` for only that category of it, like `when it lands sun physical:`. |
 | `when it kills:` | The holder's attack makes a Scoba faint. |
 | `when it faints:` | The holder faints. |
 | `when an ally faints:` | A Scoba on the holder's team faints. |
@@ -912,8 +1011,8 @@ takes its place in that order, which is why a script can put a sound before a
 throw, a status before an attack, or a pause between two hits. When an attack
 reaches several Scobas, their hits flash and shake together.
 
-A basic attack is not written in move script. It always lunges and lands a Plain
-physical blow.
+A basic attack is not written in move script. It lunges and lands a Plain
+physical blow, unless a passive the Scoba carries says `basic attack is <move>`.
 
 ## Written text
 
@@ -929,6 +1028,7 @@ words with the numbers behind them in a hover window.
 | `[heal]` | What the move's first `heal` step restores. |
 | `[heal:<n>]` | What the move's nth `heal` step restores. |
 | `[heal:<status>]` | What a status's heal step restores each time it runs. |
+| `[heal:<status>:<n>]` | What a status's or a passive's nth heal step restores, counted through every `when` block in the order they are written. `[damage:<status>:<n>]` does the same for damage. |
 | `[power:<status>]` | What a status's `power` takes from or adds to a stat, like the Speed `in-the-black` takes. |
 | `[scaling:<n>]` | The move's nth scaled number of any kind, in the order the cast runs them. Each `hit`, `heal` and card payout counts, and each status an `inflict` step leaves counts its `power`, then its damage step, then its heal step, then the numbers of any status its own `inflict` steps leave. Each status counts once. On Black, `[scaling:2]` is what `in-the-black` takes off Speed, and on Cold Wave it is what the `chill` that `cold` leaves takes off Speed. |
 | `[status:<id>]` | A status or a field, named, with what it does on hover. |

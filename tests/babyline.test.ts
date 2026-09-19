@@ -13,7 +13,8 @@ const REAL = Object.values(SPECIES).map((sp) => sp.id);
 describe("stat budgets", () => {
   it("gives every standard line the full budget and the baby the small one", () => {
     for (const sp of REAL.map((id) => SPECIES[id]!)) {
-      if (sp.pawn) continue;
+      // A fusion's stats are its two halves' pooled, so its own line spends nothing.
+      if (sp.pawn || sp.fusion) continue;
       const want = sp.baby ? BABY_BUDGET : STAT_BUDGET;
       expect([sp.id, statTotal(sp.genes)]).toEqual([sp.id, want]);
     }

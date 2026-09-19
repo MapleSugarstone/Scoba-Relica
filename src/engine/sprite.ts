@@ -17,19 +17,32 @@ export interface Motion {
   float: number;
   /** How much of the motion keeps going while standing still, 0 to 1. */
   idle: number;
+  /** How far it drifts to either side, in art px: each hop lands on the other side. */
+  sway?: number;
+  /**
+   * How long it hangs at the top of the arc, 0 to 1. Nothing is the plain arc;
+   * more flattens the top, so it rises and falls quickly and lingers up there,
+   * which is what low gravity looks like.
+   */
+  hang?: number;
 }
 
 export interface Bounce {
   hop: number; // art px
   angle: number;
+  /** Sideways, in art px. */
+  sway: number;
 }
 
 /** One hop per unit of `t`. `ease` fades the motion in and out as it walks. */
 export function bounce(m: Motion, t: number, ease: number): Bounce {
   const e = m.idle + (1 - m.idle) * ease;
+  const arc = Math.pow(Math.abs(Math.sin(t * Math.PI)), 1 - (m.hang ?? 0));
   return {
-    hop: m.float + Math.abs(Math.sin(t * Math.PI)) * m.hop * e,
+    hop: m.float + arc * m.hop * e,
     angle: Math.sin(t * Math.PI) * m.tilt * e,
+    // Crossing from one side to the other over each hop, leaning the way it goes.
+    sway: -Math.cos(t * Math.PI) * (m.sway ?? 0) * e,
   };
 }
 
@@ -87,7 +100,7 @@ export function drawDoll(
   const u = 1 / ART; // world units per art px
   // Snap to whole device px: the sprite has four times the world's pixel
   // density, so it can sit on quarter units without smearing.
-  const dx = Math.round(x * ART) / ART;
+  const dx = Math.round((x + b.sway * u) * ART) / ART;
   const dy = Math.round((y - b.hop * u) * ART) / ART;
   ctx.save();
   ctx.translate(dx, dy);

@@ -832,7 +832,7 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
   cursor: pointer;
   text-align: left;
 }
-.dbgHit.sel { border-style: solid; background: var(--p-raised); }
+.dbgHit.sel { border-style: solid; border-color: var(--p-ink); color: var(--p-highlight); }
 .dbgHit:disabled { color: var(--p-dead-text); cursor: default; }
 .dbgHit > .sub { color: var(--p-dead-text); }
 .bxDebug {
@@ -851,6 +851,26 @@ button.big:disabled { --fill: var(--p-dead); color: var(--p-dead-text); cursor: 
 /* Stacked, so a second switch does not squeeze the first one's line. */
 .bxDebugRow { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 .bxDebugRow > .bxDebug { margin-top: 0; }
+/* The Box's debug spawn: a muted cell ahead of the faces, and the screen it opens. */
+.bxCell.bxSpawn { flex-direction: column; gap: 2px; --fill: var(--p-panel); color: var(--p-dead-text); }
+.bxSpawnPlus { font-size: 18px; font-family: "Relica 18"; line-height: 1; }
+.bxSpawnWord { font-size: 12px; }
+.spawnTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  align-items: start;
+}
+.spawnHits { max-height: 300px; overflow-y: auto; scrollbar-width: none; }
+.spawnHits::-webkit-scrollbar { width: 0; height: 0; }
+.spawnSide { display: flex; flex-direction: column; gap: 8px; }
+.spawnTypes { display: flex; justify-content: center; gap: 4px; }
+.spawnControls { gap: 8px; padding: 8px; }
+.spawnControls .bxDebug { margin-top: 0; }
+.spawnLevel { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--p-dim); }
+.spawnLevel .dbgField { width: 72px; }
 button.starter {
   font: inherit;
   color: var(--p-text);

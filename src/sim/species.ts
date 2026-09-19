@@ -103,7 +103,7 @@ export function abilityStatuses(id: string): string[] {
  * gait; `scamper` is the same hop a little quicker and is what Scobas use
  * unless they are given something else. Numbers live in `game/actors.ts`.
  */
-export type MovementStyle = "hop" | "scamper" | "hover" | "skitter";
+export type MovementStyle = "hop" | "scamper" | "hover" | "skitter" | "moonhop";
 
 /**
  * `art` is a 118x139 sprite drawn on the same canvas and feet line as the
@@ -227,6 +227,12 @@ export interface Species {
    * carries. Set this false for a line that is meant to come as itself.
    */
   inheritsFromCaller?: boolean;
+  /**
+   * Only ever made in a battle, by two Scobas fusing: never wild, never kept,
+   * never bred. Its stats, types, level, moves and colours all come from the two
+   * it was made of, so its own entry supplies only its art and its passive.
+   */
+  fusion?: boolean;
 }
 
 /**
@@ -376,12 +382,13 @@ export const STARTER_IDS: string[] = Object.values(SPECIES)
   .map((s) => s.id);
 
 /**
- * The lines a player can actually keep. The special Scoba is nobody's and a
- * Pawn is only ever summoned, so neither belongs in the index, the world
- * editor's species list, or the pools legality derives breeding from.
+ * The lines a player can actually keep. The special Scoba is nobody's, a Pawn
+ * is only ever summoned and a fusion only ever made in a fight, so none of them
+ * belongs in the index, the world editor's species list, or the pools legality
+ * derives breeding from.
  */
 export function rosterSpecies(): Species[] {
-  return Object.values(SPECIES).filter((sp) => !sp.special && !sp.pawn);
+  return Object.values(SPECIES).filter((sp) => !sp.special && !sp.pawn && !sp.fusion);
 }
 
 /**

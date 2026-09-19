@@ -30,6 +30,11 @@ import {
   castCost,
   combatantStats,
   selfRunning,
+  actingAs,
+  actingRef,
+  actingSpeed,
+  basicAttackOf,
+  fusionBars,
   BASIC_ATTACK_TARGETS,
   type BattleEvent,
   type BattleState,
@@ -39,7 +44,8 @@ import {
   type SlotHolder,
 } from "../sim/battle";
 import {
-  ALL_SLOTS, TARGET_LABELS, isPawnSlot, isTravelSlot, needsPick, sameRef, type TargetRef, type TargetSpec,
+  ALL_SLOTS, TARGET_LABELS, isFusionSlot, isPawnSlot, isTravelSlot, needsPick, sameRef,
+  type TargetRef, type TargetSpec,
 } from "../sim/targeting";
 import { statusName, type StatusInstance } from "../sim/status";
 import { restoreDerived } from "../sim/rewrite";
@@ -310,9 +316,18 @@ function runBattle(
 
   /**
    * The move under the pointer, so its cost can be marked out on the caster's
-   * own mana bar before it is committed to.
+   * own mana bar before it is committed to. `bar` is which of a fusion's two
+   * mana bars pays for it.
    */
-  let costPreview: { index: number; cost: number } | null = null;
+  let costPreview: { index: number; cost: number; bar?: number } | null = null;
+
+  /** Which of its fusion's bars a half pays from, where it is in one. */
+  const halfIndex = (c: Combatant): number | undefined => {
+    const body = actingAs(st, c);
+    if (body === c || !body.fusion) return undefined;
+    const i = body.fusion.parts.indexOf(st.teams[0].indexOf(c));
+    return i >= 0 ? i : undefined;
+  };
 
   /**
    * One sigil and the window that opens over it. The window is what tells a
@@ -428,10 +443,11 @@ function runBattle(
     let user: TargetRef;
     if (aiming) {
       if (aiming.action.kind !== "spell") return null;
-      const index = st.active[0][aiming.action.slot] ?? -1;
-      if (index < 0) return null;
+      const caster = at(0, aiming.action.slot);
+      const from = caster ? actingRef(st, caster) : null;
+      if (!from) return null;
       moveId = aiming.action.moveId;
-      user = { side: 0, index };
+      user = from;
     } else if (hoverMove) {
       moveId = hoverMove.move.id;
       user = hoverMove.user;
@@ -473,8 +489,17 @@ function runBattle(
     tline.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
     wrap.appendChild(tline);
     const max = combatantMaxHp(c);
-    const hpBar = bar("");
-    const mpBar = bar("mp");
+    // A fusion reads two of each, side by side, the first slot's on the left:
+    // the left HP bar is the one a hit empties first.
+    const pairs = c.fusion ? 2 : 1;
+    const pairRow = (bars: ReturnType<typeof bar>[]): HTMLElement => {
+      if (bars.length === 1) return bars[0]!.node;
+      const row = el("div", "bpair");
+      for (const b of bars) row.appendChild(b.node);
+      return row;
+    };
+    const hpBars = Array.from({ length: pairs }, () => bar(""));
+    const mpBars = Array.from({ length: pairs }, () => bar("mp"));
     // Both bars run the panel's full width, so a length means the same thing on
     // every readout on the field. The share rides in the footer instead, which
     // is a line the state already reserves.
@@ -483,17 +508,23 @@ function runBattle(
     const foot = el("div", "bfoot");
     foot.append(state, mpNum);
     const marks = el("div", "marks");
-    wrap.append(hpBar.node, mpBar.node, foot, marks);
+    wrap.append(pairRow(hpBars), pairRow(mpBars), foot, marks);
 
     const refresh = (): void => {
       const now = stage.shownOf(ref.side, ref.index);
-      const frac = Math.max(0, Math.min(1, now.hp / max));
-      hpBar.set(frac, now.hpTrail / max, {
-        color: frac < 0.25 ? "#d9553f" : frac < 0.55 ? "#e7a03c" : "#7aa74a",
+      const rows = now.bars ?? [{
+        hp: now.hp, hpTrail: now.hpTrail, max, mana: now.mana, manaTrail: now.manaTrail,
+      }];
+      rows.forEach((row, i) => {
+        const frac = Math.max(0, Math.min(1, row.hp / Math.max(1, row.max)));
+        hpBars[i]?.set(frac, row.hpTrail / Math.max(1, row.max), {
+          color: frac < 0.25 ? "#d9553f" : frac < 0.55 ? "#e7a03c" : "#7aa74a",
+        });
+        const mine = ref.side === 0 && costPreview?.index === ref.index && (costPreview.bar ?? 0) === i;
+        const spend = mine ? costPreview!.cost : 0;
+        mpBars[i]?.set(row.mana / 100, row.manaTrail / 100, { spend: spend / 100 });
       });
-      const spend = ref.side === 0 && costPreview?.index === ref.index ? costPreview.cost : 0;
-      mpBar.set(now.mana / 100, now.manaTrail / 100, { spend: spend / 100 });
-      mpNum.textContent = `${now.mana}%`;
+      mpNum.textContent = rows.map((row) => `${row.mana}%`).join(" · ");
       // The bars say the numbers; this line is only for what they cannot,
       // and while a move is aimed, for what the chart says it would land at.
       const eff = now.fainted || c.blocking ? null : aimEffect(c, ref);
@@ -601,9 +632,16 @@ function runBattle(
         // A Pawn called this round is not on the stage yet, so its mark is read
         // off the battle instead. Its readout is built hidden and fades in with
         // the poof rather than turning up a beat after it.
+        // The two halves of a fusion keep their marks off the field, and the
+        // fusion's readout stands for both, so neither mark gets a card once the
+        // scene has shown them fusing. Until then each keeps its own.
+        const seated = st.teams[side][st.active[side][slot] ?? -1];
+        if (seated?.fusedInto !== undefined && !seated.fainted && stage.fighterOn(side, slot) === null) continue;
         const index = stage.fighterOn(side, slot)
           ?? (small && (st.active[side][slot] ?? -1) >= 0 ? st.active[side][slot]! : null);
         const c = index === null ? null : st.teams[side][index];
+        // The fusion's own mark holds nothing but a fusion, and no card waits on it.
+        if (isFusionSlot(slot) && !c) continue;
         const owner = side === 0 && !small ? st.slotOwner[slot] ?? null : null;
         let built: { node: HTMLElement; refresh: () => void } | null = null;
         if (c && index !== null) {
@@ -817,9 +855,12 @@ function runBattle(
    * already made. Co-op players each pick only their own, so nothing dims.
    */
   const syncTurn = (): void => {
+    // A half of a fusion is picked for on the fusion, which is what the marker
+    // stands over, and the other half is never the one waiting.
     const refOf = (slot: number): TargetRef | null => {
       const index = st.active[0][slot] ?? -1;
-      return index >= 0 ? { side: 0, index } : null;
+      const c = index >= 0 ? st.teams[0][index] : undefined;
+      return c ? actingRef(st, c) : null;
     };
     const now = busy ? undefined : roundSlots[pickIndex];
     const acting = now === undefined ? null : refOf(now);
@@ -1074,13 +1115,19 @@ function runBattle(
     // The basic attack has no move behind it. It lands as Plain, which its
     // sub-line says with the badge: wearing Plain's beige as a fill made the
     // first button on the row look like the disabled one.
-    wrap.appendChild(act("Basic attack", "",
+    // A passive can turn the basic attack into a move, and the button says which.
+    const basicMove = basicAttackOf(actingAs(st, me));
+    wrap.appendChild(act("Basic attack", basicMove?.name ?? "",
       () => startAiming({ kind: "attack", side: 0, slot, picks: [] }), { hot: true }));
     wrap.appendChild(act("Abilities", "", () => {
       menu = "abilities";
       render();
     }, { hot: true }));
-    wrap.appendChild(act("Block", "-50% dmg", () => pick({ kind: "block", side: 0, slot }), { alt: true }));
+    // A fusion cannot block. The button stays, dead, so the row keeps its shape.
+    const fused = me.fusedInto !== undefined;
+    wrap.appendChild(act("Block", fused ? "fused" : "-50% dmg", () => pick({ kind: "block", side: 0, slot }), {
+      alt: true, disabled: fused,
+    }));
 
     const minor = minorRow(
       act("Items", "", () => {
@@ -1097,7 +1144,12 @@ function runBattle(
   };
 
   /** The question the message box asks while this Scoba's choice is made. */
-  const askLine = (me: Combatant): string => `What will ${displayName(me.scoba)} do?`;
+  const askLine = (me: Combatant): string => {
+    const body = actingAs(st, me);
+    // A fusion is asked twice a round, once for each half's moves.
+    if (body !== me) return `What will ${displayName(body.scoba)} do as ${displayName(me.scoba)}?`;
+    return `What will ${displayName(me.scoba)} do?`;
+  };
 
   /**
    * Buttons laid across the block three to a row, so a list of any length is
@@ -1199,9 +1251,12 @@ function runBattle(
     // would leave behind is visible before it is picked, and puts a line on
     // what it does in the message box. Keyboard focus does the same, since a
     // pointer is not the only way through the list.
-    const index = st.teams[0].indexOf(me);
+    // A half's cost is marked on its own bar of the fusion's readout.
+    const from = actingRef(st, me);
+    const index = from?.index ?? -1;
+    const bar = halfIndex(me);
     const show = (on: boolean): void => {
-      costPreview = on && index >= 0 ? { index, cost } : null;
+      costPreview = on && index >= 0 ? { index, cost, ...(bar !== undefined ? { bar } : {}) } : null;
       hoverMove = on && index >= 0 ? { move, user: { side: 0, index } } : null;
       // The bars are only redrawn when something asks them to, so the mark has
       // to ask. Without this the cost was worked out and never drawn.
@@ -1230,8 +1285,10 @@ function runBattle(
     // items and would otherwise drop the spaces either side of each number.
     const out = document.createElement("span");
     out.append(`${move.name}: `);
+    // Cast by the fusion, for one of its halves, so read against the fusion.
+    const caster = actingAs(st, me);
     out.appendChild(proseNodes(moveText(move), {
-      move, stats: combatantStats(me), level: me.scoba.level, types: scobaTypes(me.scoba),
+      move, stats: combatantStats(caster), level: caster.scoba.level, types: scobaTypes(caster.scoba),
     }));
     return out;
   };
@@ -1249,11 +1306,12 @@ function runBattle(
     if (!aiming) return [];
     const slot = roundSlots[pickIndex];
     if (slot === undefined) return [];
-    const index = st.active[0][slot] ?? -1;
-    if (index < 0) return [];
+    const caster = at(0, slot);
+    const from = caster ? actingRef(st, caster) : null;
+    if (!from) return [];
     const spec = aiming.specs[aiming.at];
     if (!spec || !needsPick(spec.mode)) return [];
-    return targetOptions(st, { side: 0, index }, spec);
+    return targetOptions(st, from, spec);
   };
 
   /**
@@ -1337,7 +1395,9 @@ function runBattle(
       s.appendChild(list);
 
       const row = el("div", "xrow");
-      if (benchFor(st, 0, slot).length > 0) {
+      const standing = at(0, slot);
+      const fusedHere = standing?.fusedInto !== undefined;
+      if (!fusedHere && benchFor(st, 0, slot).length > 0) {
         row.appendChild(act("Swap", "send another out", () => renderSwap(slot, () => renderExtra(slot)), { alt: true }));
       }
       row.appendChild(act("Back", "", () => render(), { alt: true }));
@@ -1376,13 +1436,19 @@ function runBattle(
     nm.appendChild(el("span", "lv", `Lv ${c.scoba.level}`));
     nm.appendChild(typeIcons(c.scoba));
     const pawn = st.teams[0].indexOf(c) >= 0 && c.pawn;
+    const body = actingAs(st, c);
+    const fused = body !== c && !c.fainted;
     nm.appendChild(el("span", "lv",
-      c.fainted ? "· fainted" : pawn ? "· pawn" : out ? "· out" : "· benched"));
+      c.fainted ? "· fainted" : fused ? `· in ${displayName(body.scoba)}` : pawn ? "· pawn" : out ? "· out" : "· benched"));
     wrap.appendChild(nm);
 
-    const stats = combatantStats(c);
+    // A half fights with the fusion's numbers, its own HP bar and its own Speed.
+    const stats = { ...combatantStats(body), spd: actingSpeed(st, c) };
+    const half = halfIndex(c);
+    const bars = fused ? fusionBars(body) : null;
+    const hp = bars && half !== undefined ? bars[half]! : { hp: c.hp, max: combatantMaxHp(c) };
     const line = el("div", "xstats");
-    line.appendChild(el("span", undefined, `HP ${c.hp}/${combatantMaxHp(c)}`));
+    line.appendChild(el("span", undefined, `HP ${hp.hp}/${hp.max}`));
     for (const key of ["str", "def", "res", "mag", "spd"] as const) {
       line.appendChild(el("span", undefined, `${STAT_LABELS[key]} ${stats[key]}`));
     }
@@ -1447,8 +1513,10 @@ function runBattle(
   /** What a move does, in numbers, against what is standing there now. */
   const explainMove = (move: Move, ref: TargetRef, slot: number): HTMLElement => {
     const box = el("div");
-    const preview = previewMove(st, ref, move.id);
     const holder = st.teams[ref.side][ref.index] ?? null;
+    // A half's move is cast by the fusion, so it is measured from there.
+    const caster = holder ? actingAs(st, holder) : null;
+    const preview = previewMove(st, (holder ? actingRef(st, holder) : null) ?? ref, move.id);
     const cost = holder ? castCost(holder, move.id) : move.manaCost;
     const head = el("div", "xhead");
     head.appendChild(el("strong", undefined, move.name));
@@ -1464,8 +1532,8 @@ function runBattle(
     // standing there right now.
     box.appendChild(proseBox(moveText(move), {
       move,
-      ...(holder
-        ? { stats: combatantStats(holder), level: holder.scoba.level, types: scobaTypes(holder.scoba) }
+      ...(caster
+        ? { stats: combatantStats(caster), level: caster.scoba.level, types: scobaTypes(caster.scoba) }
         : {}),
     }));
     if (preview && preview.heal !== null) {

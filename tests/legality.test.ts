@@ -120,7 +120,7 @@ describe("gene budgets", () => {
     // Every pairing on the roster, grown up where the child has a form to grow
     // into. Each child hatches as its mother's first form, so the budget it is
     // checked against is that form's and not the mother's.
-    const roster = Object.values(SPECIES).filter((sp) => !sp.special && !sp.pawn);
+    const roster = Object.values(SPECIES).filter((sp) => !sp.special && !sp.pawn && !sp.fusion);
     const parents = roster.map((sp) => makeWild(sp.id, 1, rngFrom(`g:${sp.id}`)));
     for (const m of parents) {
       for (const d of parents) {

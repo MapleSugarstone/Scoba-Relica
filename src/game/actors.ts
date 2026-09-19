@@ -25,6 +25,9 @@ export const MOTIONS: Record<MovementStyle, Motion> = {
   scamper: { rate: 5.6, hop: 13, tilt: 0.13, float: 0, idle: 0 },
   hover: { rate: 1.3, hop: 5, tilt: 0.04, float: 9, idle: 1 },
   skitter: { rate: 8, hop: 6, tilt: 0, float: 0, idle: 0 },
+  // Slow, high jumps from side to side that hang at the top, as if the ground
+  // pulled only a little.
+  moonhop: { rate: 1.3, hop: 20, tilt: 0.1, float: 0, idle: 0, sway: 5, hang: 0.45 },
 };
 
 /**
@@ -36,7 +39,7 @@ export const MOTIONS: Record<MovementStyle, Motion> = {
 const DEPTH_SLACK = 4;
 
 /** No hop and no tilt, which is how anything pinned to the ground is drawn. */
-const FLAT = { hop: 0, angle: 0 };
+const FLAT = { hop: 0, angle: 0, sway: 0 };
 
 export class Actor {
   x: number;
@@ -294,7 +297,7 @@ export class Actor {
     const s = this.skin.sprite;
     const u = 1 / ART;
     const b = bounce(this.motion(), this.hopT, this.hopEase);
-    const dx = Math.round((this.x - camX) * ART) / ART;
+    const dx = Math.round((this.x - camX + b.sway * u) * ART) / ART;
     const dy = Math.round((this.y - camY - b.hop * u) * ART) / ART;
     ctx.save();
     ctx.globalAlpha = Math.min(1, alpha) * this.fade;

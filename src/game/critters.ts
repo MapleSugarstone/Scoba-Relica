@@ -6,7 +6,9 @@ import { CREAM, hexToRgb, hueShift, paletteSwap, showEyes, type RGB } from "../e
 import {
   UNSWAPPED, bodyColors, hueTurn, pairColors, pickTints, sharedSwaps, type ColorCount,
 } from "../sim/breeding";
-import { SHINY_TURN, type ScobaInstance, type Sire, type Summoner, type Tint } from "../sim/scoba";
+import {
+  SHINY_TURN, type FusionPart, type ScobaInstance, type Sire, type Summoner, type Tint,
+} from "../sim/scoba";
 import {
   ABILITIES, MOVES, SPECIES, artNameFor, babyOf, wornBy, type MovementStyle, type Species,
 } from "../sim/species";
@@ -146,13 +148,27 @@ function baseArt(art: Art, sp: Species, forms: readonly FormTag[] = []): ScobaIm
 export function accessoryOf(
   sp: Species, secondaryAbility: string, forms: readonly FormTag[] = [],
 ): string | null {
-  const ability = ABILITIES[secondaryAbility];
-  if (!ability?.accessory) return null;
-  if (sp.secondaryPool.includes(secondaryAbility)) return null;
-  const granted = ability.grantsMove ? MOVES[ability.grantsMove] : undefined;
-  const spent = granted ? wornBy(granted) : null;
-  if (spent && forms.includes(spent)) return null;
-  return ability.accessory;
+  return pieceWorn(sp, [secondaryAbility], forms);
+}
+
+/**
+ * The piece worn for the first of these passives that has one and that the
+ * line does not have drawn in. In a fight the list is every status a Scoba
+ * carries, so a fusion wears the piece of a passive either half brought.
+ */
+export function pieceWorn(
+  sp: Species, carried: readonly string[], forms: readonly FormTag[] = [],
+): string | null {
+  for (const id of carried) {
+    const ability = ABILITIES[id];
+    if (!ability?.accessory) continue;
+    if (sp.primaryAbility === id || sp.secondaryPool.includes(id)) continue;
+    const granted = ability.grantsMove ? MOVES[ability.grantsMove] : undefined;
+    const spent = granted ? wornBy(granted) : null;
+    if (spent && forms.includes(spent)) continue;
+    return ability.accessory;
+  }
+  return null;
 }
 
 /**
@@ -428,6 +444,7 @@ export function forgetBuiltArt(): void {
   tinted.clear();
   masked.clear();
   pawnImages.clear();
+  fusionImages.clear();
   palettes.clear();
   // Both are measured off a built drawing, and moving a piece changes the
   // pixels and now the size of the sheet they were measured on.
@@ -479,8 +496,8 @@ export function tintsFor(
   if (hit) return hit;
   // His own art, with nothing on it that he picked up himself. Inheritance
   // does not compound: a father who wears another line's colours still hands
-  // on the ones his species is drawn in.
-  const his = spriteColors(art, dadSp);
+  // on the ones his species is drawn in. A baby takes them off his line's baby.
+  const his = spriteColors(art, sp.baby ? babyOf(dadSp) ?? dadSp : dadSp);
   // Measured against the drawing the line starts as, so growing up keeps the
   // colours it already had and works out only the ones the new drawing brought
   // with it. A line with no baby form is its own starting point.
@@ -513,14 +530,15 @@ function carriedTints(his: ColorCount[], base: ColorCount[], mine: ColorCount[])
   const kept = baseTints.filter((t) => here.has(t.from));
   // What the line's own art was left holding, which the costume holds too.
   const painted = new Set(baseTints.map((t) => t.from));
-  const settled = new Set([...painted, ...base.map((c) => c.hex)]);
+  const settled = new Set([...painted, ...base.map((c) => c.hex), ...his.map((c) => c.hex)]);
   const fresh = bodyColors(mine).filter((c) => !settled.has(c.hex));
   if (fresh.length === 0) return kept;
   const spent = new Set(kept.map((t) => t.to));
   const left = bodyColors(his).filter((c) => !spent.has(c.hex) && !here.has(c.hex));
   // The turn is the one the line's own art took, so colours past his palette
   // go the same way in every drawing of it, however few of his are left here.
-  const primary = bodyColors(base)[0];
+  const theirs = new Set(his.map((c) => c.hex));
+  const primary = bodyColors(base).find((c) => !theirs.has(c.hex));
   const worn = new Set(base.map((c) => c.hex));
   const donor = bodyColors(his).find((c) => !worn.has(c.hex)) ?? left[0];
   const turn = primary && donor ? hueTurn(primary.hex, donor.hex) : 0;
@@ -798,15 +816,80 @@ function pawnImage(art: Art, sp: Species, from: Summoner, swaps: Tint[]): ScobaI
   return img;
 }
 
+const fusionImages = new Map<string, FusionArt>();
+
+/** A fusion's drawing, whether it glitters, and where its feet are before the body offset. */
+interface FusionArt {
+  img: ScobaImage;
+  shiny: boolean;
+  px: number;
+  py: number;
+}
+
+/**
+ * A fusion's art in both halves' colours. The fusion is drawn in the two lines'
+ * own palettes put together, so whatever each half wears over its own drawing,
+ * a father's marks or a shiny's turn, is worked out against that half's line
+ * and laid over the fusion wherever the fusion has that colour.
+ *
+ * Each pass is one swap for the lot, first match winning, so a colour the first
+ * half repaints is not repainted again by the second. The shiny turns come
+ * after the fathers' marks, because they read the palette those leave.
+ */
+function fusionImage(
+  art: Art, sp: Species, parts: readonly FusionPart[], costume: string, piece: string | null,
+): FusionArt {
+  const halves = parts.map((p) => `${p.speciesId}${sireKey(p.sire)}${p.shiny ? ":shiny" : ""}/${p.forms.join("+")}`);
+  const key = `${sp.id}=${halves.join("&")}@${costume}+${piece ?? ""}`;
+  const hit = fusionImages.get(key);
+  if (hit) return hit;
+  const marks: Tint[] = [];
+  const turns: Tint[] = [];
+  for (const p of parts) {
+    const own = SPECIES[p.speciesId];
+    if (!own) continue;
+    marks.push(...tintsFor(art, own, p.sire, p.forms));
+    if (p.shiny) turns.push(...shinyTints(art, own, p.sire));
+  }
+  const pairs = (list: Tint[]): [RGB, RGB][] => list.map((t): [RGB, RGB] => [hexToRgb(t.from), hexToRgb(t.to)]);
+  let img = baseArt(art, sp);
+  if (marks.length > 0) img = paletteSwap(img, pairs(marks));
+  if (turns.length > 0) img = paletteSwap(img, pairs(turns));
+  img = showEyes(img);
+  let pivot = pivotOf(sizeOf(img));
+  if (piece) {
+    const grown = withAccessory(art, costume, img, piece);
+    img = grown.img;
+    pivot = { px: pivot.px + grown.dx, py: pivot.py + grown.dy };
+  }
+  const built = { img, shiny: turns.length > 0, ...pivot };
+  fusionImages.set(key, built);
+  return built;
+}
+
 /**
  * The skin for one Scoba as it actually is: a Pawn takes its colours from
- * whoever called it and comes out small, everything else wears its own.
+ * whoever called it and comes out small, a fusion takes both its halves', and
+ * everything else wears its own.
  */
 export function critterLook(
-  art: Art, sp: Species, s: ScobaInstance, forms: readonly FormTag[] = [],
+  art: Art, sp: Species, s: ScobaInstance, forms: readonly FormTag[] = [], carried?: readonly string[],
 ): ActorSkin {
+  if (s.fusedFrom) {
+    const costume = formKey(sp, forms);
+    const worn = fusionImage(art, sp, s.fusedFrom, costume, lookOf(sp, s, forms, carried).accessory ?? null);
+    const body = setupFor(costume).body;
+    const skin: ActorSkin = {
+      sprite: { img: worn.img, px: worn.px - (body?.dx ?? 0), py: worn.py - (body?.dy ?? 0) },
+      motion: movementOf(sp, forms),
+      sparkle: worn.shiny,
+    };
+    const shadow = shadowSprite(art, costume);
+    if (shadow) skin.shadow = shadow;
+    return skin;
+  }
   if (!s.summoner) {
-    return critterSkin(art, sp, s.sire, s.shiny, lookOf(sp, s, forms));
+    return critterSkin(art, sp, s.sire, s.shiny, lookOf(sp, s, forms, carried));
   }
   const look = pawnLook(art, sp, s.summoner);
   const worn = pawnImage(art, sp, s.summoner, look.swaps);
@@ -888,10 +971,14 @@ export function spriteColors(
 
 /**
  * What one Scoba is wearing, for anywhere that has the Scoba rather than just
- * its species. `forms` is battle state and is passed in by whoever holds it.
+ * its species. `forms` and `carried`, the ids of the statuses it carries, are
+ * battle state and are passed in by whoever holds them.
  */
-export function lookOf(sp: Species, s: ScobaInstance, forms: readonly FormTag[] = []): LookOpts {
-  return { forms, accessory: accessoryOf(sp, s.secondaryAbility, forms) };
+export function lookOf(
+  sp: Species, s: ScobaInstance, forms: readonly FormTag[] = [], carried?: readonly string[],
+): LookOpts {
+  const accessory = carried ? pieceWorn(sp, carried, forms) : accessoryOf(sp, s.secondaryAbility, forms);
+  return { forms, accessory };
 }
 
 /** Menu portrait, cropped to the critter itself and shown at world scale. */

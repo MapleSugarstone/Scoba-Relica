@@ -22,6 +22,9 @@ import type { TargetMode } from "./targeting";
 
 const pct = (f: number): string => `${Math.round(f * 100)}%`;
 
+/** A passive by the name a player sees, for a step that names one by id. */
+const passiveName = (id: string): string => ABILITIES[id]?.name ?? statusName(id);
+
 /**
  * A flat amount a status gains with its source's level, as what each level adds.
  * The number is written in the script as what it comes to at the level ceiling,
@@ -86,7 +89,7 @@ const TARGETS: Record<TargetMode, Subject> = {
 };
 
 /** Who a status's step reaches, named from the Scoba carrying it. */
-const SCOPES: Record<Exclude<Who, { aim: number }>, Subject> = {
+const SCOPES: Record<Extract<Who, string>, Subject> = {
   self: SELF,
   source: one("whoever left it", "whoever left it's"),
   other: THE_TARGET,
@@ -96,9 +99,19 @@ const SCOPES: Record<Exclude<Who, { aim: number }>, Subject> = {
   others: many("every other Scoba", "every other Scoba's"),
   raised: one("the Scoba it raised", "the raised Scoba's"),
   traveller: one("the Scoba that travelled", "the travelling Scoba's"),
+  "field-allies": many("all allies", "every ally's"),
+  "field-enemies": many("all enemies", "every enemy's"),
+  "ally-scobas": many("all ally Scobas", "every ally Scoba's"),
+  "enemy-scobas": many("all enemy Scobas", "every enemy Scoba's"),
 };
 
-const scopeOf = (w: Who): Subject => (typeof w === "object" ? THE_TARGET : SCOPES[w]);
+/** Who a step reaches, named: a word, the next Scoba from a group, or the first of two that reaches anyone. */
+const scopeOf = (w: Who): Subject => {
+  if (typeof w !== "object") return SCOPES[w];
+  if ("aim" in w) return THE_TARGET;
+  if ("next" in w) return w.next === "ally" ? one("the other ally Scoba", "the other ally Scoba's") : one("the other enemy Scoba", "the other enemy Scoba's");
+  return scopeOf(w.first);
+};
 
 /** A sentence, and whether it opens on a trigger rather than following on. */
 interface Piece {
@@ -123,6 +136,7 @@ function when(t: StatusTrigger): string {
     case "deal-physical": return "On landing physical damage";
     case "deal-any": return "On landing a hit";
     case "deal-spell": return "On landing a spell";
+    case "deal-element": return `On landing ${type(t.element)}${t.category !== undefined ? ` ${t.category}` : ""} damage`;
     case "kill-attack": return "On kill";
     case "death": return "On fainting";
     case "switch-in": return "On entering the field";
@@ -217,6 +231,13 @@ function state(e: StatusEffect, def: StatusDef, who: Subject): string | null {
     case "soften": return `cuts the next hit it takes by ${pct(e.frac)}`;
     case "mark-power":
       return `makes the marks it leaves that stand for ${turns(e.minTurns)} or more ${pct(e.mult - 1)} stronger`;
+    case "mark-worth": {
+      const which = e.polarity === "bad" ? "negative" : "positive";
+      const where = e.reach === "self" ? "its" : e.reach === "enemies" ? "enemies'" : "allies'";
+      return `makes ${where} ${which} statuses ${pct(e.mult - 1)} more effective`;
+    }
+    case "heal-bonus":
+      return `makes every heal on an ally restore ${perLevel(e.flatAtCeiling)} more per level`;
     default: return null;
   }
 }
@@ -293,7 +314,7 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
     }
     case "heal": return `heals ${healAmount(e.basis, e.frac, who)}`;
     case "summon": return summons(e.species, e.level, who);
-    case "mana": return `gains ${e.amount}% mana`;
+    case "mana": return `gains ${e.amount}% mana${e.second ? " in its second mana bar" : ""}`;
     case "inflict": {
       const table = opts.statuses ?? STATUSES;
       const inner = table[e.status];
@@ -394,6 +415,18 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
     out.push({ text: lead ? `${lead}, ${body}.` : `${cap(body)}.`, triggered: lead !== "" });
     if (def.stacks && given.length === 0) out.push({ text: "Stacks.", triggered: true });
   }
+  // Every `when` block after the first says what it does on its own trigger.
+  for (const block of def.also ?? []) {
+    const acts = block.steps.filter((e) => !SHOWN.has(e.kind));
+    const verbs = acts.map((e) => fired(e, def, who, opts)).filter((v) => v !== "").join(" and ");
+    if (verbs === "") continue;
+    const lead = when(block.trigger);
+    const body = `${who.noun ? `${who.noun} ` : ""}${verbs}`;
+    out.push({ text: lead ? `${lead}, ${body}.` : `${cap(body)}.`, triggered: lead !== "" });
+  }
+  if (def.basicAttack) {
+    out.push({ text: `Its basic attack is ${MOVES[def.basicAttack]?.name ?? def.basicAttack}.`, triggered: false });
+  }
 
   if (def.persists === false && !def.innate) {
     if (opts.nested && out.length > 0) {
@@ -402,6 +435,13 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
     } else {
       out.push({ text: "Lost on switching out.", triggered: true });
     }
+  }
+  if (def.fuses) {
+    const into = SPECIES[def.fuses.into]?.name ?? def.fuses.into;
+    out.push({
+      text: `On entry in Hyper-Mode, fuses with an ally in Hyper-Mode that has ${passiveName(def.fuses.partner)} into ${into}.`,
+      triggered: true,
+    });
   }
   return out;
 }
@@ -444,6 +484,9 @@ export function describeStatus(id: string, opts: StatusOpts = {}): string {
   }
   const said = join(statusPieces(def, HOLDER, opts));
   if (said !== "") return said;
+  // A passive carried only to show its sigil says what it hands over.
+  const grant = grantLine(id);
+  if (grant !== "") return grant;
   // A mark that does nothing on its own is a count something else reads.
   const readers = Object.values(MOVES)
     .filter((m) => !m.derived && allSteps(m.cast).some((s) => s.kind === "hit" && s.perStackOf === id))
@@ -457,11 +500,16 @@ export function describeAbility(id: string): string {
   const ability = ABILITIES[id];
   if (!ability) return "";
   const parts = abilityStatuses(id).map((sid) => describeStatus(sid)).filter((s) => s !== "");
-  const granted = ability.grantsMove ? MOVES[ability.grantsMove] : null;
-  if (granted) {
-    parts.unshift(`Lets it cast ${granted.name}${granted.oncePerBattle ? " once a battle" : ""}.`);
-  }
+  const grant = grantLine(id);
+  if (grant !== "" && !parts.includes(grant)) parts.unshift(grant);
   return parts.join(" ");
+}
+
+/** The move a passive hands over, as a sentence, or nothing for one that hands none over. */
+function grantLine(id: string): string {
+  const moveId = ABILITIES[id]?.grantsMove;
+  const move = moveId ? MOVES[moveId] : undefined;
+  return move ? `Lets it cast ${move.name}${move.oncePerBattle ? " once a battle" : ""}.` : "";
 }
 
 function fieldClauses(f: FieldDef): string[] {
@@ -493,7 +541,7 @@ function movePieces(move: Move, opts: StatusOpts): Piece[] {
     return t;
   };
   const who = (w: Who): Subject => {
-    if (typeof w === "object") return subject(w.aim);
+    if (typeof w === "object") return "aim" in w ? subject(w.aim) : scopeOf(w);
     if (w === "self" || w === "source") return SELF;
     return SCOPES[w];
   };
@@ -552,7 +600,10 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
         text: e.slot === null ? "Hands it over for the battle." : `Puts it in slot ${e.slot + 1} for the battle.`,
         triggered: false,
       }];
-    case "mana": return [{ text: `Gives ${who(e.on).noun || "itself"} ${e.amount}% mana.`, triggered: false }];
+    case "mana": {
+      const bar = e.second ? " in its second mana bar" : "";
+      return [{ text: `Gives ${who(e.on).noun || "itself"} ${e.amount}% mana${bar}.`, triggered: false }];
+    }
     case "field": {
       const f = FIELDS[e.field];
       const side = e.scope === "both" ? "both sides" : e.scope === "allies" ? "its side" : "the enemy side";

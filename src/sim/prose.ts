@@ -94,6 +94,7 @@ export const TOKENS = [
   { form: "[heal]", says: "what the move heals for" },
   { form: "[heal:2]", says: "what the move's second heal restores" },
   { form: "[heal:id]", says: "what a mark's heal restores" },
+  { form: "[heal:id:2]", says: "what a mark's second heal restores" },
   { form: "[power:id]", says: "what a mark's power takes from or adds to a stat" },
   { form: "[scaling:2]", says: "the move's second scaled number: hits, heals, payouts, the marks it leaves and the marks those leave, in the order the cast runs them" },
   { form: "[status:id]", says: "a mark, named after the mark" },
@@ -106,12 +107,16 @@ const pct = (n: number): string => `${Math.round(n * 100)}%`;
 /** Reads one bracket's contents, or null where it names nothing. */
 export function readToken(inside: string): { token: Token; label?: string } | null {
   const [head = "", shown] = inside.split("|", 2);
-  const [rawOf = "", rawId = ""] = head.split(":", 2);
+  const [rawOf = "", rawId = "", rawNth = ""] = head.split(":", 3);
   const of = rawOf.trim();
   const id = rawId.trim();
   const label = shown?.trim();
   if (of === "damage" || of === "heal") {
-    const which = /^[1-9]\d*$/.test(id) ? { nth: Number(id) } : id ? { id } : {};
+    // "[heal:2]" is the move's second heal, and "[heal:add:2]" a mark's second.
+    const nth = rawNth.trim();
+    const which = /^[1-9]\d*$/.test(id)
+      ? { nth: Number(id) }
+      : id ? { id, ...(/^[1-9]\d*$/.test(nth) ? { nth: Number(nth) } : {}) } : {};
     return { token: { of, ...which }, ...(label ? { label } : {}) };
   }
   if (of === "power" && id !== "") {
@@ -144,7 +149,7 @@ export function resolveToken(token: Token, at: ProseFor): Part & { kind: "token"
   if (token.of === "power") return powerToken(token.id, at);
   // A token naming a mark is read off that mark rather than off the move, so
   // one line can say what the hit does and what the mark it leaves does.
-  if (token.of !== "scaling" && token.id !== undefined) return markToken(token.of, token.id, at);
+  if (token.of !== "scaling" && token.id !== undefined) return markToken(token.of, token.id, at, token.nth ?? 1);
   const move = at.move ?? null;
   if (!move) return { kind: "token", label: "?", detail: "Nothing to read this off." };
   if (token.of === "scaling") {
@@ -341,10 +346,15 @@ function reducedBy(category: DamageCategory, what: "damage" | "statuses"): strin
   return `${kind} ${what} ${what === "damage" ? "is" : "are"} reduced by the target's ${armor}.`;
 }
 
-/** What one mark's damage or heal comes to, read off the mark itself. */
-function markToken(of: "damage" | "heal", id: string, at: ProseFor): Part & { kind: "token" } {
+/**
+ * What one mark's damage or heal comes to, read off the mark itself. `nth`
+ * counts that kind of step through every `when` block the mark has, in the
+ * order they are written.
+ */
+function markToken(of: "damage" | "heal", id: string, at: ProseFor, nth = 1): Part & { kind: "token" } {
   const def = STATUSES[id];
-  const effect = def?.effects.find((e) => e.kind === of);
+  const steps = def ? [...def.effects, ...(def.also ?? []).flatMap((b) => b.steps)] : [];
+  const effect = steps.filter((e) => e.kind === of)[nth - 1];
   if (!def || !effect) {
     return { kind: "token", label: id, detail: `No ${of} on a mark called ${id}.` };
   }

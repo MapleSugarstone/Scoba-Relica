@@ -92,6 +92,10 @@ html.soft .bfront { image-rendering: auto; }
 .bcard.bplate .bbar { height: 8px; }
 .bcard.bplate .bbar.mp { height: 6px; }
 .bcard.bplate .bfoot { min-height: 16px; }
+/* A fusion's two bars of each kind, side by side across the panel's width,
+   the first slot's on the left, so each half's bar is half a bar long. */
+.bcard .bpair { display: flex; gap: 4px; align-self: stretch; width: 100%; }
+.bcard .bpair > .bbar { flex: 1 1 0; width: auto; min-width: 0; }
 /* Two badges side by side are 84 px of art, which is what sets the width
    above. A third wraps rather than pushing the panel out. */
 .bcard.bplate .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }

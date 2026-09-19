@@ -363,6 +363,10 @@ export function setSetup(costume: string, setup: CostumeSetup): void {
   if (shadow && (shadow.art !== DEFAULT_SHADOW || moved(shadow))) {
     kept.shadow = { art: shadow.art, ...round(shadow) };
   }
+  // The gait is set by `setMovement` alone, and a drag or a nudge is not about
+  // it: rebuilding the record from the spots dropped whatever gait was picked.
+  const gait = doc.costumes[costume]?.movement;
+  if (gait !== undefined) kept.movement = gait;
   if (Object.keys(kept).length === 0) delete doc.costumes[costume];
   else doc.costumes[costume] = kept;
   save();

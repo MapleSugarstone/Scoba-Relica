@@ -9,7 +9,7 @@
 import type { Art } from "../engine/assets";
 import { sfx } from "../engine/sfx";
 import { displayName } from "../sim/battle";
-import { face, openBrowser, openScobaCard } from "./browser";
+import { face, openBrowser, openScobaCard, speciesFace } from "./browser";
 import { typeIcon, typeIcons } from "./typeicon";
 import { devMode } from "../version";
 import {
@@ -20,8 +20,9 @@ import {
   levelUp,
   levelUpError,
 } from "../sim/growth";
-import { maxHp, speciesName, type ScobaInstance } from "../sim/scoba";
-import { MOVES, SPECIES, evolutionOf, moveTypes } from "../sim/species";
+import { BABY_EVOLVE_LEVEL, MAX_LEVEL, makeWild, maxHp, speciesName, type ScobaInstance } from "../sim/scoba";
+import { MOVES, SPECIES, evolutionOf, moveTypes, rosterSpecies, typeLabel, typesOf } from "../sim/species";
+import { rngFrom } from "../sim/rng";
 import type { SaveData, SlotId } from "../save/save";
 import {
   PARTY_PER_CHARACTER,
@@ -108,6 +109,16 @@ export function openBox(ui: UI, art: Art, save: SaveData, hooks: RosterHooks): v
     empty: "The box is empty. Everything caught goes here.",
     source: () => boxOf(save, save.localSlot),
     onBack: hooks.onBack,
+    lead: (back) => {
+      const cell = el("button", "bxCell bxSpawn");
+      cell.title = "Debug: spawn any Scoba into your box";
+      cell.append(el("span", "bxSpawnPlus", "+"), el("span", "bxSpawnWord", "Debug"));
+      cell.addEventListener("click", () => {
+        sfx.tap();
+        openSpawn(ui, art, save, hooks.onChange, back);
+      });
+      return cell;
+    },
     foot: (ctx) => {
       // A partner arriving with the screen open takes their character back.
       if (!hooks.solo()) stripOwner = save.localSlot;
@@ -205,6 +216,138 @@ export function openBox(ui: UI, art: Art, save: SaveData, hooks: RosterHooks): v
       }
       return strip;
     },
+  });
+}
+
+/** What the spawn screen was last set to, so a run of spawns keeps its settings. */
+const spawnWith = { level: 1, shiny: false };
+/** Spawns this session, so two in the same millisecond still get their own uid. */
+let spawned = 0;
+
+/**
+ * Debug: puts any Scoba on the roster in your box, at the level set here and
+ * shiny only when asked, for looking at a line without catching or breeding it.
+ */
+function openSpawn(ui: UI, art: Art, save: SaveData, onChange: () => void, onBack: () => void): void {
+  let chosen: string | null = null;
+  ui.screen((s) => {
+    s.classList.add("tight");
+    s.appendChild(el("h2", undefined, "Spawn a Scoba"));
+    s.appendChild(el("div", "sub", "Debug: it goes straight into your box."));
+    const top = el("div", "spawnTop");
+
+    const search = el("div", "dbgSearch");
+    const field = el("input", "dbgField");
+    field.type = "search";
+    field.placeholder = "Search every Scoba";
+    field.autocomplete = "off";
+    const hits = el("div", "dbgHits spawnHits");
+    search.append(field, hits);
+
+    const side = el("div", "spawnSide");
+    const detail = el("div", "card pick");
+    const spawn = el("button", "pill", "Spawn");
+
+    const renderDetail = (): void => {
+      detail.innerHTML = "";
+      const sp = chosen ? SPECIES[chosen] : undefined;
+      spawn.disabled = !sp;
+      if (!sp) {
+        detail.appendChild(el("div", "sub", "Pick one to spawn it."));
+        return;
+      }
+      const stage = el("div", "pickStage");
+      stage.appendChild(speciesFace(art, sp, spawnWith.shiny));
+      const kinds = el("div", "spawnTypes");
+      for (const t of typesOf(sp)) kinds.appendChild(typeIcon(t));
+      detail.append(stage, el("div", "pickName", sp.name), kinds);
+    };
+
+    // The list is marked in place, so picking one does not scroll it back to the top.
+    const renderHits = (): void => {
+      hits.innerHTML = "";
+      const q = field.value.trim().toLowerCase();
+      const found = rosterSpecies()
+        .filter((sp) => q === "" || sp.name.toLowerCase().includes(q) || sp.id.includes(q))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      if (found.length === 0) hits.appendChild(el("div", "dim", "Nothing by that name."));
+      for (const sp of found) {
+        const b = el("button", `dbgHit${chosen === sp.id ? " sel" : ""}`);
+        b.dataset["id"] = sp.id;
+        b.append(el("span", undefined, sp.name), el("span", "sub", typeLabel(sp)));
+        b.addEventListener("click", () => {
+          sfx.tap();
+          chosen = sp.id;
+          for (const hit of hits.querySelectorAll<HTMLElement>(".dbgHit")) {
+            hit.classList.toggle("sel", hit.dataset["id"] === chosen);
+          }
+          renderDetail();
+        });
+        hits.appendChild(b);
+      }
+    };
+    field.addEventListener("input", renderHits);
+
+    const levelRow = el("label", "spawnLevel");
+    const level = el("input", "dbgField");
+    level.type = "number";
+    level.min = "1";
+    level.max = String(MAX_LEVEL);
+    level.value = String(spawnWith.level);
+    const readLevel = (): number => {
+      spawnWith.level = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(level.value)) || 1));
+      level.value = String(spawnWith.level);
+      return spawnWith.level;
+    };
+    level.addEventListener("change", readLevel);
+    levelRow.append(el("span", undefined, "Level"), level);
+
+    const shiny = el("button", "bxDebug");
+    const paintShiny = (): void => {
+      shiny.className = `bxDebug${spawnWith.shiny ? " on" : ""}`;
+      shiny.textContent = spawnWith.shiny ? "Shiny. Tap for an ordinary one." : "Not shiny. Tap for a shiny one.";
+    };
+    shiny.addEventListener("click", () => {
+      sfx.tap();
+      spawnWith.shiny = !spawnWith.shiny;
+      paintShiny();
+      renderDetail();
+    });
+    paintShiny();
+
+    spawn.addEventListener("click", () => {
+      const sp = chosen ? SPECIES[chosen] : undefined;
+      if (!sp) return;
+      const asked = readLevel();
+      const lv = sp.baby ? Math.min(asked, BABY_EVOLVE_LEVEL - 1) : asked;
+      const made = makeWild(sp.id, lv, rngFrom(`${save.worldSeed}:spawn:${Date.now().toString(36)}:${spawned++}`));
+      if (spawnWith.shiny) made.shiny = true;
+      else delete made.shiny;
+      made.owner = save.localSlot;
+      save.box.push(made);
+      sfx.confirm();
+      onChange();
+      ui.toast(lv === asked
+        ? `${displayName(made)} is in your box at Lv ${lv}.`
+        : `${displayName(made)} is in your box at Lv ${lv}. A baby grows up at Lv ${BABY_EVOLVE_LEVEL}.`);
+    });
+
+    const back = el("button", "pill", "Back");
+    back.addEventListener("click", () => {
+      sfx.back();
+      onBack();
+    });
+    const row = el("div", "row");
+    row.append(spawn, back);
+    const controls = el("div", "card spawnControls");
+    controls.append(levelRow, shiny);
+    side.append(detail, controls, row);
+    top.append(search, side);
+    s.appendChild(top);
+
+    renderHits();
+    renderDetail();
+    field.focus();
   });
 }
 

@@ -63,9 +63,17 @@ interface Names {
 }
 
 function who(w: Who, names: Names): string {
-  if (typeof w === "object") return names.aims[w.aim] ?? `target${w.aim + 1}`;
+  if (typeof w === "object") {
+    if ("aim" in w) return names.aims[w.aim] ?? `target${w.aim + 1}`;
+    if ("next" in w) return `next ${w.next} scoba from ${who(w.from, names)}`;
+    return `${who(w.first, names)} or ${who(w.then, names)}`;
+  }
   switch (w) {
     case "self": return names.kind === "move" ? "caster" : "holder";
+    case "field-allies": return "allies on the field";
+    case "field-enemies": return "enemies on the field";
+    case "ally-scobas": return "ally scobas";
+    case "enemy-scobas": return "enemy scobas";
     default: return w;
   }
 }
@@ -82,6 +90,7 @@ function trigger(t: StatusTrigger): string {
   switch (t.on) {
     case "passive": return "";
     case "hit-element": return `hit by ${t.element}`;
+    case "deal-element": return `it lands ${t.element}${t.category !== undefined ? ` ${t.category}` : ""}`;
     case "hp-below": return `below ${pct(t.frac)} hp`;
     default: return TRIGGER_WORDS.write[t.on];
   }
@@ -153,7 +162,7 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
         : `heal ${who(s.to, names)} with it`}`);
     case "summon": return line(`summon ${s.species} at level ${num(s.level)}`);
     case "grant-item": return line(`find ${num(s.count)} ${s.item}`);
-    case "mana": return line(`give ${who(s.on, names)} ${num(s.amount)} mana`);
+    case "mana": return line(`give ${who(s.on, names)} ${num(s.amount)} mana${s.second ? ", second bar" : ""}`);
     case "field": return line(`lay ${s.field} over ${FIELD_SCOPE_WORDS.write[s.scope]}`);
     case "draw-card":
       return line(["draw a card", ...s.changes.map((c) => `swap ${c.from} for ${c.to} ${pct(c.chance)} of the time`)].join(", "));
@@ -175,12 +184,16 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
         + ` ${s.slot === null ? "as extra" : `in slot ${s.slot + 1}`}`);
     case "say": return line(`say ${quote(s.text)}`);
     case "wear": return line(`${who(s.who, names)} wears ${bare(s.form)}`);
-    case "motion": return line(`${who(s.who, names)} ${s.anim}`);
+    case "motion": {
+      const long = s.seconds !== undefined ? `, for ${num(s.seconds)} second${s.seconds === 1 ? "" : "s"}` : "";
+      return line(`${who(s.who, names)} ${s.anim}${long}`);
+    }
     case "throw": {
       const art = s.drawn ? " drawn card" : s.art !== undefined ? ` ${bare(s.art)}` : "";
       const from = s.from !== undefined ? ` from ${bare(s.from)}` : "";
       const sound = s.sound === null ? ", silent" : s.sound !== undefined ? `, sound ${bare(s.sound)}` : "";
-      return line(`throw${art} as ${s.path}${from} to ${who(s.to, names)}${sound}`);
+      const off = s.off !== undefined ? `, off ${who(s.off, names)}` : "";
+      return line(`throw${art} as ${s.path}${from} to ${who(s.to, names)}${sound}${off}`);
     }
     case "show": {
       const place = s.path === "wheel" || s.path === "clock" ? "over" : "on";
@@ -216,6 +229,11 @@ function standingLine(e: Standing): string {
     case "ward": return `blocks ${e.element} hits`;
     case "soften": return `cuts the next hit by ${pct(e.frac)}`;
     case "mark-power": return `marks it leaves hit ${times(e.mult)} if they last ${num(e.minTurns)} turns or more`;
+    case "mark-worth": {
+      const where = e.reach === "self" ? "it carries" : `on ${e.reach}`;
+      return `${e.polarity} marks ${where} hit ${times(e.mult)}${e.shown !== undefined ? `, shown as ${e.shown}` : ""}`;
+    }
+    case "heal-bonus": return `heals on allies + ${num(e.flatAtCeiling)} at max level`;
   }
 }
 
@@ -257,6 +275,10 @@ function behaviourLines(def: StatusDef): string[] {
     out.push(`${INDENT}when ${trigger(def.trigger)}:`);
     out.push(...steps.flatMap((s) => stepLines(s, { kind: "status", aims: [] }, 2)));
   }
+  for (const block of def.also ?? []) {
+    out.push(`${INDENT}when ${trigger(block.trigger)}:`);
+    out.push(...block.steps.flatMap((s) => stepLines(s, { kind: "status", aims: [] }, 2)));
+  }
   return out;
 }
 
@@ -291,6 +313,8 @@ export function writeStatus(s: StatusDef): string {
   if (s.stacks) out.push(`${INDENT}stacks${s.maxStacks >= 99 ? "" : ` up to ${num(s.maxStacks)}`}`);
   if (!s.persists) out.push(`${INDENT}lost on switching out`);
   if (s.hand) out.push(`${INDENT}shows a hand of cards`);
+  if (s.unseen) out.push(`${INDENT}no sigil`);
+  if (s.asWritten) out.push(`${INDENT}always as written`);
   if (s.growth !== undefined) {
     out.push(`${INDENT}grows ${s.growthEach === undefined ? "" : `${num(s.growthEach)} `}${bare(s.growth)}`);
   }
@@ -306,6 +330,8 @@ export function writePassive(a: Ability, status: StatusDef | null): string {
   if (status?.icon !== undefined) out.push(`${INDENT}icon ${bare(status.icon)}`);
   if (a.accessory !== undefined) out.push(`${INDENT}wears ${bare(a.accessory)}`);
   if (a.grantsMove !== undefined) out.push(`${INDENT}grants move ${a.grantsMove}`);
+  if (status?.basicAttack) out.push(`${INDENT}basic attack is ${status.basicAttack}`);
+  if (status?.fuses) out.push(`${INDENT}fuses with ${status.fuses.partner} into ${status.fuses.into}`);
   if (status) {
     if (status.charges === 1) out.push(`${INDENT}once per battle`);
     else if (status.charges !== null) out.push(`${INDENT}charges ${num(status.charges)}`);

@@ -15,7 +15,7 @@ import { DEFAULT_LOOK } from "../engine/recolor";
 import { ART } from "../engine/renderer";
 import {
   accessoryBox, accessorySpot, autoPieceSpot, centerAnchor, contentBox, contentMiddle,
-  critterImage, forgetBuiltArt, movementOf, originAnchor,
+  critterImage, forgetBuiltArt, movementOf, originAnchor, pivotOf, sizeOf,
 } from "../game/critters";
 import { MOTIONS } from "../game/actors";
 import { bounce } from "../engine/sprite";
@@ -40,6 +40,8 @@ import {
 
 /** How much bigger than the sprite the preview is drawn. */
 const ZOOM = 3;
+/** The zooms the stage steps through, whole numbers so every art pixel stays square. */
+const ZOOMS = [1, 2, 3, 4, 6, 8];
 
 /**
  * How the preview moves the drawing. Each is a thing the game actually does
@@ -72,7 +74,7 @@ const WALK_ON_PACE = 40;
 const DEX_CELL = { w: 74, h: 62 };
 
 /** Every gait a line can be given, and the entry that hands it back to its species. */
-const GAITS: MovementStyle[] = ["hop", "scamper", "hover", "skitter"];
+const GAITS: MovementStyle[] = ["hop", "scamper", "hover", "skitter", "moonhop"];
 
 /**
  * What the drag moves. Each is one thing stored against a costume, except the
@@ -313,6 +315,7 @@ function ensureStyles(): void {
     .cosMain { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
     .cosStage { display: flex; justify-content: center; padding: 6px; }
     .cosCanvas { image-rendering: pixelated; touch-action: none; cursor: crosshair; }
+    .cosZoom { min-width: 2.5em; text-align: center; align-self: center; font-size: 12px; }
     .cosField {
       cursor: text;
       width: 100%;
@@ -819,6 +822,16 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
   const undoB = el("button", "cosMini", "Undo");
   const redoB = el("button", "cosMini", "Redo");
   const resetB = el("button", "cosMini cosWarn", "Reset");
+  // How close the stage is, for a drawing bigger than the sheet or a pixel
+  // that needs looking at. The wheel over the stage does the same.
+  const zoomOutB = el("button", "cosMini", "−");
+  zoomOutB.title = "Zoom out about the feet. The wheel over the stage zooms about the pointer.";
+  const zoomLabel = el("span", "cosZoom", "");
+  const zoomInB = el("button", "cosMini", "+");
+  zoomInB.title = "Zoom in about the feet. The wheel over the stage zooms about the pointer.";
+  steps.appendChild(zoomOutB);
+  steps.appendChild(zoomLabel);
+  steps.appendChild(zoomInB);
   steps.appendChild(undoB);
   steps.appendChild(redoB);
   steps.appendChild(resetB);
@@ -863,6 +876,67 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
   canvas.className = "cosCanvas";
   stage.appendChild(canvas);
   main.appendChild(stage);
+
+  // The stage stays one size and the zoom changes how much of the art fits in
+  // it. The feet stay where they sit at the usual zoom, across the middle and
+  // at the same height, so zooming never moves the ground out from under a
+  // drag.
+  let zoom = ZOOM;
+  /**
+   * How far the view has been moved off the feet, in art px. The buttons zoom
+   * about the feet and put this back to nothing; the wheel zooms about the
+   * pointer, which is what moves it.
+   */
+  let pan = { x: 0, y: 0 };
+  /** The art pixel at the stage's top left. */
+  const view = (): { x: number; y: number } => ({
+    x: DOLL_PIVOT.x - canvas.width / (2 * zoom) + pan.x,
+    y: DOLL_PIVOT.y - (DOLL_PIVOT.y * ZOOM) / zoom + pan.y,
+  });
+  /** Where an art pixel lands on the stage. */
+  const onStage = (at: { x: number; y: number }): { x: number; y: number } => {
+    const v = view();
+    return { x: (at.x - v.x) * zoom, y: (at.y - v.y) * zoom };
+  };
+  /** The art pixel under a point on the screen. */
+  const underPointer = (clientX: number, clientY: number): { x: number; y: number } => {
+    const r = canvas.getBoundingClientRect();
+    const v = view();
+    return {
+      x: v.x + ((clientX - r.left) / r.width) * (canvas.width / zoom),
+      y: v.y + ((clientY - r.top) / r.height) * (canvas.height / zoom),
+    };
+  };
+  const showZoom = (): void => {
+    zoomLabel.textContent = `${zoom}x`;
+    zoomOutB.disabled = zoom === ZOOMS[0];
+    zoomInB.disabled = zoom === ZOOMS[ZOOMS.length - 1];
+  };
+  const nextZoom = (by: 1 | -1): number => {
+    const i = ZOOMS.indexOf(zoom);
+    return ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + by))]!;
+  };
+  const stepZoom = (by: 1 | -1): void => {
+    zoom = nextZoom(by);
+    pan = { x: 0, y: 0 };
+    showZoom();
+    paint();
+  };
+  showZoom();
+  zoomOutB.addEventListener("click", () => stepZoom(-1));
+  zoomInB.addEventListener("click", () => stepZoom(1));
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const next = nextZoom(e.deltaY < 0 ? 1 : -1);
+    if (next === zoom) return;
+    // The art pixel under the pointer stays under it.
+    const before = underPointer(e.clientX, e.clientY);
+    zoom = next;
+    const after = underPointer(e.clientX, e.clientY);
+    pan = { x: pan.x + before.x - after.x, y: pan.y + before.y - after.y };
+    showZoom();
+    paint();
+  }, { passive: false });
 
   // Sits with the preview rather than with the buttons, since what it changes
   // is what the preview is showing.
@@ -1124,8 +1198,7 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
   const crosshair = (
     ctx: CanvasRenderingContext2D, at: { x: number; y: number }, color: string, live: boolean,
   ): void => {
-    const x = at.x * ZOOM;
-    const y = at.y * ZOOM;
+    const { x, y } = onStage(at);
     const arm = live ? 9 : 6;
     ctx.strokeStyle = color;
     ctx.lineWidth = live ? 2 : 1;
@@ -1145,10 +1218,13 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     return sp && !onPlayer() ? movementOf(sp, forms) : "hop";
   };
 
-  /** Where the body is this frame: how far it has hopped, how far it leans, and how far off its mark. */
-  const motion = (): { hop: number; angle: number; dx: number } => {
+  /**
+   * Where the body is this frame: how far it has hopped, how far it leans, how
+   * far off its mark, and how far a side-to-side gait has carried it over.
+   */
+  const motion = (): { hop: number; angle: number; dx: number; sway: number } => {
     const b = bounce(MOTIONS[gaitNow()], hopT, hopEase);
-    return { hop: b.hop, angle: b.angle, dx: -walkOff };
+    return { hop: b.hop, angle: b.angle, dx: -walkOff, sway: b.sway };
   };
 
   const paint = (): void => {
@@ -1163,7 +1239,8 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
 
     const moved = motion();
     ctx.save();
-    ctx.scale(ZOOM, ZOOM);
+    const v = view();
+    ctx.setTransform(zoom, 0, 0, zoom, -v.x * zoom, -v.y * zoom);
     // The shadow first, on the ground, then the drawing over it, then the
     // piece on whichever side of it the placement says.
     // Drawn on the same canvas the bodies are, so it goes on whole and lands
@@ -1174,10 +1251,14 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     if (shadowArt) ctx.drawImage(shadowArt, shadow.dx, shadow.dy);
     // Everything from here hangs off the feet, which is what the game turns a
     // drawing about.
-    ctx.translate(DOLL_PIVOT.x, DOLL_PIVOT.y - moved.hop);
+    ctx.translate(DOLL_PIVOT.x + moved.sway, DOLL_PIVOT.y - moved.hop);
     if (moved.angle !== 0) ctx.rotate(moved.angle);
     ctx.translate(-DOLL_PIVOT.x, -DOLL_PIVOT.y);
-    const off = now.body ?? ZERO;
+    // The game hangs a sheet bigger than the doll from its own pivot, so this does too.
+    const own = pivotOf(sizeOf(body));
+    const sheet = { dx: Math.round(DOLL_PIVOT.x - own.px), dy: Math.round(DOLL_PIVOT.y - own.py) };
+    const stored = now.body ?? ZERO;
+    const off = { dx: stored.dx + sheet.dx, dy: stored.dy + sheet.dy };
     let pieceAt: { x: number; y: number } | null = null;
     let pieceBox = { x: 0, y: 0, w: 0, h: 0 };
     if (worn) {
@@ -1200,8 +1281,9 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
     ctx.globalAlpha = 0.4;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, DOLL_PIVOT.y * ZOOM + 0.5);
-    ctx.lineTo(canvas.width, DOLL_PIVOT.y * ZOOM + 0.5);
+    const feet = onStage({ x: 0, y: DOLL_PIVOT.y }).y;
+    ctx.moveTo(0, feet + 0.5);
+    ctx.lineTo(canvas.width, feet + 0.5);
     ctx.stroke();
     ctx.globalAlpha = 1;
 
@@ -1215,8 +1297,8 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
       ctx.strokeStyle = "#e58ab8";
       ctx.setLineDash([4, 3]);
       ctx.lineWidth = 1;
-      ctx.strokeRect(pieceAt.x * ZOOM + 0.5, pieceAt.y * ZOOM + 0.5,
-        pieceBox.w * ZOOM, pieceBox.h * ZOOM);
+      const box = onStage(pieceAt);
+      ctx.strokeRect(box.x + 0.5, box.y + 0.5, pieceBox.w * zoom, pieceBox.h * zoom);
       ctx.setLineDash([]);
     }
   };
@@ -1290,13 +1372,7 @@ export function buildCosmeticsPanel(art: Art, host: PanelHost): Panel {
   };
 
   // --- dragging ---
-  const toSprite = (e: PointerEvent): { x: number; y: number } => {
-    const r = canvas.getBoundingClientRect();
-    return {
-      x: ((e.clientX - r.left) / r.width) * DOLL_W,
-      y: ((e.clientY - r.top) / r.height) * DOLL_H,
-    };
-  };
+  const toSprite = (e: PointerEvent): { x: number; y: number } => underPointer(e.clientX, e.clientY);
   canvas.addEventListener("pointerdown", (e) => {
     const at = toSprite(e);
     dragging = { fromX: at.x, fromY: at.y, dx: 0, dy: 0 };

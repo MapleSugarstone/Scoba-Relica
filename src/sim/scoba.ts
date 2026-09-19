@@ -53,6 +53,20 @@ export interface Summoner {
   repaint?: boolean;
 }
 
+/**
+ * One of the two Scobas a fusion was made of, as it was when it fused: what it
+ * is, the colours it wore, and its elements. The fusion is painted in both
+ * halves' colours and fights as every element either had.
+ */
+export interface FusionPart {
+  speciesId: string;
+  sire?: Sire;
+  shiny?: boolean;
+  /** The costumes it was wearing, which is Hyper-Mode at least. */
+  forms: string[];
+  types: ElementType[];
+}
+
 export interface ScobaInstance {
   uid: string;
   speciesId: string;
@@ -115,6 +129,11 @@ export interface ScobaInstance {
   shiny?: boolean;
   /** Pawns only: who called it up, which is what it takes its colours from. */
   summoner?: Summoner;
+  /**
+   * Fusions only: the two it was made of, first slot first. A fusion is built
+   * in a battle and gone at the end of it, so this is never saved.
+   */
+  fusedFrom?: FusionPart[];
 }
 
 /** Nobody grows past this, by xp or by Aetus. Base stat lines are measured
@@ -278,6 +297,8 @@ export function moveName(id: string): string {
  * the species, because a bred Scoba is not quite its species any more.
  */
 export function scobaTypes(s: ScobaInstance): ElementType[] {
+  // A fusion is every element either half had, which can be up to four.
+  if (s.fusedFrom) return [...new Set(s.fusedFrom.flatMap((p) => p.types))];
   const sp = SPECIES[s.speciesId];
   if (!sp) return [];
   const first = s.type1 ?? sp.type;
@@ -372,6 +393,16 @@ export function rescaleLine(line: Stats, from: Stats, to: Stats): Stats {
     out[name] = from[name] > 0
       ? Math.round(line[name] * (to[name] / from[name]))
       : Math.round(line[name] * budget);
+  }
+  // A stat the first form barely spends on can grow many times over, and a
+  // father heavy in it pushed a bred line past what its new form is built on.
+  // A line may be as big against its new form as it was against its old one
+  // and no bigger, so past that the whole line comes down together and keeps
+  // its shape.
+  const total = statTotal(out);
+  const room = statTotal(to) * Math.max(1, statTotal(line) / Math.max(1, statTotal(from)));
+  if (total > room) {
+    for (const name of STAT_NAMES) out[name] = Math.floor((out[name] * room) / total);
   }
   return capStats(out);
 }

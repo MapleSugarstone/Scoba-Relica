@@ -92,16 +92,28 @@ describe("the sigils a passive wears", () => {
     expect(statusSummary(holder).map((m) => m.id)).toEqual(["accelerated"]);
   });
 
-  it("leaves one that only waits for a trigger with the abilities", () => {
-    // Timelock hands out Deathlock on entry and then does nothing, so there is
-    // nothing about it that is true of the Scoba right now.
+  it("shows one that waits for a trigger that can go off again", () => {
+    // Coral Feast pays out every time anyone faints, so it is working all battle.
+    expect(continuous("coral-feast")).toBe(false);
+    const holder = { statuses: [newStatus("coral-feast")!] } as Combatant;
+    expect(statusSummary(holder).map((m) => m.id)).toEqual(["coral-feast"]);
+  });
+
+  it("leaves off one that only acts as the Scoba enters", () => {
+    // Timelock hands out Deathlock on entry and then does nothing; Deathlock is
+    // what shows.
     expect(continuous("timelock")).toBe(false);
     const holder = { statuses: [newStatus("timelock")!] } as Combatant;
     expect(statusSummary(holder)).toEqual([]);
   });
 
-  it("draws every continuous passive with something, its own art or the placeholder", () => {
-    const carried = Object.keys(STATUSES).filter((id) => STATUSES[id]!.innate && continuous(id));
+  it("never shows a status written with no sigil", () => {
+    const holder = { statuses: [newStatus("hyper")!] } as Combatant;
+    expect(statusSummary(holder)).toEqual([]);
+  });
+
+  it("draws every passive with something, its own art or the placeholder", () => {
+    const carried = Object.keys(STATUSES).filter((id) => STATUSES[id]!.innate);
     expect(carried.length).toBeGreaterThan(0);
     for (const id of carried) {
       const icon = STATUSES[id]!.icon;

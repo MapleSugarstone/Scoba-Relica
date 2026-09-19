@@ -10,6 +10,8 @@
 // which side it stands on changes nothing but who it aims at.
 import type { BattleState, Choice, Combatant, Slot } from "./battle";
 import {
+  actingAs,
+  actingRef,
   castCost,
   choiceError,
   combatantMaxHp,
@@ -68,7 +70,10 @@ function pickFor(
 
 function actFor(st: BattleState, side: 0 | 1, slot: Slot, c: Combatant, rng: Rng): Choice {
   const idx = st.active[side][slot]!;
-  const user: TargetRef = { side, index: idx };
+  // A half of a fusion picks from its own moves and mana, and aims from where
+  // the fusion stands.
+  const user: TargetRef = actingRef(st, c) ?? { side, index: idx };
+  const body = actingAs(st, c);
 
   // `moveReady` answers what the Scoba can pay for; `choiceError` answers what
   // the battle allows at all, such as a journey nobody can make twice. A Scoba
@@ -101,10 +106,15 @@ function actFor(st: BattleState, side: 0 | 1, slot: Slot, c: Combatant, rng: Rng
     }
   }
   if (cast && rng() < 0.8) return { kind: "spell", side, slot, moveId: cast.move.id, picks: cast.picks };
-  if (blockWorthwhile(c) && rng() < 0.35) return { kind: "block", side, slot };
+  // A fusion cannot block, so a half never reaches for it.
+  const canBlock = body === c;
+  if (canBlock && blockWorthwhile(c) && rng() < 0.35) return { kind: "block", side, slot };
   const picks = aim(st, user, null, rng);
-  // Nothing left to swing at: brace instead of throwing an illegal choice.
-  return picks ? { kind: "attack", side, slot, picks } : { kind: "block", side, slot };
+  if (picks) return { kind: "attack", side, slot, picks };
+  // Nothing left to swing at: brace instead of throwing an illegal choice, or
+  // for a half that cannot brace, cast whatever it was holding back for.
+  if (canBlock || !cast) return { kind: "block", side, slot };
+  return { kind: "spell", side, slot, moveId: cast.move.id, picks: cast.picks };
 }
 
 /**

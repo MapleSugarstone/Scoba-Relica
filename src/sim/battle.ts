@@ -47,7 +47,7 @@ import {
   tickDurations,
   ticksThisTurn,
   tickField,
-  triggerMatches,
+  triggerFits,
   wardAgainst,
   softenOn,
   hyperShut,
@@ -70,6 +70,8 @@ import {
   type Who,
   HYPER_FLAT,
   HYPER_SCALE,
+  selfWorth,
+  worthReaches,
 } from "./status";
 import { hitCategory } from "./script/read";
 import { deriveMove } from "./rewrite";
@@ -78,7 +80,9 @@ import {
   combatantAt,
   isPawnSlot,
   isTravelSlot,
+  isFusionSlot,
   TRAVEL_SLOT,
+  FUSION_SLOT,
   needsPick,
   pickError,
   resolveTargets,
@@ -91,7 +95,9 @@ import {
   type TargetSpec,
 } from "./targeting";
 
-export { ALL_SLOTS, FIELD_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, TRAVEL_SLOT, isPawnSlot, isTravelSlot };
+export {
+  ALL_SLOTS, FIELD_SLOTS, PAWN_SLOTS, SCOBA_SLOTS, TRAVEL_SLOT, FUSION_SLOT, isPawnSlot, isTravelSlot, isFusionSlot,
+};
 
 export const START_MANA = 40;
 export const MANA_PER_TURN = 20;
@@ -205,7 +211,49 @@ export interface Combatant {
   given?: string[];
   /** Costumes a step has put it in, for the rest of the battle. */
   worn?: string[];
+  /** Set on the one body two Scobas fused into. */
+  fusion?: Fusion;
+  /**
+   * How effective its good and its bad statuses are made by whoever is standing
+   * on the field with it, from their `mark-worth` effects that reach allies or
+   * enemies, and the sigils those effects have it show. Worked out again
+   * whenever who is on the field changes, by `refreshWorth`, and absent where
+   * nothing reaches it.
+   */
+  worth?: { good: number; bad: number; shown?: string[] };
+  /**
+   * One of the two Scobas in a fusion: the team index of that fusion. It keeps
+   * its own mark, its moves, its cooldowns and its mana bar, and picks one of
+   * the fusion's two moves a round from them, but it is not on the field: the
+   * fusion stands there for both.
+   */
+  fusedInto?: number;
 }
+
+/**
+ * What a fusion is made of. HP is two bars, the first slot's Scoba's first,
+ * and a hit that empties one stops there rather than reaching the other.
+ */
+export interface Fusion {
+  /** The two it was made of, by team index, first slot first. */
+  parts: [number, number];
+  /** How big each HP bar is, fixed as the two fused. */
+  max: [number, number];
+  /**
+   * What each HP bar holds. The bar being hit is `Combatant.hp` for as long as
+   * it is the one being hit, so read the bars through `fusionBars`.
+   */
+  hp: [number, number];
+  /** Which bar `Combatant.hp` is. */
+  live: 0 | 1;
+  /** The two halves' stats pooled, before anything the fusion carries. */
+  line: Stats;
+  /** Each half's own Speed, which is what that half acts at. */
+  spd: [number, number];
+}
+
+/** What a fusion's two stat lines are pooled down to. */
+export const FUSION_SHARE = 0.75;
 
 /** A character in the shared save. */
 export type OwnerId = "A" | "B";
@@ -294,6 +342,8 @@ export interface BattleState {
     side: 0 | 1; index: number; hp: number; statuses: StatusInstance[];
     /** The mark worn while it is held, taken off as the round is put back. */
     mark?: string;
+    /** Both of a fusion's HP bars, and which was being hit. */
+    bars?: { hp: [number, number]; live: 0 | 1 };
   }[];
   /**
    * A rewind has put the battle somewhere else, so the round it happened in
@@ -362,6 +412,8 @@ export interface BattleEvent {
   text: string;
   kind: "spell" | "hit" | "faint" | "switch" | "heal" | "block" | "catch" | "flee" | "win" | "info"
   | "status" | "summon" | "field" | "hyper" | "card"
+  /** Two Scobas becoming one. `at` is the fusion and `to` the two it was made of. */
+  | "fuse"
   /** A Scoba stepping out of its own time, or back into it. */
   | "travel"
   /** Something drawn or heard that a step asked for, with no line in the log. */
@@ -391,6 +443,11 @@ export interface BattleEvent {
   hp?: number;
   mana?: number;
   /**
+   * A fusion's two HP bars and two mana bars once this event has landed, first
+   * slot's first. A fusion's readout reads these rather than `hp` and `mana`.
+   */
+  bars?: { hp: number[]; max: number[]; mana: number[] };
+  /**
    * What the field over those sides has become, null for one that has lifted.
    * A field laid over both sides is one event and not two, so the Scoba that
    * called it rattles once rather than twice.
@@ -411,6 +468,8 @@ export interface BattleEvent {
   /** For a `show` event: the step that asked for it, and who it reaches. */
   visual?: VisualStep;
   to?: TargetRef[];
+  /** For a throw that bounces: the Scoba it leaves from, in place of `at`. */
+  off?: TargetRef;
 }
 
 /** The steps that change only what is drawn and heard. */
@@ -670,6 +729,253 @@ function refOf(st: BattleState, c: Combatant): TargetRef | null {
   return null;
 }
 
+// --- fusions ---
+
+/**
+ * Who a combatant acts as: the fusion, for one of the two Scobas in it, and
+ * itself for anyone else. A half casts from its own moves and mana, but the
+ * fusion is what stands on the field, so it is the fusion that casts.
+ */
+export function actingAs(st: BattleState, c: Combatant): Combatant {
+  if (c.fusedInto === undefined) return c;
+  const ref = refOf(st, c);
+  return (ref ? st.teams[ref.side][c.fusedInto] : undefined) ?? c;
+}
+
+/** Where a combatant acts from: the fusion's place, for one of its halves. */
+export function actingRef(st: BattleState, c: Combatant): TargetRef | null {
+  const ref = refOf(st, c);
+  if (!ref || c.fusedInto === undefined) return ref;
+  return { side: ref.side, index: c.fusedInto };
+}
+
+/** A target that names one half of a fusion names the fusion. */
+function throughFusion(st: BattleState, ref: TargetRef): TargetRef {
+  const c = combatantAt(st, ref);
+  return c?.fusedInto !== undefined ? { side: ref.side, index: c.fusedInto } : ref;
+}
+
+/** The two Scobas a fusion was made of, first slot first. */
+export function fusionHalves(st: BattleState, body: Combatant): Combatant[] {
+  const ref = body.fusion ? refOf(st, body) : null;
+  if (!ref || !body.fusion) return [];
+  return body.fusion.parts.map((i) => st.teams[ref.side][i]).filter((c): c is Combatant => !!c);
+}
+
+/** Which half of its fusion a Scoba is, or null for one that is not in one. */
+function halfOf(st: BattleState, c: Combatant): 0 | 1 | null {
+  const body = actingAs(st, c);
+  if (body === c || !body.fusion) return null;
+  const ref = refOf(st, c);
+  const i = ref ? body.fusion.parts.indexOf(ref.index) : -1;
+  return i === 0 || i === 1 ? i : null;
+}
+
+/** A fusion's two HP bars as they stand, first slot's first. */
+export function fusionBars(c: Combatant): { hp: number; max: number }[] | null {
+  const f = c.fusion;
+  if (!f) return null;
+  return f.max.map((max, i) => ({ max, hp: i === f.live ? c.hp : f.hp[i]! }));
+}
+
+/** Both bars of whoever an event is about, where that is a fusion. */
+function barsAt(st: BattleState, ref: TargetRef | null | undefined): { bars?: BattleEvent["bars"] } {
+  const c = ref ? combatantAt(st, ref) : null;
+  const bars = c ? fusionBars(c) : null;
+  if (!c || !bars) return {};
+  return {
+    bars: {
+      hp: bars.map((b) => b.hp),
+      max: bars.map((b) => b.max),
+      mana: fusionHalves(st, c).map((half) => half.mana),
+    },
+  };
+}
+
+/**
+ * The Speed a combatant acts at. Each half of a fusion keeps its own, with
+ * everything the fusion carries applied on top of it.
+ */
+export function actingSpeed(st: BattleState, c: Combatant): number {
+  const body = actingAs(st, c);
+  const half = halfOf(st, c);
+  if (!body.fusion || half === null) return combatantStats(c).spd;
+  const own = { ...body.fusion.line, spd: body.fusion.spd[half] };
+  return foldStatEffects(own, continuousEffects(body.statuses)).spd;
+}
+
+/**
+ * The mana bar a gift lands in. A fusion has one per half: a gift marked for
+ * the second bar goes there, and any other goes to whichever bar holds less.
+ */
+function manaBar(st: BattleState, c: Combatant, second: boolean): Combatant {
+  const halves = fusionHalves(st, c);
+  if (halves.length < 2) return c;
+  if (second) return halves[1]!;
+  return halves[1]!.mana < halves[0]!.mana ? halves[1]! : halves[0]!;
+}
+
+/** A Scoba's stat line with its Hyper-Mode in it, which is what a fusion pools. */
+function lineForFusion(c: Combatant): Stats {
+  const own = statsAt(c.scoba, false);
+  if (!c.hyper) return own;
+  const bonus = hyperBonus(statsAt(c.scoba, true));
+  const out = {} as Stats;
+  for (const name of STAT_NAMES) out[name] = own[name] + bonus[name];
+  return out;
+}
+
+/**
+ * The statuses two Scobas carry, as one list for the fusion. A status that
+ * stacks keeps every instance. One that does not is kept once, whichever has
+ * longer to run, so a passive both of them carry counts once. Hyper-Mode itself
+ * is already in the pooled line, so it is left out.
+ */
+function pooledStatuses(lists: StatusInstance[][]): StatusInstance[] {
+  const lasts = (s: StatusInstance): number => (s.turnsLeft < 0 ? Infinity : s.turnsLeft);
+  const out: StatusInstance[] = [];
+  for (const inst of lists.flat()) {
+    if (inst.id === "hyper") continue;
+    const def = STATUSES[inst.id];
+    const same = out.find((s) => s.id === inst.id && !s.chrono === !inst.chrono);
+    if (!same || (def?.stacks && !def.hand)) {
+      out.push(inst);
+      continue;
+    }
+    if (lasts(inst) > lasts(same)) out[out.indexOf(same)] = inst;
+  }
+  return out;
+}
+
+/** The statuses a set of passives fuses on, which a fusion carries no longer. */
+function fuseMarks(statuses: readonly StatusInstance[]): Set<string> {
+  return new Set(statuses.flatMap((s) => STATUSES[s.id]?.fuses?.partner ?? []));
+}
+
+/** Whether a Scoba can be one half of a fusion right now. */
+function canFuse(c: Combatant | null | undefined): c is Combatant {
+  return !!c && !c.fainted && c.hyper === true && !c.pawn && !c.aside
+    && !c.fusion && c.fusedInto === undefined;
+}
+
+/**
+ * Fuses the holder with the ally on the other Scoba mark, where that ally
+ * carries the partner passive and both are in Hyper-Mode.
+ *
+ * The fusion is a new combatant on a mark of its own. Its HP is two bars, each
+ * half's own as it stood; its stats are both halves' lines, Hyper-Mode in, put
+ * together and cut to `FUSION_SHARE`; its level is theirs added; and it carries
+ * every status either had except the ones they fused on. Each half stays on
+ * its own mark off the field and keeps its moves, cooldowns and mana bar, so
+ * each still answers for one move a round. Neither mark takes anyone else
+ * until the fusion falls.
+ */
+function fuse(ctx: Ctx, holderRef: TargetRef, partner: string, into: string): void {
+  const st = ctx.st;
+  const side = holderRef.side;
+  const sp = SPECIES[into];
+  if (!sp) return;
+  if ((st.active[side][FUSION_SLOT] ?? -1) >= 0) return;
+  const mark = [0, 1].find((slot) => st.active[side][slot] === holderRef.index);
+  if (mark === undefined) return;
+  const holder = combatantAt(st, holderRef);
+  const otherIndex = st.active[side][mark === 0 ? 1 : 0] ?? -1;
+  const other = otherIndex >= 0 ? st.teams[side][otherIndex] : undefined;
+  if (!canFuse(holder) || !canFuse(other)) return;
+  if (!other.statuses.some((s) => s.id === partner)) return;
+
+  const parts: [number, number] = mark === 0 ? [holderRef.index, otherIndex] : [otherIndex, holderRef.index];
+  const [a, b] = parts.map((i) => st.teams[side][i]!) as [Combatant, Combatant];
+  const lines = [lineForFusion(a), lineForFusion(b)];
+  const line = {} as Stats;
+  for (const name of STAT_NAMES) line[name] = Math.floor(FUSION_SHARE * (lines[0]![name] + lines[1]![name]));
+  // One number for anything that needs a single Speed off it, like who answers
+  // a sweeping hit first: the faster half's.
+  line.spd = Math.max(lines[0]!.spd, lines[1]!.spd);
+
+  const scoba: ScobaInstance = {
+    uid: `${a.scoba.uid}+${b.scoba.uid}`,
+    speciesId: into,
+    level: a.scoba.level + b.scoba.level,
+    xp: 0,
+    genes: line,
+    moves: [],
+    secondaryAbility: "",
+    hp: 0,
+    fusedFrom: [a, b].map((c) => ({
+      speciesId: c.scoba.speciesId,
+      ...(c.scoba.sire ? { sire: c.scoba.sire } : {}),
+      ...(c.scoba.shiny ? { shiny: true } : {}),
+      forms: formsOf(c),
+      types: scobaTypes(c.scoba),
+    })),
+  };
+  const pooled = pooledStatuses([a.statuses, b.statuses]);
+  const spent = fuseMarks(pooled);
+  const body: Combatant = {
+    scoba,
+    hp: a.hp,
+    mana: 0,
+    cds: {},
+    spent: [],
+    blocking: false,
+    fainted: false,
+    statuses: [...pooled.filter((s) => !spent.has(s.id)), ...passiveStatuses(scoba)],
+    fusion: {
+      parts,
+      max: [combatantMaxHp(a), combatantMaxHp(b)],
+      hp: [a.hp, b.hp],
+      live: 0,
+      line,
+      spd: [lines[0]!.spd, lines[1]!.spd],
+    },
+  };
+  const index = st.teams[side].length;
+  st.teams[side].push(body);
+  st.active[side][FUSION_SLOT] = index;
+  for (const half of [a, b]) {
+    half.fusedInto = index;
+    half.statuses = [];
+    half.blocking = false;
+  }
+  // Whatever either half left on anybody now came from the fusion, so its
+  // numbers and its kills are the fusion's.
+  for (const team of st.teams) {
+    for (const c of team) {
+      for (const inst of c.statuses) {
+        if (inst.from?.side === side && parts.includes(inst.from.index)) inst.from = { side, index };
+      }
+    }
+  }
+  const ref = { side, index };
+  ctx.events.push({
+    text: `${displayName(a.scoba)} and ${displayName(b.scoba)} fuse into ${sp.name}!`,
+    kind: "fuse", at: ref, uid: scoba.uid, to: parts.map((i) => ({ side, index: i })), hp: body.hp,
+    ...barsAt(st, ref),
+  });
+  if (ctx.depth < MAX_TRIGGER_DEPTH) fire({ ...ctx, depth: ctx.depth + 1 }, ref, { on: "switch-in" }, null);
+}
+
+/**
+ * A fusion's bar has run out. Where the other bar still holds anything, the
+ * fusion carries on on that one, and whatever was left of the hit that emptied
+ * the first is lost. Says whether it did.
+ */
+function breakBar(ctx: Ctx, ref: TargetRef, c: Combatant): boolean {
+  const f = c.fusion;
+  if (!f) return false;
+  const next = f.live === 0 ? 1 : 0;
+  if (f.hp[next] <= 0) return false;
+  f.hp[f.live] = 0;
+  f.live = next;
+  c.hp = f.hp[next];
+  ctx.events.push({
+    text: `${displayName(c.scoba)} loses one of its HP bars!`,
+    kind: "info", at: ref, hp: c.hp, ...barsAt(ctx.st, ref),
+  });
+  return true;
+}
+
 // --- stats with statuses layered on ---
 
 /**
@@ -696,10 +1002,65 @@ function grantEz(c: Combatant): void {
 }
 
 export function combatantStats(c: Combatant): Stats {
-  return foldStatEffects(statsAt(c.scoba, false), continuousEffects(c.statuses));
+  const own = c.fusion ? c.fusion.line : statsAt(c.scoba, false);
+  return foldStatEffects(own, continuousEffects(c.statuses, (inst) => worthOf(c, inst)));
 }
 
+/**
+ * How effective one status is where it sits: what the holder's own statuses
+ * say about it, times what the field says about the holder.
+ */
+export function worthOf(c: Combatant, inst: StatusInstance): number {
+  if (!worthReaches(inst)) return 1;
+  const polarity = STATUSES[inst.id]?.polarity;
+  if (!polarity) return 1;
+  return (c.worth?.[polarity] ?? 1) * selfWorth(c.statuses, polarity);
+}
+
+/**
+ * Works out every combatant's `worth` from the `mark-worth` effects standing on
+ * the field. Only a Scoba on the field reaches anyone, and only a Scoba on the
+ * field is reached, so this runs whenever who is standing there changes.
+ */
+function refreshWorth(st: BattleState): void {
+  const auras: {
+    from: TargetRef; reach: "enemies" | "allies"; polarity: StatusPolarity; mult: number; shown?: string;
+  }[] = [];
+  forEachStanding(st, (ref) => {
+    const c = combatantAt(st, ref);
+    for (const inst of c?.statuses ?? []) {
+      for (const e of STATUSES[inst.id]?.effects ?? []) {
+        if (e.kind !== "mark-worth" || e.reach === "self") continue;
+        auras.push({
+          from: ref, reach: e.reach, polarity: e.polarity, mult: Math.pow(e.mult, inst.stacks),
+          ...(e.shown !== undefined ? { shown: e.shown } : {}),
+        });
+      }
+    }
+  });
+  for (const team of st.teams) for (const c of team) delete c.worth;
+  if (auras.length === 0) return;
+  forEachStanding(st, (ref) => {
+    const c = combatantAt(st, ref);
+    if (!c) return;
+    const w: NonNullable<Combatant["worth"]> = { good: 1, bad: 1 };
+    const shown: string[] = [];
+    for (const a of auras) {
+      const reaches = a.reach === "enemies" ? a.from.side !== ref.side : a.from.side === ref.side;
+      if (!reaches) continue;
+      w[a.polarity] *= a.mult;
+      // The holder shows its own passive's sigil already, so the one it hands
+      // out is for everyone else it reaches.
+      if (a.shown !== undefined && !sameRef(a.from, ref) && !shown.includes(a.shown)) shown.push(a.shown);
+    }
+    if (shown.length > 0) w.shown = shown;
+    if (w.good !== 1 || w.bad !== 1 || shown.length > 0) c.worth = w;
+  });
+}
+
+/** The HP bar's size. A fusion's is whichever of its two bars is being hit. */
 export function combatantMaxHp(c: Combatant): number {
+  if (c.fusion) return c.fusion.max[c.fusion.live];
   return Math.floor(combatantStats(c).hp * 2.8);
 }
 
@@ -708,7 +1069,7 @@ export function combatantMaxHp(c: Combatant): number {
  * as one list. A field carries no stacks, so each of its effects counts once.
  */
 function readEffects(c: Combatant, field: FieldEffect[]): ReadEffect[] {
-  const out = continuousEffects(c.statuses);
+  const out = continuousEffects(c.statuses, (inst) => worthOf(c, inst));
   for (const effect of field) out.push({ effect, stacks: 1, power: 0 });
   return out;
 }
@@ -795,6 +1156,19 @@ export function formsOf(c: Combatant): string[] {
   return out;
 }
 
+/**
+ * The move a combatant's basic attack has become, where a passive it carries
+ * says so, or null for the plain blow.
+ */
+export function basicAttackOf(c: Combatant): Move | null {
+  for (const inst of c.statuses) {
+    const id = STATUSES[inst.id]?.basicAttack;
+    const move = id ? MOVES[id] : undefined;
+    if (move) return move;
+  }
+  return null;
+}
+
 /** Why this Scoba cannot go Hyper right now, or null if it can. */
 export function hyperError(c: Combatant): string | null {
   const sp = SPECIES[c.scoba.speciesId];
@@ -828,6 +1202,7 @@ export function choiceError(st: BattleState, c: Choice): string | null {
     // A rooted Scoba stays where it is. Checked before the bench, since what
     // stops the switch is the one leaving rather than the one coming in.
     const leaving = combatant(st, c.side, c.slot);
+    if (leaving && !leaving.fainted && leaving.fusedInto !== undefined) return "A fusion cannot be switched out.";
     if (leaving && !leaving.fainted && isRooted(leaving.statuses)) {
       return `${rootedBy(leaving.statuses) ?? "Something"} holds it in place.`;
     }
@@ -843,7 +1218,7 @@ export function choiceError(st: BattleState, c: Choice): string | null {
     return null;
   }
   if (!user || user.fainted) return "No active Scoba in that slot.";
-  if (c.kind === "block") return null;
+  if (c.kind === "block") return user.fusedInto !== undefined ? "A fusion cannot block." : null;
   if (c.kind === "hyper") return hyperError(user);
   if (c.kind === "catch") {
     if (!st.wild) return "Only in wild battles.";
@@ -866,7 +1241,8 @@ export function choiceError(st: BattleState, c: Choice): string | null {
   const specs = specsFor(c);
   const picks = c.picks ?? [];
   if (picks.length !== specs.length) return "Wrong number of targets.";
-  const userRef = refOf(st, user);
+  // A half aims from where its fusion stands.
+  const userRef = actingRef(st, user);
   if (!userRef) return "No active Scoba in that slot.";
   for (let i = 0; i < specs.length; i++) {
     const err = pickError(st, userRef, specs[i]!, picks[i] ?? null);
@@ -908,6 +1284,8 @@ interface HitMeta {
   ignoresBlock?: boolean;
   /** The sample it lands with. */
   sound?: string;
+  /** A basic attack a passive turned into a move: it names the move, but it is no spell. */
+  basic?: boolean;
 }
 
 type HitStep = Extract<Step, { kind: "hit" }>;
@@ -1027,7 +1405,8 @@ export function previewMove(
 function firstStanding(st: BattleState, side: 0 | 1): TargetRef | null {
   for (const slot of ALL_SLOTS) {
     const index = st.active[side][slot] ?? -1;
-    if (index >= 0 && !st.teams[side][index]?.fainted) return { side, index };
+    const c = index >= 0 ? st.teams[side][index] : undefined;
+    if (c && !c.fainted && c.fusedInto === undefined) return { side, index };
   }
   return null;
 }
@@ -1071,6 +1450,7 @@ function dealDamage(ctx: Ctx, targetRef: TargetRef, raw: number, meta: HitMeta):
     by: meta.source ?? undefined,
     moveId: meta.moveId,
     hp: target.hp,
+    ...barsAt(ctx.st, targetRef),
     ...(meta.sound !== undefined ? { sound: meta.sound } : {}),
   });
 
@@ -1078,7 +1458,7 @@ function dealDamage(ctx: Ctx, targetRef: TargetRef, raw: number, meta: HitMeta):
     const deeper = { ...ctx, depth: ctx.depth + 1 };
     // A basic attack names no move, which is what tells a spell trigger from
     // the plain swing that carries the same category.
-    const spell = meta.moveId !== undefined;
+    const spell = meta.moveId !== undefined && meta.basic !== true;
     fire(deeper, targetRef, { on: "hit", category: meta.category, element: meta.element, spell }, meta.source);
     if (meta.source) {
       fire(deeper, meta.source, { on: "deal", category: meta.category, element: meta.element, spell }, targetRef);
@@ -1158,6 +1538,7 @@ function landDamage(ctx: Ctx, targetRef: TargetRef, raw: number, meta: HitMeta):
     by: meta.source ?? undefined,
     moveId: meta.moveId,
     hp: target.hp,
+    ...barsAt(ctx.st, targetRef),
     ...(meta.sound !== undefined ? { sound: meta.sound } : {}),
   });
   return { at: targetRef, meta, dealt: dmg };
@@ -1172,7 +1553,7 @@ function reactTo(ctx: Ctx, hit: Landed): void {
     const deeper = { ...ctx, depth: ctx.depth + 1 };
     // A basic attack names no move, which is what tells a spell trigger from
     // the plain swing that carries the same category.
-    const spell = meta.moveId !== undefined;
+    const spell = meta.moveId !== undefined && meta.basic !== true;
     fire(deeper, hit.at, { on: "hit", category: meta.category, element: meta.element, spell }, meta.source);
     if (meta.source) {
       fire(deeper, meta.source, { on: "deal", category: meta.category, element: meta.element, spell }, hit.at);
@@ -1234,12 +1615,12 @@ function heal(
   const target = combatantAt(ctx.st, targetRef);
   if (!target || target.fainted || amount <= 0) return 0;
   const max = combatantMaxHp(target);
-  const given = Math.min(max - target.hp, Math.max(1, Math.floor(amount)));
+  const given = Math.min(max - target.hp, Math.max(1, Math.floor(amount + healBonus(ctx.st, targetRef))));
   if (given <= 0) return 0;
   target.hp += given;
   ctx.events.push({
     text: `${displayName(target.scoba)} recovered ${given} HP.`,
-    kind: "heal", at: targetRef, hp: target.hp,
+    kind: "heal", at: targetRef, hp: target.hp, ...barsAt(ctx.st, targetRef),
     ...(from?.source ? { by: from.source } : {}),
     ...(from?.moveId ? { moveId: from.moveId } : {}),
     ...(from?.sound !== undefined ? { sound: from.sound } : {}),
@@ -1247,13 +1628,46 @@ function heal(
   return given;
 }
 
+/**
+ * What every heal landing on this one restores on top: each ally standing on
+ * the field that carries a `heal-bonus`, the one healed included, adds its
+ * amount at its own level.
+ */
+function healBonus(st: BattleState, ref: TargetRef): number {
+  let bonus = 0;
+  for (const allyRef of fieldOf(st, ref.side, false)) {
+    const ally = combatantAt(st, allyRef);
+    if (!ally) continue;
+    for (const inst of ally.statuses) {
+      for (const e of STATUSES[inst.id]?.effects ?? []) {
+        if (e.kind !== "heal-bonus") continue;
+        bonus += (e.flatAtCeiling * ally.scoba.level / MAX_LEVEL) * inst.stacks * worthOf(ally, inst);
+      }
+    }
+  }
+  return bonus;
+}
+
 /** Marks a combatant down and fans out every trigger that a death sets off. */
 function killed(ctx: Ctx, targetRef: TargetRef, meta: HitMeta): void {
   const st = ctx.st;
   const target = combatantAt(st, targetRef);
   if (!target || target.fainted) return;
+  // A fusion with a bar left carries on on it rather than falling.
+  if (breakBar(ctx, targetRef, target)) return;
   target.fainted = true;
-  ctx.events.push({ text: `${displayName(target.scoba)} fainted!`, kind: "faint", at: targetRef, hp: 0 });
+  // Both halves go down with it, before anything answers the fall: it was the
+  // two of them that fell, and neither is left to mourn the other.
+  for (const half of fusionHalves(st, target)) {
+    half.fainted = true;
+    half.hp = 0;
+  }
+  if (target.fusion) {
+    target.fusion.hp = [0, 0];
+  }
+  ctx.events.push({
+    text: `${displayName(target.scoba)} fainted!`, kind: "faint", at: targetRef, hp: 0, ...barsAt(st, targetRef),
+  });
 
   if (ctx.depth < MAX_TRIGGER_DEPTH) {
     const deeper = { ...ctx, depth: ctx.depth + 1 };
@@ -1279,6 +1693,8 @@ function killed(ctx: Ctx, targetRef: TargetRef, meta: HitMeta): void {
       if (idx >= 0 && st.teams[side][idx]?.fainted) st.active[side][slot] = -1;
     }
   }
+  // Whatever it was making stronger on the field goes with it.
+  refreshWorth(st);
   checkWipe(ctx);
 }
 
@@ -1338,21 +1754,53 @@ function basisOf(st: BattleState, basis: Basis, holderRef: TargetRef, from: Targ
 function fire(ctx: Ctx, holderRef: TargetRef, event: TriggerEvent, other: TargetRef | null): void {
   const holder = combatantAt(ctx.st, holderRef);
   if (!holder) return;
+  if (event.on === "switch-in") {
+    // Fusing comes first: the fusion takes the field in the holder's place and
+    // answers the arrival itself, so nothing goes off twice.
+    tryFusing(ctx, holderRef);
+    refreshWorth(ctx.st);
+  }
   for (const inst of [...holder.statuses]) {
+    // Fused, and what it carried went to the fusion, which answers for itself.
+    if (holder.fusedInto !== undefined) break;
     const def = STATUSES[inst.id];
     if (!def || inst.chargesLeft === 0) continue;
-    if (!triggerMatches(def, event)) continue;
-    // A mark that landed this turn waits for the next one before it ticks.
-    if (!ticksThisTurn(inst, event, ctx.st.turn)) continue;
-    if (inst.chargesLeft > 0) inst.chargesLeft -= 1;
-    const steps = def.effects.filter((e): e is Step => !isContinuous(e.kind));
-    runSteps(ctx, {
-      record: def.id, self: holderRef, source: inst.from ?? null, other,
-      groups: [], alive: aliveNow(ctx.st), picked: null, raised: null, card: null, draws: 0,
-      status: { def, inst }, cast: null,
-    }, steps);
+    // Every `when` block a record has answers its own trigger.
+    const blocks = [
+      { trigger: def.trigger, steps: def.effects.filter((e): e is Step => !isContinuous(e.kind)) },
+      ...(def.also ?? []),
+    ];
+    for (const block of blocks) {
+      if (inst.chargesLeft === 0 || holder.fusedInto !== undefined) break;
+      if (!triggerFits(block.trigger, event)) continue;
+      // A mark that landed this turn waits for the next one before it ticks.
+      if (!ticksThisTurn(inst, event, ctx.st.turn)) continue;
+      if (inst.chargesLeft > 0) inst.chargesLeft -= 1;
+      // A status made stronger or weaker where it sits deals and mends that much.
+      const worth = worthOf(holder, inst);
+      runSteps(ctx, {
+        // A passive was left by nobody, so what it reads as its source is the
+        // Scoba carrying it: "10% of source magic" is its own Magic.
+        record: def.id, self: holderRef, source: inst.from ?? (def.innate ? holderRef : null), other,
+        groups: [], alive: aliveNow(ctx.st), picked: null, raised: null, card: null, draws: 0,
+        status: { def, inst }, cast: null,
+        ...(worth !== 1 ? { scale: worth } : {}),
+      }, block.steps);
+    }
   }
   holder.statuses = holder.statuses.filter((s) => s.chargesLeft !== 0);
+}
+
+/** Fuses the holder where a passive it carries says it fuses and the pair is ready. */
+function tryFusing(ctx: Ctx, holderRef: TargetRef): void {
+  const holder = combatantAt(ctx.st, holderRef);
+  if (!holder) return;
+  for (const inst of [...holder.statuses]) {
+    const fuses = STATUSES[inst.id]?.fuses;
+    if (!fuses) continue;
+    fuse(ctx, holderRef, fuses.partner, fuses.into);
+    if (holder.fusedInto !== undefined) return;
+  }
 }
 
 // --- running steps ---
@@ -1388,8 +1836,13 @@ interface Run {
   draws: number;
   /** The status running these steps, where a status is. */
   status: { def: StatusDef; inst: StatusInstance } | null;
-  /** The move being cast and what was paid for it, where a move is. */
-  cast: { move: Move; paid: number } | null;
+  /**
+   * The move being cast, what was paid for it, and whose bar paid: the caster's
+   * own, or for a fusion, the half that picked the move.
+   */
+  cast: { move: Move; paid: number; payer?: TargetRef } | null;
+  /** A basic attack played as the move a passive turned it into. */
+  basic?: boolean;
 }
 
 const refKey = (ref: TargetRef): string => `${ref.side}:${ref.index}`;
@@ -1406,15 +1859,47 @@ function aliveNow(st: BattleState): Set<string> {
 
 /** Who a step reaches, before anyone who has fallen is left out. */
 function whoRefs(ctx: Ctx, run: Run, who: Who): TargetRef[] {
-  if (typeof who === "object") return run.groups[who.aim] ?? [];
+  if (typeof who === "object") {
+    if ("aim" in who) return run.groups[who.aim] ?? [];
+    if ("next" in who) {
+      const skip = whoRefs(ctx, run, who.from);
+      const side = who.next === "ally" ? run.self.side : run.self.side === 0 ? 1 : 0;
+      const next = fieldOf(ctx.st, side, true).find((ref) => !skip.some((s) => sameRef(s, ref)));
+      return next ? [next] : [];
+    }
+    const first = whoRefs(ctx, run, who.first).filter((ref) => combatantAt(ctx.st, ref)?.fainted === false);
+    return first.length > 0 ? first : whoRefs(ctx, run, who.then);
+  }
+  const foe: 0 | 1 = run.self.side === 0 ? 1 : 0;
   switch (who) {
     case "self": return [run.self];
     case "source": return run.source ? [run.source] : [];
     case "other": return run.other ? [run.other] : [];
     case "raised": return run.raised ? [run.raised] : [];
     case "traveller": return ctx.st.travelling ? [ctx.st.travelling.visitor] : [];
+    case "field-allies": return fieldOf(ctx.st, run.self.side, false);
+    case "field-enemies": return fieldOf(ctx.st, foe, false);
+    case "ally-scobas": return fieldOf(ctx.st, run.self.side, true);
+    case "enemy-scobas": return fieldOf(ctx.st, foe, true);
     default: return teamOf(ctx.st, run.self, who);
   }
+}
+
+/**
+ * Everyone standing on one side of the field, in mark order: every Scoba mark,
+ * then the Pawn marks, then the rest. `scobas` leaves the Pawns out. A fusion is
+ * a Scoba, and its two halves are inside it rather than standing there.
+ */
+function fieldOf(st: BattleState, side: 0 | 1, scobas: boolean): TargetRef[] {
+  const out: TargetRef[] = [];
+  for (const slot of ALL_SLOTS) {
+    const index = st.active[side][slot] ?? -1;
+    const c = index >= 0 ? st.teams[side][index] : undefined;
+    if (!c || c.fainted || c.fusedInto !== undefined) continue;
+    if (scobas && c.pawn) continue;
+    out.push({ side, index });
+  }
+  return out;
 }
 
 /** Every standing member of a team, or of both, relative to one Scoba. */
@@ -1425,7 +1910,8 @@ function teamOf(st: BattleState, selfRef: TargetRef, who: "allies" | "enemies" |
   const out: TargetRef[] = [];
   for (const side of sides) {
     st.teams[side].forEach((c, index) => {
-      if (c.fainted) return;
+      // A half is inside its fusion, and whatever reaches the team reaches it there.
+      if (c.fainted || c.fusedInto !== undefined) return;
       if (who === "others" && sameRef({ side, index }, selfRef)) return;
       out.push({ side, index });
     });
@@ -1481,10 +1967,13 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       // A card is thrown as it was drawn, so the scene shows the card the hand
       // is about to be dealt rather than rolling one of its own.
       if (step.kind === "throw" && step.drawn && !run.card) return true;
+      // A bounce leaves from the first of whoever it bounces off.
+      const off = step.kind === "throw" && step.off !== undefined ? whoRefs(ctx, run, step.off)[0] : undefined;
       ctx.events.push({
         text: "", kind: "show", at: run.self, visual: step, to,
         ...(run.cast ? { moveId: run.cast.move.id } : {}),
         ...(step.kind === "throw" && step.drawn && run.card ? { face: run.card.face } : {}),
+        ...(off ? { off } : {}),
       });
       return true;
     }
@@ -1522,6 +2011,7 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
           source: run.self,
           note,
           ...(move ? { moveId: move.id } : {}),
+          ...(run.basic ? { basic: true } : {}),
           ...(step.sound !== undefined ? { sound: step.sound } : {}),
         };
         return [{ at: ref, raw: worth, meta }];
@@ -1610,10 +2100,12 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
         // back does not put the mark back with it.
         if (step.mark) inflict(ctx, ref, step.mark, run.source ?? run.self);
         const after = combatantAt(ctx.st, ref);
+        const bars = fusionBars(c);
         held.push({
           side: ref.side, index: ref.index, hp: c.hp,
           statuses: structuredClone((after ?? c).statuses),
           ...(step.mark ? { mark: step.mark } : {}),
+          ...(bars && c.fusion ? { bars: { hp: [bars[0]!.hp, bars[1]!.hp], live: c.fusion.live } } : {}),
         });
       }
       ctx.st.undoing = held;
@@ -1688,12 +2180,13 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       for (const ref of whoRefs(ctx, run, step.on)) {
         const c = combatantAt(ctx.st, ref);
         if (!c) continue;
-        const before = c.mana;
-        c.mana = Math.min(MAX_MANA, c.mana + step.amount);
-        if (c.mana === before) continue;
+        const bar = manaBar(ctx.st, c, step.second === true);
+        const before = bar.mana;
+        bar.mana = Math.min(MAX_MANA, bar.mana + step.amount);
+        if (bar.mana === before) continue;
         ctx.events.push({
           text: `${displayName(c.scoba)} is brimming.`,
-          kind: "status", at: ref, mana: c.mana,
+          kind: "status", at: ref, mana: bar.mana, ...barsAt(ctx.st, ref),
         });
       }
       return true;
@@ -1713,11 +2206,13 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
     case "refund": {
       if (!run.cast || !selfC) return true;
       const { move, paid } = run.cast;
-      selfC.mana = Math.min(MAX_MANA, selfC.mana + paid);
-      delete selfC.cds[move.id];
+      // Back to whichever bar paid for it, which for a fusion is one half's.
+      const payer = (run.cast.payer ? combatantAt(ctx.st, run.cast.payer) : null) ?? selfC;
+      payer.mana = Math.min(MAX_MANA, payer.mana + paid);
+      delete payer.cds[move.id];
       ctx.events.push({
         text: `${move.name} comes back around.`,
-        kind: "status", at: run.self, mana: selfC.mana,
+        kind: "status", at: run.self, mana: payer.mana, ...barsAt(ctx.st, run.self),
       });
       return true;
     }
@@ -1738,10 +2233,14 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       for (const ref of whoRefs(ctx, run, step.to)) {
         const c = combatantAt(ctx.st, ref);
         if (!c) continue;
-        if (step.slot === null) c.given = [picked];
-        else c.swapped = { ...c.swapped, [step.slot]: picked };
-        // What was just handed over is not on cooldown from what stood there before it.
-        delete c.cds[picked];
+        // A fusion casts through its halves, so a move handed to it goes to both.
+        const takers = c.fusion ? fusionHalves(ctx.st, c) : [c];
+        for (const taker of takers) {
+          if (step.slot === null) taker.given = [picked];
+          else taker.swapped = { ...taker.swapped, [step.slot]: picked };
+          // What was just handed over is not on cooldown from what stood there before it.
+          delete taker.cds[picked];
+        }
       }
       return true;
     }
@@ -1839,6 +2338,8 @@ export function inflict(
   const def = STATUSES[statusId];
   const target = combatantAt(ctx.st, targetRef);
   if (!def || !target || target.fainted) return;
+  // Its own entry lines would otherwise hand a fusion back the marks it fused on.
+  if (target.fusion && fuseMarks(target.statuses).has(statusId)) return;
   let power: number | undefined;
   if (def.power) {
     power = basisValue(ctx, def.power.basis, targetRef, from) * def.power.frac;
@@ -1872,6 +2373,8 @@ export function inflict(
   // What put it there can say how long it stands, over the mark's own clock.
   if (turns !== undefined) inst.turnsLeft = turns;
   const how = applyStatus(target.statuses, inst);
+  // A status that makes others stronger across the field starts doing so now.
+  if (def.effects.some((e) => e.kind === "mark-worth" && e.reach !== "self")) refreshWorth(ctx.st);
   const name = displayName(target.scoba);
   const stacks = stacksOf(target.statuses, statusId);
   ctx.events.push({
@@ -2143,6 +2646,9 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
   remember(st, choices);
   st.turn += 1;
   const ctx: Ctx = { st, events, rng, depth: 0 };
+  // Between rounds a replacement can have walked on or a field been handed
+  // over, so what makes whose statuses stronger is read again before anything.
+  refreshWorth(st);
 
   // Fleeing ends the battle before anything else happens.
   if (choices.some((c) => c.kind === "flee")) {
@@ -2189,6 +2695,16 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
   for (const c of choices) {
     if (c.kind !== "switch") continue;
     const leaving = combatant(st, c.side, c.slot);
+    // Fused this round, after the switch was chosen: the fusion holds the mark
+    // for good, and the turn it meant to spend leaving is spent.
+    if (leaving && !leaving.fainted && leaving.fusedInto !== undefined) {
+      events.push({
+        text: `${displayName(leaving.scoba)} is fused and cannot leave.`,
+        kind: "info",
+        at: actingRef(st, leaving) ?? undefined,
+      });
+      continue;
+    }
     // Whatever went up in the meantime gets its say: a Scoba rooted this turn
     // stays where it is, and the turn it meant to spend leaving is spent.
     if (leaving && !leaving.fainted && isRooted(leaving.statuses)) {
@@ -2215,7 +2731,7 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     .map((c) => {
       const user = combatant(st, c.side, c.slot);
       const pri = c.kind === "spell" ? MOVES[c.moveId]?.priority ?? 0 : 0;
-      return { c, pri, spd: user ? combatantStats(user).spd : 0, tie: rng() };
+      return { c, pri, spd: user ? actingSpeed(st, user) : 0, tie: rng() };
     })
     // Priority outranks Speed outright, so a fast Scoba never gets ahead of a
     // move that was written to go first.
@@ -2227,8 +2743,13 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
     if (c.kind !== "spell" && c.kind !== "attack") continue;
     const user = combatant(st, c.side, c.slot);
     if (!user || user.fainted) continue;
-    const userRef = refOf(st, user);
-    if (!userRef) continue;
+    // A half of a fusion pays from its own bar and cooldowns, and the fusion
+    // is what casts: its stats, its level, its elements and its statuses.
+    const actor = actingAs(st, user);
+    if (actor.fainted) continue;
+    const userRef = refOf(st, actor);
+    const payerRef = refOf(st, user);
+    if (!userRef || !payerRef) continue;
 
     const move = c.kind === "spell" ? MOVES[c.moveId] ?? null : null;
     const paid = move ? castCost(user, move.id) : 0;
@@ -2237,36 +2758,52 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
       if (move.cooldown > 0) user.cds[c.moveId] = move.cooldown + 1;
       if (move.oncePerBattle && !user.spent.includes(move.id)) user.spent.push(move.id);
       events.push({
-        text: `${displayName(user.scoba)} cast ${move.name}!`,
-        kind: "spell", at: userRef, moveId: move.id, mana: user.mana,
+        text: `${displayName(actor.scoba)} cast ${move.name}!`,
+        kind: "spell", at: userRef, moveId: move.id, mana: user.mana, ...barsAt(st, userRef),
       });
-    } else {
-      events.push({ text: `${displayName(user.scoba)} attacks!`, kind: "spell", at: userRef });
+    }
+    // A passive can turn the basic attack into a move of its own, cast for nothing.
+    const basic = c.kind === "attack" ? basicAttackOf(actor) : null;
+    if (c.kind === "attack") {
+      events.push({
+        text: `${displayName(actor.scoba)} attacks!`, kind: "spell", at: userRef,
+        ...(basic ? { moveId: basic.id } : {}),
+      });
     }
 
     // Each spec is resolved once and reused, so a move's own hit and its
-    // effects agree on which Scoba "target 1" meant.
+    // effects agree on which Scoba "target 1" meant. A pick made before a
+    // fusion formed this round names one of its halves, which is the fusion now.
     const specs = specsFor(c);
-    const hits = specs.map((spec, i) => resolveTargets(st, userRef, spec, c.picks[i] ?? null, rng));
+    const picks = c.picks.map((p) => (p ? throughFusion(st, p) : p));
+    const hits = specs.map((spec, i) => resolveTargets(st, userRef, spec, picks[i] ?? null, rng));
 
     if (move) {
       const run = {
         record: move.id, self: userRef, source: userRef, other: null,
         groups: hits, alive: aliveNow(st), picked: null, raised: null, card: null, draws: 0,
         status: null,
-        cast: { move, paid },
+        cast: { move, paid, payer: payerRef },
       };
       runSteps(ctx, run, move.cast);
       // Cast a second time where something echoes it, for a share of the first
       // and leaving echoes of whatever the first left.
-      const echo = echoFrac(user.statuses);
-      if (echo > 0 && !user.fainted && st.winner === -1 && !st.rewound) {
+      const echo = echoFrac(actor.statuses);
+      if (echo > 0 && !actor.fainted && st.winner === -1 && !st.rewound) {
         ctx.events.push({
           text: `${move.name} happens again.`,
           kind: "spell", at: userRef, moveId: move.id,
         });
         runSteps(ctx, { ...run, alive: aliveNow(st), scale: echo, chrono: true }, move.cast);
       }
+    } else if (basic) {
+      // Still a basic attack to everything watching for one: its hits are no
+      // spell, and it answers `when it makes a basic attack`. Nothing echoes it.
+      runSteps(ctx, {
+        record: basic.id, self: userRef, source: userRef, other: null,
+        groups: hits, alive: aliveNow(st), picked: null, raised: null, card: null, draws: 0,
+        status: null, cast: { move: basic, paid: 0 }, basic: true,
+      }, basic.cast);
     } else {
       basicAttack(ctx, userRef, hits[0] ?? []);
     }
@@ -2322,6 +2859,12 @@ function travel(ctx: Ctx, run: Run, turns: number, discount: number, art?: strin
   // journey came from, with two sets of rounds waiting to play again.
   if (st.travelled || st.travelling) {
     ctx.events.push({ text: "That journey has already been made.", kind: "info" });
+    return;
+  }
+  // A visitor is a copy of one Scoba standing on one spare mark, and a fusion
+  // is two Scobas casting through a third body, which a copy cannot be.
+  if (caster.fusion) {
+    ctx.events.push({ text: "A fusion cannot make the journey.", kind: "info" });
     return;
   }
   // One round further back than it travels: the round it is leaving is not one
@@ -2462,8 +3005,14 @@ function putBack(ctx: Ctx): void {
   for (const u of held) {
     const c = ctx.st.teams[u.side][u.index];
     if (!c || c.fainted) continue;
-    const back = Math.min(u.hp, combatantMaxHp(c));
-    const moved = c.hp !== back || c.statuses.length !== u.statuses.length;
+    // Both of a fusion's bars go back, and so does which one was being hit: a
+    // bar emptied this round is full again.
+    if (u.bars && c.fusion) {
+      c.fusion.hp = [...u.bars.hp];
+      c.fusion.live = u.bars.live;
+    }
+    const back = Math.min(u.bars ? u.bars.hp[u.bars.live] : u.hp, combatantMaxHp(c));
+    const moved = c.hp !== back || c.statuses.length !== u.statuses.length || u.bars !== undefined;
     c.hp = back;
     // The mark the undo wore comes off with the putting back: what it said was
     // that this was coming, and it has come.
@@ -2472,6 +3021,7 @@ function putBack(ctx: Ctx): void {
     ctx.events.push({
       text: `${displayName(c.scoba)} is as it was.`,
       kind: "status", at: { side: u.side, index: u.index }, hp: c.hp,
+      ...barsAt(ctx.st, { side: u.side, index: u.index }),
     });
   }
 }
@@ -2736,7 +3286,9 @@ function forEachStanding(st: BattleState, fn: (ref: TargetRef) => void): void {
   for (const side of [0, 1] as const) {
     for (const slot of ALL_SLOTS) {
       const index = st.active[side][slot] ?? -1;
-      if (index >= 0 && !st.teams[side][index]?.fainted) fn({ side, index });
+      const c = index >= 0 ? st.teams[side][index] : undefined;
+      // The halves of a fusion are not on the field: the fusion is, once.
+      if (c && !c.fainted && c.fusedInto === undefined) fn({ side, index });
     }
   }
 }
@@ -2754,7 +3306,10 @@ function endOfTurn(ctx: Ctx): void {
   forEachStanding(st, (ref) => {
     const c = combatantAt(st, ref);
     if (!c || c.fainted) return;
-    c.mana = Math.min(MAX_MANA, c.mana + MANA_PER_TURN);
+    // A fusion gains its turn's mana in its first bar like anyone gains it in
+    // their one. What fills the second is its passive's business.
+    const bar = fusionHalves(st, c)[0] ?? c;
+    bar.mana = Math.min(MAX_MANA, bar.mana + MANA_PER_TURN);
   });
 
   forEachStanding(st, (ref) => fire(ctx, ref, { on: "turn-end" }, null));
@@ -2769,10 +3324,13 @@ function endOfTurn(ctx: Ctx): void {
       }
       c.blocking = false;
       c.statuses = tickDurations(c.statuses, st.turn);
-      c.hp = Math.min(c.hp, combatantMaxHp(c));
+      // A half's HP is its fusion's to keep now, in a bar sized as it fused.
+      if (c.fusedInto === undefined) c.hp = Math.min(c.hp, combatantMaxHp(c));
     }
   }
   tickFields(ctx);
+  // A status that ran out can have been what was making others stronger.
+  refreshWorth(st);
 }
 
 /**
@@ -2901,6 +3459,8 @@ export function markNumbers(st: BattleState, ref: TargetRef, inst: StatusInstanc
   const holder = combatantAt(st, ref);
   if (!def || !holder) return [];
   const out: MarkNumber[] = [];
+  // What the field and the holder's own statuses make this one worth right now.
+  const worth = worthOf(holder, inst);
   for (const e of def.effects) {
     if (e.kind === "damage") {
       const d = e.damage;
@@ -2911,7 +3471,7 @@ export function markNumbers(st: BattleState, ref: TargetRef, inst: StatusInstanc
       out.push({
         kind: "damage",
         amount: Math.max(1, Math.floor(
-          raw * steps.synergy * steps.elemental * steps.armorMult * (inst.scale ?? 1),
+          raw * steps.synergy * steps.elemental * steps.armorMult * (inst.scale ?? 1) * worth,
         )),
         raw,
         element: d.element,
@@ -2934,7 +3494,7 @@ export function markNumbers(st: BattleState, ref: TargetRef, inst: StatusInstanc
       const raw = basisOf(st, e.basis, ref, inst.from ?? null) * e.frac;
       out.push({
         kind: "heal",
-        amount: Math.max(1, Math.floor(raw * (inst.scale ?? 1))),
+        amount: Math.max(1, Math.floor(raw * (inst.scale ?? 1) * worth)),
         raw,
         element: null,
         category: "true",
@@ -3005,15 +3565,25 @@ function basisStat(
   }
 }
 
+/** A status that holds nothing and only acts as its holder arrives, or never. */
+function onEntryOnly(def: StatusDef): boolean {
+  if (def.effects.some((e) => isContinuous(e.kind)) || def.basicAttack !== undefined) return false;
+  // Carried only to show its sigil, such as one that hands over a move: it does nothing on entry.
+  if (def.effects.length === 0 && (def.also ?? []).length === 0 && def.fuses === undefined) return false;
+  const entry = (on: string): boolean => on === "switch-in" || on === "battle-start" || on === "passive";
+  return entry(def.trigger.on) && (def.also ?? []).every((b) => entry(b.trigger.on));
+}
+
 export function statusSummary(c: Combatant): StatusMark[] {
   const out: StatusMark[] = [];
   for (const inst of c.statuses) {
-    // A passive that does something for as long as it is carried is read on
-    // the row like any other mark, since what it is doing is true right now.
-    // One that only waits for a trigger is not standing on the Scoba at all,
-    // and belongs with the abilities rather than among its marks.
+    // A passive is read on the row like any other mark while it has something
+    // left to do: an effect it holds the whole time, or a trigger that can go
+    // off again. One that acts as the Scoba enters and never again has nothing
+    // to show. A status written with no sigil, like Hyper-Mode, never shows.
     const def = STATUSES[inst.id];
-    if (def?.innate && !def.effects.some((e) => isContinuous(e.kind))) continue;
+    if (def?.unseen) continue;
+    if (def?.innate && onEntryOnly(def)) continue;
     const found = out.find((o) => o.id === inst.id);
     if (found) {
       found.stacks += inst.stacks;
@@ -3029,6 +3599,13 @@ export function statusSummary(c: Combatant): StatusMark[] {
       chargesLeft: inst.chargesLeft,
       ...(inst.from ? { from: inst.from } : {}),
     });
+  }
+  // What somebody standing on the field is doing to this one's statuses, shown
+  // for as long as it reaches it. Nothing is carried for it: it is read off the
+  // field, so it goes the moment whoever is doing it leaves.
+  for (const id of c.worth?.shown ?? []) {
+    if (out.some((o) => o.id === id)) continue;
+    out.push({ id, name: statusName(id), stacks: 1, turnsLeft: -1, chargesLeft: -1 });
   }
   return out;
 }
@@ -3062,7 +3639,9 @@ export function stateHash(st: BattleState): string {
         : "");
       const sts = c.statuses.map((s) => `${s.id}:${s.stacks}:${s.turnsLeft}:${s.chargesLeft}${faceOf(s)}`).sort().join(",");
       const spent = [...c.spent].sort().join(",");
-      parts.push(`${side}.${i}:${c.hp}/${c.mana}${c.blocking ? "b" : ""}${c.fainted ? "x" : ""}${c.hyper ? "H" : ""}[${cds}]<${spent}>{${sts}}`);
+      const bars = fusionBars(c);
+      const fused = bars ? `F${bars.map((b) => `${b.hp}/${b.max}`).join(";")}` : c.fusedInto !== undefined ? `f${c.fusedInto}` : "";
+      parts.push(`${side}.${i}:${c.hp}/${c.mana}${c.blocking ? "b" : ""}${c.fainted ? "x" : ""}${c.hyper ? "H" : ""}${fused}[${cds}]<${spent}>{${sts}}`);
     });
   }
   return String(hashSeed(parts.join("|")));

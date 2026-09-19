@@ -77,8 +77,8 @@ export function face(art: Art, s: ScobaInstance): HTMLElement {
 }
 
 /** A line's own face, as it is drawn with nothing inherited, at the same size. */
-export function speciesFace(art: Art, sp: Species): HTMLElement {
-  return atField(critterPortrait(art, sp));
+export function speciesFace(art: Art, sp: Species, shiny = false): HTMLElement {
+  return atField(critterPortrait(art, sp, undefined, shiny));
 }
 
 function atField(cv: HTMLCanvasElement): HTMLElement {
@@ -114,6 +114,8 @@ export interface BrowserConfig {
   hint?: string;
   /** Shown in the grid when there is nothing to show at all. */
   empty?: string;
+  /** A cell ahead of the faces, handed the way back to this browser. */
+  lead?: (back: () => void) => HTMLElement;
 }
 
 export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
@@ -217,6 +219,7 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
 
   const fillGrid = (): void => {
     grid.innerHTML = "";
+    if (cfg.lead) grid.appendChild(cfg.lead(build));
     const list = shown();
     if (list.length === 0) {
       // An empty box and a search that found nothing read the same otherwise.

@@ -44,7 +44,9 @@ const listOf = (of: Rule): Rule => ({ t: "array", of });
 const req = (rule: Rule) => ({ rule });
 const opt = (rule: Rule) => ({ rule, optional: true });
 
-const everyMovement: Record<MovementStyle, true> = { hop: true, scamper: true, hover: true, skitter: true };
+const everyMovement: Record<MovementStyle, true> = {
+  hop: true, scamper: true, hover: true, skitter: true, moonhop: true,
+};
 const MOVEMENTS = Object.keys(everyMovement);
 
 const moveRef = ref(() => MOVES, "move");
@@ -84,6 +86,7 @@ const SPECIES_FIELDS: Fields = {
   pawn: opt(bool),
   autonomous: opt(bool),
   inheritsFromCaller: opt(bool),
+  fusion: opt(bool),
 };
 
 // --- walking a value against a rule ---

@@ -644,6 +644,96 @@
     "blurb": "With more Power, this Scoba seems to act in odd ways. It will replace food around a home with icecream, and plant cherry trees wherever it goes."
   },
   {
+    "id": "addiza",
+    "name": "Addiza",
+    "type": "moon",
+    "genes": {
+      "hp": 200,
+      "str": 0,
+      "def": 0,
+      "res": 150,
+      "mag": 150,
+      "spd": 0
+    },
+    "primaryAbility": "add",
+    "secondaryPool": [
+      "sum"
+    ],
+    "hyperAbility": "moon-cannon",
+    "moves": [
+      "moon-ball",
+      "moon-blast",
+      "meditation",
+      "add-everyone"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "addiza",
+      "forms": {
+        "hyper": "hyper-addiza"
+      }
+    },
+    "movement": "scamper",
+    "blurb": "Addiza is never far from a Poki."
+  },
+  {
+    "id": "poki",
+    "name": "Poki",
+    "type": "sun",
+    "genes": {
+      "hp": 200,
+      "str": 200,
+      "def": 0,
+      "res": 0,
+      "mag": 0,
+      "spd": 100
+    },
+    "primaryAbility": "multiply-enemies",
+    "secondaryPool": [
+      "multiply-allies"
+    ],
+    "hyperAbility": "flame-blade",
+    "moves": [
+      "fire-scratch",
+      "burn-slash",
+      "poki-slam",
+      "multiply-wounds"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "poki",
+      "forms": {
+        "hyper": "hyper-poki"
+      }
+    },
+    "movement": "scamper",
+    "blurb": "Poki is never far from an Addiza."
+  },
+  {
+    "id": "equalizea",
+    "name": "Equalizea",
+    "type": "moon",
+    "type2": "sun",
+    "genes": {
+      "hp": 0,
+      "str": 0,
+      "def": 0,
+      "res": 0,
+      "mag": 0,
+      "spd": 0
+    },
+    "primaryAbility": "twin-mana",
+    "secondaryPool": [],
+    "moves": [],
+    "sprite": {
+      "kind": "art",
+      "art": "equalizea"
+    },
+    "movement": "hop",
+    "fusion": true,
+    "blurb": "Addiza and Poki, as one."
+  },
+  {
     "id": "relica",
     "name": "Relica",
     "type": "plain",

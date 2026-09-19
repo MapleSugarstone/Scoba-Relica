@@ -453,6 +453,7 @@ move cherry-on-top "Cherry on Top"
     caster wears cherryless
     throw cherry as lob from cherry to target
     hit target 2 per level
+    clear cherry-on-top from caster
 
 move court-call "Court Call"
   type fortuna
@@ -607,3 +608,103 @@ move time-machine "Time Machine"
     flash #fff4dd for 0.5 seconds
     travel back 3 turns, 50 mana off, riding timemachine
     show timemachine as landing on traveller
+
+move fire-scratch "Fire Scratch"
+  type sun
+  costs 15 mana
+  aim any enemy
+  text "Scratches an enemy for [damage] damage."
+  cast:
+    caster lunge
+    show firescratch as burst on target
+    hit target 100% strength
+
+move burn-slash "Burn Slash"
+  type sun
+  costs 30 mana
+  aim any enemy
+  text "Slashes an enemy for [damage] damage. The user gains [status:burning-edge|Burning Edge], increasing their strength by [scaling:2]. Stacks up to 3 times. Lost on switching out."
+  cast:
+    caster lunge
+    show burnslice as burst on target
+    hit target 120% strength
+    inflict burning-edge on caster
+
+# Poki's own Slam, which is not the one other lines share: it costs more, has
+# no cooldown and teleports rather than rearing.
+move poki-slam "Slam"
+  type plain
+  costs 50 mana
+  aim any enemy
+  text "Slams into an enemy for [damage] damage."
+  cast:
+    caster blink, for 1 second
+    hit target 150% strength
+    wait 0.5 seconds
+
+# Addiza's.
+move moon-ball "Moon Ball"
+  type moon
+  costs 15 mana
+  cooldown 2
+  aim any enemy
+  text "Throws a moon ball at an enemy for [damage] damage. It bounces to the other enemy Scoba for [damage:2] damage, or back onto the same one if there is no other."
+  cast:
+    caster lunge
+    throw moonball as lob to target
+    hit target 80% magic
+    throw moonball as lob to next enemy scoba from target or target, off target
+    hit next enemy scoba from target or target 40% magic
+
+move moon-blast "Moon Blast"
+  type moon
+  costs 50 mana
+  aim any enemy
+  text "Blasts an enemy for [damage] damage."
+  cast:
+    caster focus
+    throw moonblast as bolt to target
+    hit target 170% magic
+
+move meditation "Meditation"
+  type moon
+  costs 60 mana
+  cooldown 6
+  aim self
+  text "The user gains [status:meditating|Meditating], increasing their magic by 100% for 4 turns. Doesn't stack."
+  cast:
+    caster focus
+    show moonmeditation as glow on caster
+    inflict meditating on caster
+
+move add-everyone "Add Everyone"
+  type moon
+  costs 100 mana
+  cooldown 7
+  aim all allies
+  text "Heals all allies for [heal]."
+  cast:
+    caster rear
+    show add as burst on target
+    heal target 200% of caster magic
+
+# What Moon Cannon turns Addiza's basic attack into.
+move moon-shot "Moon Shot"
+  type moon
+  costs 0 mana
+  aim any enemy
+  text "Launches a moon shot at an enemy for [damage] damage."
+  cast:
+    caster focus
+    throw moonshot as bolt to target
+    hit target 100% magic
+
+move multiply-wounds "Multiply Wounds"
+  type sun
+  costs 80 mana
+  aim all enemies
+  text "Leaves all enemies [status:multiplied|Multiplied], making their negative statuses 50% more effective. Stays through switching out."
+  cast:
+    caster focus
+    show multiplywounds as burst on target
+    inflict multiplied on target

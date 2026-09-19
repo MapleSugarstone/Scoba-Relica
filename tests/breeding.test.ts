@@ -313,6 +313,20 @@ describe("the father's colour mask", () => {
     expect(out.map((t) => t.to)).not.toContain("#935e7d");
   });
 
+  it("keeps the cream Poki and Addiza are both drawn in, whichever way round", () => {
+    // Pixel counts measured off the shipped art.
+    const poki = [c("#000000", 1427), c("#b20008", 544), c("#fff4dd", 290), c("#750005", 67), c("#935e7d", 51)];
+    const addiza = [c("#000000", 1322), c("#2200ff", 741), c("#fff4dd", 317), c("#120089", 84), c("#935e7d", 43)];
+    expect(pickTints(poki, addiza)).toEqual([
+      { from: "#2200ff", to: "#b20008" },
+      { from: "#120089", to: "#750005" },
+    ]);
+    expect(pickTints(addiza, poki)).toEqual([
+      { from: "#b20008", to: "#2200ff" },
+      { from: "#750005", to: "#120089" },
+    ]);
+  });
+
   it("paints a child of one colour, since that colour is the whole of it", () => {
     const dad = [c("#000000", 900), c("#87ff77", 600)];
     const child = [c("#000000", 800), c("#a31557", 300)];
