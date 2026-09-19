@@ -142,8 +142,9 @@ describe("fusion", () => {
       { kind: "spell", side: 0, slot: 1, moveId: "fire-scratch", picks: [foe] },
       ...brace,
     ]);
-    // Each paid from its own bar, and each bar took its own 20 back at the end.
-    expect([a.mana, b.mana]).toEqual([60 - costA + 20, 60 - costB + 20]);
+    // Each paid from its own bar, and each bar took its own back at the end: the
+    // turn's 20, and Twin Mana's 20 made 23 by the Multiply Allies the fusion carries.
+    expect([a.mana, b.mana]).toEqual([60 - costA + 20, 60 - costB + 23]);
   });
 
   it("cannot block or be switched out, and nobody else can come in", () => {
@@ -153,7 +154,7 @@ describe("fusion", () => {
     expect(emptySlots(st, 0)).toEqual([]);
   });
 
-  it("fills each mana bar by 20 a turn, the second through its passive", () => {
+  it("fills each mana bar a turn, the second through its passive and the Multiply Allies boosting it", () => {
     const st = fused();
     const [a, b] = [st.teams[0][0]!, st.teams[0][1]!];
     a.mana = 0;
@@ -164,7 +165,7 @@ describe("fusion", () => {
       { kind: "attack", side: 0, slot: 1, picks: [foe] },
       ...brace,
     ]);
-    expect([a.mana, b.mana]).toEqual([20, 20]);
+    expect([a.mana, b.mana]).toEqual([20, 23]);
   });
 
   it("takes the first slot's bar first, and a hit that empties it goes no further", () => {

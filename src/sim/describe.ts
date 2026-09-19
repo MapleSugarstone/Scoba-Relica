@@ -212,7 +212,7 @@ function powerOf(basis: Basis, who: Subject): string {
 }
 
 /** A standing condition, as a verb phrase: "takes no Moon damage". */
-function state(e: StatusEffect, def: StatusDef, who: Subject): string | null {
+function state(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts): string | null {
   switch (e.kind) {
     case "root": return "cannot switch out";
     case "no-hyper": return "cannot enter Hyper-Mode";
@@ -242,7 +242,9 @@ function state(e: StatusEffect, def: StatusDef, who: Subject): string | null {
       return `makes ${where} ${which} statuses ${pct(e.mult - 1)} more effective`;
     }
     case "heal-bonus":
-      return `makes every heal on an ally restore ${perLevel(e.flatAtCeiling)} more per level`;
+      return opts.level !== undefined
+        ? `makes every heal on an ally restore ${shownAmount((e.flatAtCeiling * opts.level) / MAX_LEVEL)} more`
+        : `makes every heal on an ally restore ${perLevel(e.flatAtCeiling)} more per level`;
     default: return null;
   }
 }
@@ -309,6 +311,8 @@ interface StatusOpts {
   statuses?: Record<string, StatusDef>;
   /** The level of whoever leaves it, so a flat power reads as the number it comes to. */
   level?: number;
+  /** What a heal or damage step comes to on the Scoba carrying it, written in place of the share it is of something. */
+  amount?: (step: StatusEffect) => string | undefined;
 }
 
 /** A stat amount: whole from 10 up, and one decimal under that, since stats are only rounded once everything is added. */
@@ -356,11 +360,19 @@ function powerLine(def: StatusDef, moved: StatPower[], who: Subject, level?: num
 function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts): string {
   switch (e.kind) {
     case "damage": {
+      const exact = opts.amount?.(e);
+      if (exact !== undefined) {
+        const d = e.damage;
+        return `takes ${exact} ${d.category === "true" ? "true damage" : `${type(d.element)} ${d.category} damage`}`;
+      }
       const dealt = damageAmount(e.damage.basis, e.damage.frac, e.damage.element, e.damage.category, who);
       const flat = e.damage.flatAtCeiling;
       return `takes ${dealt}${flat ? ` plus ${perLevel(flat)} damage per level` : ""}`;
     }
-    case "heal": return `heals ${healAmount(e.basis, e.frac, who)}`;
+    case "heal": {
+      const exact = opts.amount?.(e);
+      return exact !== undefined ? `heals ${exact}` : `heals ${healAmount(e.basis, e.frac, who)}`;
+    }
     case "summon": return summons(e, who);
     case "mana": return `gains ${e.amount}% mana${e.second ? " in its second mana bar" : ""}`;
     case "inflict": {
@@ -458,7 +470,7 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
   if (moved !== null) out.push({ text: `${cap(moved)}${perStack}${dur}.`, triggered: false });
   for (const e of standing) {
     if (moved !== null && e.kind === "stat-power") continue;
-    const s = state(e, def, who);
+    const s = state(e, def, who, opts);
     if (!s) continue;
     out.push({ text: `${who.noun ? `${cap(who.noun)} ${s}` : cap(s)}${dur}.`, triggered: false });
   }
@@ -515,25 +527,6 @@ function join(pieces: Piece[]): string {
     .join(" ");
 }
 
-/**
- * What a status does, split into what is true while it is carried and what it
- * does when it goes off. A readout that knows the Scoba carrying it says the
- * second half in real numbers instead, so it needs the two apart.
- */
-export function statusHalves(id: string, opts: StatusOpts = {}): { standing: string; fires: string } {
-  const def = (opts.statuses ?? STATUSES)[id];
-  if (!def || def.text !== undefined || def.hand) return { standing: describeStatus(id, opts), fires: "" };
-  const pieces = statusPieces(def, HOLDER, opts);
-  return {
-    standing: join(pieces.filter((p) => !p.triggered)),
-    fires: join(pieces.filter((p) => p.triggered)),
-  };
-}
-
-/** When a trigger goes off, written to trail a sentence rather than open one. */
-export function whileTrigger(t: StatusTrigger): string {
-  return low(when(t));
-}
 
 /** What a status does to the Scoba carrying it. */
 export function describeStatus(id: string, opts: StatusOpts = {}): string {

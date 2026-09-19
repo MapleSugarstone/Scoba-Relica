@@ -870,10 +870,20 @@ export function shrink(effect: StatusEffect, scale: number): StatusEffect {
       return { ...effect, mult: 1 + (effect.mult - 1) * scale };
     case "stat-boost":
       return { ...effect, frac: effect.frac * scale, flat: effect.flat * scale };
+    case "echo":
+      return { ...effect, frac: effect.frac * scale };
+    // Never past the whole hit.
+    case "soften":
+      return { ...effect, frac: Math.min(1, effect.frac * scale) };
+    case "heal-bonus":
+      return { ...effect, flatAtCeiling: effect.flatAtCeiling * scale };
     default:
       return effect;
   }
 }
+
+/** What a `mana` step gives at `scale`, in whole points of mana. */
+export const manaAt = (amount: number, scale: number): number => Math.round(amount * scale);
 
 /** Is anything the holder carries stopping it being called back? */
 export function isRooted(list: StatusInstance[]): boolean {
@@ -930,12 +940,10 @@ export function foldStatEffects(base: Stats, effects: ReadEffect[]): Stats {
 }
 
 /** How much a second cast is worth to this holder, or 0 where nothing echoes. */
-export function echoFrac(list: StatusInstance[]): number {
+export function echoFrac(list: StatusInstance[], worth?: (inst: StatusInstance) => number): number {
   let frac = 0;
-  for (const inst of list) {
-    for (const e of STATUSES[inst.id]?.effects ?? []) {
-      if (e.kind === "echo" && e.frac > frac) frac = e.frac;
-    }
+  for (const read of continuousEffects(list, worth)) {
+    if (read.effect.kind === "echo" && read.effect.frac > frac) frac = read.effect.frac;
   }
   return frac;
 }
@@ -966,12 +974,13 @@ export function wardAgainst(list: StatusInstance[], element: ElementType): Statu
 }
 
 /** The first status cutting the next hit down, if anything does, and by how much. */
-export function softenOn(list: StatusInstance[]): { inst: StatusInstance; frac: number } | null {
+export function softenOn(
+  list: StatusInstance[], worth?: (inst: StatusInstance) => number,
+): { inst: StatusInstance; frac: number } | null {
   for (const inst of list) {
     if (inst.chargesLeft === 0) continue;
-    const def = STATUSES[inst.id];
-    const found = def?.effects.find((e) => e.kind === "soften");
-    if (found?.kind === "soften") return { inst, frac: found.frac };
+    const found = continuousEffects([inst], worth).find((r) => r.effect.kind === "soften");
+    if (found?.effect.kind === "soften") return { inst, frac: found.effect.frac };
   }
   return null;
 }

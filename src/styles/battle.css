@@ -95,8 +95,8 @@ html.soft .bfront { image-rendering: auto; }
 /*
  * A bar and its label: "HP" before the HP bar and the mana share before the
  * mana bar, in a column wide enough for "100%", so the two bars start and end
- * together. A fusion's two of each sit side by side, the first slot's on the
- * left, each with a label column of its own.
+ * together. A fusion's two of each are stacked, the first slot's on top, each
+ * on a row of its own.
  */
 /* Room on the right as well as the label on the left, so the bars sit nearer
    the middle of the panel than the label column alone would put them. */
@@ -112,8 +112,6 @@ html.soft .bfront { image-rendering: auto; }
   line-height: 0;
 }
 .bcard .blab canvas { display: block; image-rendering: pixelated; }
-/* Two pairs of bars need more room than one, so a fusion's panel is wider. */
-.bcard.bplate.bfusion { width: 176px; }
 /* Two badges side by side are 84 px of art, which is what sets the width
    above. A third wraps rather than pushing the panel out. */
 .bcard.bplate .ticos { flex-wrap: wrap; justify-content: center; gap: 2px; }

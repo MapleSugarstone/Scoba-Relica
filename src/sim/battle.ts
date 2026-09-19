@@ -20,7 +20,7 @@ import {
   passiveStatuses, speciesName,
 } from "./scoba";
 import {
-  HYPER_FORM, MOVES, SPECIES, abilityStatuses, firstStep, grantedMoves,
+  HYPER_FORM, MOVES, SPECIES, abilityStatuses, allSteps, firstStep, grantedMoves,
   moveTypes, typesEffectiveness, type Move,
 } from "./species";
 import { BLACKJACK, DECK, addToHand, deckIndex, type Card, type CardFace } from "./cards";
@@ -53,6 +53,7 @@ import {
   hyperShut,
   spellsShutBy,
   echoFrac,
+  manaAt,
   powerCategory,
   type Basis,
   type ChanceColorChange,
@@ -1547,7 +1548,7 @@ interface Landed {
  * catches something. Read on both paths damage lands on.
  */
 function shieldFactor(ctx: Ctx, target: Combatant, targetRef: TargetRef, meta: HitMeta): number {
-  const shield = softenOn(target.statuses);
+  const shield = softenOn(target.statuses, (i) => worthOf(target, i));
   if (!shield) return 1;
   if (shield.inst.chargesLeft > 0) shield.inst.chargesLeft -= 1;
   target.statuses = target.statuses.filter((held) => held.chargesLeft !== 0);
@@ -2248,7 +2249,7 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
         if (!c) continue;
         const bar = manaBar(ctx.st, c, step.second === true);
         const before = bar.mana;
-        bar.mana = Math.min(MAX_MANA, bar.mana + step.amount);
+        bar.mana = Math.min(MAX_MANA, bar.mana + manaAt(step.amount, run.scale ?? 1));
         if (bar.mana === before) continue;
         ctx.events.push({
           text: `${displayName(c.scoba)} is brimming.`,
@@ -2377,7 +2378,7 @@ function markPower(st: BattleState, from: TargetRef | null, def: StatusDef): num
   const source = from ? combatantAt(st, from) : null;
   if (!source) return 1;
   let mult = 1;
-  for (const { effect, stacks } of continuousEffects(source.statuses)) {
+  for (const { effect, stacks } of continuousEffects(source.statuses, (i) => worthOf(source, i))) {
     if (effect.kind !== "mark-power" || (def.duration ?? 0) < effect.minTurns) continue;
     mult *= Math.pow(effect.mult, stacks);
   }
@@ -2951,7 +2952,7 @@ export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[]
       runSteps(ctx, run, move.cast);
       // Cast a second time where something echoes it, for a share of the first
       // and leaving echoes of whatever the first left.
-      const echo = echoFrac(actor.statuses);
+      const echo = echoFrac(actor.statuses, (i) => worthOf(actor, i));
       if (echo > 0 && !actor.fainted && st.winner === -1 && !st.rewound) {
         ctx.events.push({
           text: `${move.name} happens again.`,
@@ -3618,6 +3619,8 @@ function powerShift(c: Combatant, id: string): StatusMark["shift"] | undefined {
  */
 export interface MarkNumber {
   kind: "damage" | "heal";
+  /** The step in the status it is the number for, so a description can say it in place. */
+  step: StatusEffect;
   /** What it comes to, which is what the readout says. */
   amount: number;
   /**
@@ -3659,15 +3662,23 @@ export function markNumbers(st: BattleState, ref: TargetRef, inst: StatusInstanc
   const out: MarkNumber[] = [];
   // What the field and the holder's own statuses make this one worth right now.
   const worth = worthOf(holder, inst);
-  for (const e of def.effects) {
-    if (e.kind === "damage") {
+  // A passive was left by nobody, so it reads its own stats as the source's.
+  const from = inst.from ?? (def.innate ? ref : null);
+  const fired = allSteps([
+    ...def.effects.filter((e): e is Step => !isContinuous(e.kind)),
+    ...(def.also ?? []).flatMap((b) => b.steps),
+  ]);
+  for (const e of fired) {
+    // Only what lands on the holder can be measured against the holder.
+    if (e.kind === "damage" && e.to === "self") {
       const d = e.damage;
       const raw = d.snapshot && inst.power !== undefined
         ? inst.power
-        : basisOf(st, d.basis, ref, inst.from ?? null) * d.frac;
-      const steps = markDamageSteps(st, ref, inst.from ?? null, d, holder);
+        : basisOf(st, d.basis, ref, from) * d.frac;
+      const steps = markDamageSteps(st, ref, from, d, holder);
       out.push({
         kind: "damage",
+        step: e,
         amount: Math.max(1, Math.floor(
           raw * steps.synergy * steps.elemental * steps.armorMult * (inst.scale ?? 1) * worth,
         )),
@@ -3675,7 +3686,7 @@ export function markNumbers(st: BattleState, ref: TargetRef, inst: StatusInstanc
         element: d.element,
         category: d.category,
         share: d.frac,
-        basis: basisStat(st, d.basis, ref, inst.from ?? null,
+        basis: basisStat(st, d.basis, ref, from,
           d.snapshot === true && d.frac > 0 ? raw / d.frac : null),
         armor: d.category === "true" ? null : {
           label: STAT_LABELS[d.category === "physical" ? "def" : "res"],
@@ -3688,16 +3699,17 @@ export function markNumbers(st: BattleState, ref: TargetRef, inst: StatusInstanc
         snapshot: d.snapshot === true,
       });
     }
-    if (e.kind === "heal") {
-      const raw = basisOf(st, e.basis, ref, inst.from ?? null) * e.frac;
+    if (e.kind === "heal" && (e.to === "self" || e.basis.startsWith("source-"))) {
+      const raw = basisOf(st, e.basis, ref, from) * e.frac;
       out.push({
         kind: "heal",
+        step: e,
         amount: Math.max(1, Math.floor(raw * (inst.scale ?? 1) * worth)),
         raw,
         element: null,
         category: "true",
         share: e.frac,
-        basis: basisStat(st, e.basis, ref, inst.from ?? null, null),
+        basis: basisStat(st, e.basis, ref, from, null),
         armor: null,
         synergy: 1,
         casterMatch: null,

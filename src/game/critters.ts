@@ -987,7 +987,20 @@ export function critterPortrait(
 ): HTMLCanvasElement {
   const img = critterImage(art, sp, sire, shiny, opts);
   // A colour swap moves no pixels, so every mask of one costume crops the same.
-  const box = contentBox(tintKey(sp, undefined, false, opts), img);
+  return croppedPortrait(img, contentBox(tintKey(sp, undefined, false, opts), img));
+}
+
+/** A fusion's menu portrait, in both its halves' colours, cropped the way any other is. */
+export function fusionPortrait(
+  art: Art, sp: Species, s: ScobaInstance, forms: readonly FormTag[] = [],
+): HTMLCanvasElement | null {
+  if (!s.fusedFrom) return null;
+  const costume = formKey(sp, forms);
+  const img = fusionImage(art, sp, s.fusedFrom, costume, lookOf(sp, s, forms).accessory ?? null).img;
+  return croppedPortrait(img, contentBox(`fusion:${s.uid}:${costume}`, img));
+}
+
+function croppedPortrait(img: ScobaImage, box: { x: number; y: number; w: number; h: number }): HTMLCanvasElement {
   const cv = document.createElement("canvas");
   cv.width = box.w;
   cv.height = box.h;

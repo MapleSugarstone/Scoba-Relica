@@ -31,7 +31,7 @@ import {
 import { ACE_EXTRA, BLACKJACK, CARD_BACK, CARD_HIGH, cardOfValue, type CardFace } from "../sim/cards";
 import { CREAM, hexToRgb, paletteSwap } from "../engine/recolor";
 import {
-  MOVES, SPECIES,
+  HYPER_FORM, MOVES, SPECIES,
   type CasterAnim, type Move, type MoveVfx, type Species,
 } from "../sim/species";
 import { FIELDS, STATUSES, type ShowPath } from "../sim/status";
@@ -232,10 +232,10 @@ interface Effect {
  * can hold one mark across a round. Keying only on the costume left the old
  * body standing there wearing the new one's name.
  */
-function drawnAs(c: Combatant): string {
+function drawnAs(c: Combatant, forms: string[]): string {
   const sp = SPECIES[c.scoba.speciesId];
-  const piece = sp ? pieceWorn(sp, carriedBy(c), formsOf(c)) : null;
-  return [bodyKey(c), ...formsOf(c), ...(piece ? [`piece:${piece}`] : [])].join("+");
+  const piece = sp ? pieceWorn(sp, carriedBy(c), forms) : null;
+  return [bodyKey(c), ...forms, ...(piece ? [`piece:${piece}`] : [])].join("+");
 }
 
 /** The ids of every status a combatant carries, which is what decides the piece it wears. */
@@ -259,7 +259,8 @@ interface Item {
   now?: boolean;
   /** Drawn on the near canvas, over the readouts, rather than under them. */
   over?: boolean;
-  draw: (ctx: CanvasRenderingContext2D) => void;
+  /** `weather` is set on the near canvas, where the field's wash is laid by each one in its own shape. */
+  draw: (ctx: CanvasRenderingContext2D, weather: boolean) => void;
 }
 
 /**
@@ -870,10 +871,11 @@ export class BattleStage {
     const c = this.st.teams[f.side][f.index];
     const sp = c ? SPECIES[c.scoba.speciesId] : undefined;
     if (!c || !sp) return;
-    const forms = formsOf(c);
-    const worn = drawnAs(c);
+    const forms = this.formsShown(c);
+    const worn = drawnAs(c, forms);
     if (f.worn === worn) return;
-    if (!arriving && f.worn.split("+")[0] !== c.scoba.uid) return;
+    // Compared as keys rather than read off `worn`: a fusion's uid has a "+" in it.
+    if (!arriving && f.key !== bodyKey(c)) return;
     f.actor.skin = critterLook(this.art, sp, c.scoba, forms, carriedBy(c));
     f.bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms, carriedBy(c)));
     f.head = f.bounds.top + idleLift(sp.movement, f.actor.idleMix);
@@ -883,6 +885,44 @@ export class BattleStage {
   /** Everyone on the field, for a change that is not a walk-on or a faint. */
   private reskinAll(): void {
     for (const f of this.fighters) this.reskin(f);
+  }
+
+  /**
+   * Costumes the round has put on that the scene has not shown yet, by body.
+   * The battle resolves the whole round first, so a Scoba whose Hyper-Mode
+   * comes second is already in it while the first one's is still playing.
+   */
+  private withheld = new Map<string, string[]>();
+
+  /** The costumes a Scoba is drawn in right now: what it wears, less what has not been shown going on. */
+  private formsShown(c: Combatant): string[] {
+    const held = [...(this.withheld.get(bodyKey(c)) ?? [])];
+    return formsOf(c).filter((form) => {
+      const i = held.indexOf(form);
+      if (i < 0) return true;
+      held.splice(i, 1);
+      return false;
+    });
+  }
+
+  /** Keeps a costume off a Scoba until the event that puts it on plays. */
+  private withhold(ref: TargetRef, form: string): void {
+    const c = this.st.teams[ref.side][ref.index];
+    if (!c) return;
+    const key = bodyKey(c);
+    this.withheld.set(key, [...(this.withheld.get(key) ?? []), form]);
+  }
+
+  /** The event that puts a costume on is playing, so it is shown from here on. */
+  private release(ref: TargetRef | undefined, form: string): void {
+    const c = ref ? this.st.teams[ref.side][ref.index] : undefined;
+    if (!c) return;
+    const key = bodyKey(c);
+    const held = [...(this.withheld.get(key) ?? [])];
+    const i = held.indexOf(form);
+    if (i >= 0) held.splice(i, 1);
+    if (held.length > 0) this.withheld.set(key, held);
+    else this.withheld.delete(key);
   }
 
   /**
@@ -920,8 +960,8 @@ export class BattleStage {
         if (this.shownOf(side, index).fainted) continue;
         const sp = SPECIES[c.scoba.speciesId];
         if (!sp) continue;
-        const forms = formsOf(c);
-        const worn = drawnAs(c);
+        const forms = this.formsShown(c);
+        const worn = drawnAs(c, forms);
         // Matched on which body it is rather than on where it sits. A rewind
         // renumbers the team under every mark at once, and matching on the
         // number put one Scoba's body on another's mark. The mark it is already
@@ -1207,7 +1247,7 @@ export class BattleStage {
   private drawnAs(f: Fighter): { sp: Species; forms: FormTag[] } | null {
     const c = this.st.teams[f.side][f.index];
     const sp = c ? SPECIES[c.scoba.speciesId] : undefined;
-    return sp && c ? { sp, forms: formsOf(c) } : null;
+    return sp && c ? { sp, forms: this.formsShown(c) } : null;
   }
 
   /**
@@ -1820,6 +1860,12 @@ export class BattleStage {
     // is right for: the scene has either been in the past since an earlier
     // round or has never been there.
     if (!events.some((e) => e.kind === "travel")) this.inPast = !!this.st.travelling;
+    for (const ev of events) {
+      if (ev.kind === "hyper" && ev.at) this.withhold(ev.at, HYPER_FORM);
+      if (ev.kind === "show" && ev.visual?.kind === "wear") {
+        for (const ref of ev.to ?? []) this.withhold(ref, ev.visual.form);
+      }
+    }
     let caster: TargetRef | undefined;
     const groups = volleys(events);
     for (let i = 0; i < events.length; i++) {
@@ -1833,7 +1879,11 @@ export class BattleStage {
       }
       this.queueEvent(ev, caster, onEach, groups.lead.get(i), groups.follows.has(i));
     }
-    return this.flush();
+    // Whatever a cut-short round never got to is put on at the end of it.
+    return this.flush().then(() => {
+      this.withheld.clear();
+      this.reskinAll();
+    });
   }
 
   /**
@@ -1975,8 +2025,15 @@ export class BattleStage {
       }
       case "hyper": {
         const self = this.find(ev.at);
-        if (!self) return say(0.3);
+        if (!self) return say(0.3, { start: () => this.release(ev.at, HYPER_FORM) });
         let changed = false;
+        // Only this Scoba's costume changes here: another one going Hyper
+        // later in the round keeps its own until its own turn plays.
+        const change = (): void => {
+          changed = true;
+          this.release(ev.at, HYPER_FORM);
+          this.reskinAll();
+        };
         say(0.7, {
           start: () => {
             sfx.confirm();
@@ -1995,15 +2052,14 @@ export class BattleStage {
               return;
             }
             if (!changed) {
-              changed = true;
-              this.reskinAll();
+              change();
               self.flare = 1;
             }
           },
           end: () => {
             self.shake = 0;
             self.oy = 0;
-            if (!changed) this.reskinAll();
+            if (!changed) change();
           },
         });
         return;
@@ -2327,7 +2383,13 @@ export class BattleStage {
         });
         return;
       case "wear":
-        this.push({ dur: 0, start: () => this.reskinAll() });
+        this.push({
+          dur: 0,
+          start: () => {
+            for (const ref of ev.to ?? []) this.release(ref, step.form);
+            this.reskinAll();
+          },
+        });
         return;
       case "sound":
         this.push({ dur: 0, start: () => playNamed(step.name) });
@@ -2774,68 +2836,29 @@ export class BattleStage {
     ctx.restore();
   }
 
-  private drawWashes(ctx: CanvasRenderingContext2D, onlyDrawn = false): void {
+  private drawWashes(ctx: CanvasRenderingContext2D): void {
     const { w, h } = this.view;
     const mid = Math.round(w / 2);
     for (const side of [0, 1] as const) {
       const wash = this.washes[side];
       const def = wash.id ? FIELDS[wash.id] : null;
       if (!def || wash.a <= 0.01) continue;
-      const x = side === 0 ? 0 : mid;
-      const across = side === 0 ? mid : w - mid;
-      if (onlyDrawn) {
-        this.washDrawn(ctx, def.tint, wash.a * FIELD_WASH, x, across);
-        continue;
-      }
       ctx.save();
       ctx.globalCompositeOperation = "soft-light";
       const lit = ctx.globalCompositeOperation === "soft-light";
       ctx.globalAlpha = wash.a * (lit ? FIELD_WASH : FIELD_WASH_FLAT);
       ctx.fillStyle = def.tint;
-      ctx.fillRect(x, 0, across, h);
+      ctx.fillRect(side === 0 ? 0 : mid, 0, side === 0 ? mid : w - mid, h);
       ctx.restore();
     }
   }
 
-  /** Where the near canvas's wash is cut to the shape of what is standing on it. */
-  private washShape: HTMLCanvasElement | null = null;
-
-  /**
-   * One side's wash over the near canvas, in the same soft light as the main
-   * one, so black line art stays black. A blend also fills the canvas's empty
-   * parts, where the readouts show through, so it is laid down as the tint cut
-   * to the shape of whatever is drawn in that half.
-   */
-  private washDrawn(ctx: CanvasRenderingContext2D, tint: string, alpha: number, x: number, across: number): void {
-    const node = ctx.canvas;
-    const shape = (this.washShape ??= document.createElement("canvas"));
-    if (shape.width !== node.width || shape.height !== node.height) {
-      shape.width = node.width;
-      shape.height = node.height;
-    }
-    const s = shape.getContext("2d");
-    if (!s) return;
-    const at = ctx.getTransform();
-    s.save();
-    s.setTransform(1, 0, 0, 1, 0, 0);
-    s.globalCompositeOperation = "source-over";
-    s.clearRect(0, 0, shape.width, shape.height);
-    s.setTransform(at);
-    s.beginPath();
-    s.rect(x, 0, across, this.view.h);
-    s.clip();
-    s.setTransform(1, 0, 0, 1, 0, 0);
-    s.drawImage(node, 0, 0);
-    s.globalCompositeOperation = "source-atop";
-    s.fillStyle = tint;
-    s.fillRect(0, 0, shape.width, shape.height);
-    s.restore();
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalCompositeOperation = "soft-light";
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(shape, 0, 0);
-    ctx.restore();
+  /** The wash over the half of the view `x` stands in, or null where that half has none. */
+  private weatherAt(x: number): { tint: string; alpha: number } | null {
+    const wash = this.washes[x < Math.round(this.view.w / 2) ? 0 : 1];
+    const def = wash.id ? FIELDS[wash.id] : null;
+    if (!def || wash.a <= 0.01) return null;
+    return { tint: def.tint, alpha: wash.a * FIELD_WASH };
   }
 
   /**
@@ -2922,7 +2945,7 @@ export class BattleStage {
     const c = this.st.teams[ref.side][ref.index];
     const sp = c ? SPECIES[c.scoba.speciesId] : undefined;
     if (!c || !sp) return img;
-    return paintedFor(this.art, sp, c.scoba, img, formsOf(c));
+    return paintedFor(this.art, sp, c.scoba, img, this.formsShown(c));
   }
 
   /**
@@ -3016,7 +3039,7 @@ export class BattleStage {
         // on the near canvas it would be drawn over the people standing in
         // front of it.
         over: isPawnSlot(f.slot) || isTravelSlot(f.slot) || f.leaving !== null,
-        draw: (c) => {
+        draw: (c, weather) => {
           // Anything the move cannot reach fades back while it is being aimed.
           const alpha = stepAlpha(Math.min(f.alpha, this.aim && !target ? 0.4 : 1));
           // The shadow stays on the ground under the body while the sprite
@@ -3040,6 +3063,15 @@ export class BattleStage {
           if (f.hurt > 0) f.actor.drawTint(c, 0, 0, "#f3f2c0", f.hurt * 0.5);
           if (f.heal > 0) f.actor.drawTint(c, 0, 0, "#7aa74a", f.heal * 0.55);
           if (f.flare > 0) f.actor.drawTint(c, 0, 0, CREAM, f.flare);
+          // In soft light, like the wash over the main canvas, so black line
+          // art stays black. Laid in the Scoba's own shape because the near
+          // canvas is see-through, and a fill over all of it would tint the
+          // readouts behind.
+          const lit = weather ? this.weatherAt(at.x + f.ox) : null;
+          if (lit) {
+            c.globalCompositeOperation = "soft-light";
+            f.actor.drawTint(c, 0, 0, lit.tint, lit.alpha * alpha);
+          }
           c.restore();
           // The hand rides over the head rather than with the body, so a lunge
           // does not take the cards with it.
@@ -3048,10 +3080,10 @@ export class BattleStage {
       });
     }
     items.sort((a, b) => a.baseY - b.baseY);
-    const paint = (c: CanvasRenderingContext2D, on: Item[]): void => {
+    const paint = (c: CanvasRenderingContext2D, on: Item[], weather = false): void => {
       for (const it of on) {
         c.save();
-        it.draw(c);
+        it.draw(c, weather);
         c.restore();
       }
     };
@@ -3079,7 +3111,10 @@ export class BattleStage {
     }
     this.frontLit = wanted;
     if (front && wanted) {
-      paint(front, near.filter((it) => !it.now));
+      // Each Scoba on this canvas lays the weather over itself: the rest of the
+      // canvas is the readouts showing through, and weather does not fall on a
+      // readout.
+      paint(front, near.filter((it) => !it.now), true);
       front.save();
       this.wash(front, this.pastFilter(false));
       for (const e of this.effects) drawEffect(front, e);
@@ -3087,11 +3122,7 @@ export class BattleStage {
       this.tintPast(front);
       // After the tint, so the one that travelled keeps its own colors while
       // everything it is standing among wears the ones of that time.
-      paint(front, near.filter((it) => it.now));
-      // The weather tints what is standing on this canvas and nothing else:
-      // the rest of it is the readouts showing through, and weather does not
-      // fall on a readout.
-      this.drawWashes(front, true);
+      paint(front, near.filter((it) => it.now), true);
     } else {
       for (const e of this.effects) {
         ctx.save();

@@ -6,8 +6,10 @@
 // status with no icon, or an icon with nothing drawn for it, falls back to the
 // placeholder, so a new status turns up as a mark it can be hovered rather
 // than as a gap.
-import { FIELDS, STATUSES, isContinuous, shrink, statusName, type Step, type StatusDef } from "../sim/status";
-import { describeField, describeStatus, shiftLine, shownAmount, statusHalves, whileTrigger } from "../sim/describe";
+import {
+  FIELDS, STATUSES, isContinuous, manaAt, shrink, statusName, type Step, type StatusDef, type StatusEffect,
+} from "../sim/status";
+import { describeField, describeStatus, shiftLine, shownAmount } from "../sim/describe";
 import { allSteps } from "../sim/species";
 import type { MarkNumber, StatusMark } from "../sim/battle";
 import type { DamageCategory } from "../sim/status";
@@ -79,19 +81,21 @@ export function sigilText(m: {
   const worth = boosts.reduce((p, b) => p * b.mult, 1);
   const better = def?.polarity !== "bad";
   // The note already says how long is left and how many times, so the line on
-  // what it does leaves both out. It is read twice, as written and at what the
-  // boosts make it worth, so each number a boost moved can show by how much.
-  const written = { duration: false, charges: false, ...(level !== undefined ? { level } : {}) };
+  // what it does leaves both out. A heal or a hit is written as what it comes
+  // to on this Scoba, marked so it can carry its working. The line is read
+  // twice, as written and at what the boosts make it worth, so each other
+  // number a boost moved can show by how much.
+  const amount = (step: unknown): string | undefined => {
+    const i = numbers.findIndex((n) => n.step === step);
+    return i >= 0 ? `${OPEN}${i}${SHUT}` : undefined;
+  };
+  const written = { duration: false, charges: false, amount, ...(level !== undefined ? { level } : {}) };
   const boosted = def && worth !== 1 ? { ...written, statuses: { ...STATUSES, [def.id]: worthMore(def, worth) } } : written;
-  const read = (said: (opts: typeof written) => string): SaidPart[] =>
-    boostedNumbers(said(written), said(boosted), boosts, better);
   // A status that only moves stats by its power says what it is moving them by
   // on this Scoba, every stack in.
   const said = def && m.shift && def.text === undefined && def.effects.every((e) => e.kind === "stat-power")
     ? shiftParts(m.shift, boosts, better)
-    : numbers.length > 0 && def
-      ? exactly(def, numbers, boosts, read)
-      : read((opts) => describeStatus(m.id, opts));
+    : valueParts(describeStatus(m.id, written), describeStatus(m.id, boosted), numbers, boosts, better);
   return {
     name: m.name,
     desc: said.map((p) => p.text).join(""),
@@ -105,6 +109,30 @@ const boostRows = (boosts: Boost[], better: boolean): WorkLine[] =>
   boosts.map((b) => ({ label: b.name, value: times(b.mult), tone: (b.mult > 1) === better ? "good" : "bad" }));
 
 const NUMBER = /(\d+(?:\.\d+)?%?)/;
+/** Around the index of a heal or hit written in place, so it can be found again in the line. */
+const OPEN = "";
+const SHUT = "";
+const MARKED = new RegExp(`${OPEN}(\\d+)${SHUT}`);
+
+/**
+ * The line as boosted, with each heal or hit carrying its own working and each
+ * other number a boost moved carrying what it is written as, each boost, and
+ * what it comes to.
+ */
+function valueParts(
+  written: string, boosted: string, numbers: MarkNumber[], boosts: Boost[], better: boolean,
+): SaidPart[] {
+  const was = written.split(MARKED);
+  const now = boosted.split(MARKED);
+  return now.flatMap((t, i): SaidPart[] => {
+    if (i % 2 === 1) {
+      const n = numbers[Number(t)];
+      if (!n) return [];
+      return [{ text: String(n.amount), work: working(n, boosts), ...(n.kind === "damage" ? { dmg: n.category } : {}) }];
+    }
+    return boostedNumbers(was.length === now.length ? was[i]! : t, t, boosts, better).filter((p) => p.text !== "");
+  });
+}
 
 /**
  * The line as boosted, with each number a boost moved split out and carrying
@@ -137,9 +165,22 @@ function shiftParts(shift: NonNullable<StatusMark["shift"]>, boosts: Boost[], be
   return [{ text: line.slice(0, at) }, { text: shown, work }, { text: line.slice(at + shown.length) }];
 }
 
-/** A status with everything it holds moved `worth` of the way, the way a boost reads it. */
+/**
+ * A status with everything it holds moved `worth` of the way, and every mana
+ * it gives made `worth` times as much, the way the battle reads it. A heal or
+ * a hit is left as the same step, since its number is worked out on its own.
+ */
 function worthMore(def: StatusDef, worth: number): StatusDef {
-  return { ...def, effects: def.effects.map((e) => (isContinuous(e.kind) ? shrink(e, worth) : e)) };
+  const scaled = <T extends StatusEffect>(e: T): T => {
+    if (e.kind === "mana") return { ...e, amount: manaAt(e.amount, worth) };
+    if (e.kind === "if") return { ...e, then: e.then.map(scaled) };
+    return isContinuous(e.kind) ? shrink(e, worth) as T : e;
+  };
+  return {
+    ...def,
+    effects: def.effects.map(scaled),
+    ...(def.also ? { also: def.also.map((b) => ({ ...b, steps: b.steps.map(scaled) })) } : {}),
+  };
 }
 
 /** Every other status a status can land, by id. */
@@ -173,30 +214,6 @@ function linked(said: SaidPart[], def: StatusDef, level?: number): SaidPart[] {
   return out;
 }
 
-/**
- * What the mark is doing, in the numbers it is actually doing it in. The half
- * that is true while it is carried is written the way it always is; the half
- * that goes off says what it comes to on this Scoba rather than what share of
- * what it is, since the share is the working rather than the effect.
- */
-function exactly(
-  def: StatusDef, numbers: MarkNumber[], boosts: Boost[],
-  read: (said: (opts: { duration: boolean; charges: boolean }) => string) => SaidPart[],
-): SaidPart[] {
-  const at = whileTrigger(def.trigger);
-  const out: SaidPart[] = read((opts) => {
-    const { standing } = statusHalves(def.id, opts);
-    return standing === "" ? "" : `${standing} `;
-  });
-  for (const [i, n] of numbers.entries()) {
-    if (i > 0) out.push({ text: " " });
-    out.push({ text: n.kind === "damage" ? "Takes " : "Heals " });
-    out.push({ text: String(n.amount), work: working(n, boosts), ...(n.kind === "damage" ? { dmg: n.category } : {}) });
-    out.push({ text: n.kind === "damage" ? ` damage ${at}.` : ` ${at}.` });
-  }
-  return out.filter((p) => p.text !== "");
-}
-
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const times = (n: number): string => `${Number(n.toFixed(2))}x`;
 
@@ -217,7 +234,7 @@ function working(n: MarkNumber, boosts: Boost[]): WorkLine[] {
       value: String(n.basis.value),
     });
   }
-  out.push({ label: `${Math.round(n.share * 100)}%`, value: String(Math.round(n.raw)) });
+  out.push({ label: `${Number((n.share * 100).toFixed(2))}%`, value: String(Math.round(n.raw)) });
   if (n.element) {
     out.push({ label: "Type", value: `${cap(n.element)} ${n.category}`, element: n.element });
   }

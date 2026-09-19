@@ -65,7 +65,7 @@ describe("what a mark's window says", () => {
     const mark = statusSummary(st.teams[0][0]!).find((m) => m.id === "dead-coral")!;
     const said = sigilText(mark, markNumbers(st, ref, held(st, "dead-coral")));
     expect(said.desc).toMatch(/^Resistance -5%\./);
-    expect(said.desc).toMatch(/Takes \d+ damage at the end of each turn\./);
+    expect(said.desc).toMatch(/At the end of each turn, takes \d+ Flux magic damage\./);
     // No share of anything left on the line: that is the working, not the effect.
     expect(said.desc).not.toContain("%%");
     expect(said.desc).not.toMatch(/70%/);
@@ -85,7 +85,8 @@ describe("what a mark's window says", () => {
   it("shows the working behind the number, with the element it lands as", () => {
     const { st, ref } = marked("dead-coral");
     const numbers = markNumbers(st, ref, held(st, "dead-coral"));
-    const said = sigilText(statusSummary(st.teams[0][0]!)[0]!, numbers);
+    const coral = () => statusSummary(st.teams[0][0]!).find((m) => m.id === "dead-coral")!;
+    const said = sigilText(coral(), numbers);
     const dealt = said.said.find((p) => p.dmg !== undefined)!;
     expect(dealt.text).toBe(String(numbers[0]!.amount));
     const working = dealt.work ?? [];
@@ -96,7 +97,7 @@ describe("what a mark's window says", () => {
     const stat = working.find((w) => w.label.includes("Magic"))!;
     const share = working.find((w) => w.label.endsWith("%"))!;
     st.teams[1][0]!.scoba.genes = { ...st.teams[1][0]!.scoba.genes, mag: 1 };
-    const later = sigilText(statusSummary(st.teams[0][0]!)[0]!, markNumbers(st, ref, held(st, "dead-coral")));
+    const later = sigilText(coral(), markNumbers(st, ref, held(st, "dead-coral")));
     const laterWork = later.said.find((p) => p.dmg !== undefined)!.work ?? [];
     expect(laterWork.find((w) => w.label.includes("Magic"))!.value).toBe(stat.value);
     expect(laterWork.find((w) => w.label.endsWith("%"))!.value).toBe(share.value);
@@ -132,6 +133,41 @@ describe("what a boost does to a mark's window", () => {
       { label: "Multiply Allies", value: "1.15x", tone: "good" },
       { label: "Total", value: "23%" },
     ]);
+  });
+});
+
+describe("a passive's values under Multiply Allies", () => {
+  /** Addiza carrying `passive` beside a Poki, whose Multiply Allies reaches Addiza. */
+  function beside(passive: string, partner = "poki"): BattleState {
+    const a = { ...wild("addiza"), secondaryAbility: passive };
+    return startBattle("values", [a, wild(partner)], [wild("obera"), wild("obera", 30, "foe")], { slots: 2 });
+  }
+
+  it("shows Sum's bonus at the holder's level, boosted, with its working", () => {
+    const st = beside("sum");
+    const mark = statusSummary(st.teams[0][0]!).find((m) => m.id === "sum")!;
+    const said = sigilText(mark, [], 30);
+    expect(said.desc).toBe("Makes every heal on an ally restore 34 more.");
+    expect(said.said.find((p) => p.work)!.work).toEqual([
+      { label: "Base", value: "30" },
+      { label: "Multiply Allies", value: "1.15x", tone: "good" },
+      { label: "Total", value: "34" },
+    ]);
+  });
+
+  it("gives more mana from a passive, and says so", () => {
+    const gained = (partner: string): number => {
+      const st = beside("accelerated", partner);
+      const a = st.teams[0][0]!;
+      a.mana = 0;
+      resolveTurn(st, [block(0), block(1), block(0, 1), block(1, 1)]);
+      return a.mana;
+    };
+    // Accelerated's 10, made 12 by Poki's Multiply Allies.
+    expect(gained("poki") - gained("obera")).toBe(2);
+    const st = beside("accelerated");
+    const mark = statusSummary(st.teams[0][0]!).find((m) => m.id === "accelerated")!;
+    expect(sigilText(mark, [], 30).desc).toContain("gains 12% mana");
   });
 });
 

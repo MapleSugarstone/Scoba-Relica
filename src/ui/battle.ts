@@ -35,6 +35,7 @@ import {
   actingSpeed,
   basicAttackOf,
   fusionBars,
+  fusionHalves,
   BASIC_ATTACK_TARGETS,
   type BattleEvent,
   type BattleState,
@@ -67,7 +68,7 @@ import { frameRect, uiZoom, viewport } from "../engine/renderer";
 import { typeIcon, typeIcons } from "./typeicon";
 import { actButton, moveSub, type ActOpts } from "./actbutton";
 import { countMark, pixelLabel } from "./countmark";
-import { critterPortrait, lookOf } from "../game/critters";
+import { critterPortrait, fusionPortrait, lookOf } from "../game/critters";
 import type { SaveData } from "../save/save";
 import { addToParty, autosave, partyOf, writeSave } from "../save/save";
 import type { UI } from "./screens";
@@ -530,15 +531,18 @@ function runBattle(
     tline.append(lv, state);
     wrap.appendChild(tline);
     const max = combatantMaxHp(c);
-    // A fusion reads two of each, side by side, the first slot's on the left:
-    // the left HP bar is the one a hit empties first.
+    // A fusion reads two of each, stacked, the first slot's on top: the top HP
+    // bar is the one a hit empties first.
     const pairs = c.fusion ? 2 : 1;
-    if (c.fusion) wrap.classList.add("bfusion");
     const hpBars = Array.from({ length: pairs }, () => bar(""));
     const mpBars = Array.from({ length: pairs }, () => bar("mp"));
     const mpNums = mpBars.map(() => barLabel());
     const marks = el("div", "marks");
-    wrap.append(barRow(hpBars, [barLabel("HP").node]), barRow(mpBars, mpNums.map((l) => l.node)), marks);
+    wrap.append(
+      ...hpBars.map((b, i) => barRow([b], [barLabel(i === 0 ? "HP" : "").node])),
+      ...mpBars.map((b, i) => barRow([b], [mpNums[i]!.node])),
+      marks,
+    );
 
     const refresh = (): void => {
       const now = stage.shownOf(ref.side, ref.index);
@@ -1430,6 +1434,10 @@ function runBattle(
     ui.screen((s) => {
       s.appendChild(el("h2", undefined, `${nameOf(owner)} · extra`));
       const list = el("div", "xlist");
+      // A fusion belongs to nobody, so it is shown once, ahead of whichever of
+      // its halves are this player's.
+      const fusions = new Set(mine.map(({ c }) => actingAs(st, c)).filter((body) => body.fusion && !body.fainted));
+      for (const body of fusions) list.appendChild(fusionPanel(body));
       for (const { c, i } of mine) list.appendChild(scobaPanel(c, { side: 0, index: i }, slot));
       s.appendChild(list);
 
@@ -1460,6 +1468,62 @@ function runBattle(
     return cv;
   };
 
+  /** A passive's name and text, with how many charges it has left where it spends them. */
+  const passiveRow = (wrap: HTMLElement, id: string, carried: StatusInstance[]): void => {
+    const ab = ABILITIES[id];
+    if (!ab) return;
+    const row = el("div", "xpass");
+    row.appendChild(el("strong", undefined, ab.name));
+    row.appendChild(proseBox(abilityText(ab.id), {}, "pline"));
+    const spent = abilityStatuses(id)
+      .map((sid) => carried.find((held) => held.id === sid))
+      .filter((held): held is StatusInstance => !!held && held.chargesLeft > 0)
+      .map((held) => `${statusName(held.id)} x${held.chargesLeft}`);
+    if (spent.length > 0) row.appendChild(el("span", "dim", spent.join(", ")));
+    wrap.appendChild(row);
+  };
+
+  /**
+   * A fusion on the Extra window: its drawing, both HP bars, the stats both
+   * halves fight with, and every passive it carries. It has no moves of its
+   * own, so the halves' panels under it show those.
+   */
+  const fusionPanel = (body: Combatant): HTMLElement => {
+    const wrap = el("div", "card xscoba");
+    const sp = SPECIES[body.scoba.speciesId]!;
+    const halves = fusionHalves(st, body);
+    const nm = el("div", "nm cardHead");
+    const face = el("div", "xface");
+    const drawn = fusionPortrait(art, sp, body.scoba, formsOf(body));
+    if (drawn) face.appendChild(fitted(drawn));
+    nm.appendChild(face);
+    nm.appendChild(el("strong", undefined, displayName(body.scoba)));
+    nm.appendChild(el("span", "lv", `Lv ${body.scoba.level}`));
+    nm.appendChild(typeIcons(body.scoba));
+    nm.appendChild(el("span", "lv", `· ${halves.map((h) => displayName(h.scoba)).join(" and ")}`));
+    wrap.appendChild(nm);
+
+    const stats = combatantStats(body);
+    const line = el("div", "xstats");
+    const bars = fusionBars(body) ?? [];
+    line.appendChild(el("span", undefined, `HP ${bars.map((b) => `${b.hp}/${b.max}`).join(" · ")}`));
+    for (const key of ["str", "def", "res", "mag"] as const) {
+      line.appendChild(el("span", undefined, `${STAT_LABELS[key]} ${stats[key]}`));
+    }
+    line.appendChild(el("span", undefined, `${STAT_LABELS.spd} ${halves.map((h) => actingSpeed(st, h)).join(" · ")}`));
+    wrap.appendChild(line);
+
+    // Each passive once, by the status it is carried as.
+    const passives = new Set<string>();
+    for (const inst of body.statuses) {
+      const id = Object.keys(ABILITIES).find((a) => abilityStatuses(a).includes(inst.id));
+      if (id) passives.add(id);
+    }
+    for (const id of passives) passiveRow(wrap, id, body.statuses);
+    wrap.appendChild(el("div", "dim", "Each half picks one of its own abilities a turn."));
+    return wrap;
+  };
+
   /** One Scoba on the Extra window: where it stands, its stats and its moves. */
   const scobaPanel = (c: Combatant, ref: TargetRef, slot: number): HTMLElement => {
     const wrap = el("div", "card xscoba");
@@ -1481,31 +1545,22 @@ function runBattle(
       c.fainted ? "· fainted" : fused ? `· in ${displayName(body.scoba)}` : pawn ? "· pawn" : out ? "· out" : "· benched"));
     wrap.appendChild(nm);
 
-    // A half fights with the fusion's numbers, its own HP bar and its own Speed.
-    const stats = { ...combatantStats(body), spd: actingSpeed(st, c) };
+    // A half fights with the fusion's numbers, which the fusion's own panel
+    // shows, so it says only what is still its own: its HP bar and its Speed.
     const half = halfIndex(c);
     const bars = fused ? fusionBars(body) : null;
     const hp = bars && half !== undefined ? bars[half]! : { hp: c.hp, max: combatantMaxHp(c) };
     const line = el("div", "xstats");
     line.appendChild(el("span", undefined, `HP ${hp.hp}/${hp.max}`));
-    for (const key of ["str", "def", "res", "mag", "spd"] as const) {
+    const stats = { ...combatantStats(c), spd: actingSpeed(st, c) };
+    for (const key of fused ? (["spd"] as const) : (["str", "def", "res", "mag", "spd"] as const)) {
       line.appendChild(el("span", undefined, `${STAT_LABELS[key]} ${stats[key]}`));
     }
     wrap.appendChild(line);
 
-    for (const id of [sp.primaryAbility, c.scoba.secondaryAbility]) {
-      const ab = ABILITIES[id];
-      if (!ab) continue;
-      const row = el("div", "xpass");
-      row.appendChild(el("strong", undefined, ab.name));
-      row.appendChild(proseBox(abilityText(ab.id), {}, "pline"));
-      // A passive with charges left to spend says how many are left.
-      const spent = abilityStatuses(id)
-        .map((sid) => c.statuses.find((held) => held.id === sid))
-        .filter((held): held is StatusInstance => !!held && held.chargesLeft > 0)
-        .map((held) => `${statusName(held.id)} x${held.chargesLeft}`);
-      if (spent.length > 0) row.appendChild(el("span", "dim", spent.join(", ")));
-      wrap.appendChild(row);
+    // A half's passives went into the fusion, and are listed there.
+    if (!fused) {
+      for (const id of [sp.primaryAbility, c.scoba.secondaryAbility]) passiveRow(wrap, id, c.statuses);
     }
 
     // The same board the fight itself shows: four cells, in the same order,
