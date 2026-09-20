@@ -246,8 +246,23 @@ export type Step =
      * thrown at all where the target carries none.
      */
     perStackOf?: string;
+    /**
+     * A share of the target's own HP bar, added to the shares of the
+     * attacker's stats. It is the one part of an attack read off the Scoba it
+     * lands on, and the armor and the type chart still apply to it.
+     */
+    ofTargetHp?: number;
+    /**
+     * After the named target, the attack carries on to every other enemy
+     * standing, each one taking this share of what the one before it took.
+     */
+    bounce?: number;
+    /** Art thrown from each target to the next one the bounce reaches. */
+    bounceArt?: string;
     element?: ElementType; category?: HitCategory; sound?: string;
   }
+  /** One free basic attack, the same swing a chosen attack makes, at each of `at`. */
+  | { kind: "swing"; at: Who }
   /** A set amount, with no chart and no armor. */
   | { kind: "damage"; to: Who; damage: StatusDamage; sound?: string }
   /** `power` heals what the status or the patch running it snapshotted, in place of the share. */
@@ -502,6 +517,12 @@ export interface StatusDef {
   /** Whether a second application stacks rather than refreshing. */
   stacks: boolean;
   maxStacks: number;
+  /**
+   * One stack answers a trigger rather than every stack answering it, and that
+   * stack is gone once it has. What it stacks up to is how many times it can
+   * answer before it is spent.
+   */
+  spendsStack?: boolean;
   /** Whether it survives the holder being switched out. */
   persists: boolean;
   /**
@@ -844,6 +865,31 @@ export function continuousEffects(list: StatusInstance[], worth?: (inst: StatusI
           ...(inst.basis ? { basis: inst.basis } : {}),
         });
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * Every multiple a list of statuses puts on attacks of one element, named by
+ * whatever does it. The battle multiplies these into a hit; a readout wants
+ * them one at a time, so a player can see which mark is behind the number.
+ */
+export function elementPowers(
+  list: StatusInstance[],
+  element: ElementType,
+  worth?: (inst: StatusInstance) => number,
+): { name: string; mult: number }[] {
+  const out: { name: string; mult: number }[] = [];
+  for (const inst of list) {
+    const def = STATUSES[inst.id];
+    if (!def) continue;
+    const scale = (inst.scale ?? 1) * (worth ? worth(inst) : 1);
+    for (const raw of def.effects) {
+      if (!isContinuous(raw.kind)) continue;
+      const effect = scale === 1 ? raw : shrink(raw, scale);
+      if (effect.kind !== "element-power" || effect.element !== element) continue;
+      out.push({ name: def.name, mult: Math.pow(effect.mult, inst.stacks) });
     }
   }
   return out;

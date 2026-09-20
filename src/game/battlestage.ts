@@ -2302,7 +2302,10 @@ export class BattleStage {
             // the one the swap displaces is the one that walks off.
             const at = ev.at;
             const standing = at ? this.fighters.filter((f) => f.side === at.side && !f.leaving) : [];
-            this.sync();
+            // Only the one this event brings. A round that emptied two marks
+            // fills both before either is played, so a plain sync stood the
+            // second one up here and its own event then walked it on again.
+            this.sync({ arriving: at ?? undefined, hold: true });
             walking = this.find(ev.at);
             if (!walking) return;
             // A Scoba calls as it walks on, where its line has a call drawn.
@@ -2311,6 +2314,9 @@ export class BattleStage {
             if (going) this.sendOff(going);
             walking.settled = false;
             walking.plate = 0;
+            // Walking on is its own reveal, so it is solid from the first step.
+            // A teleporter is the exception: it is held unseen and blinks in.
+            walking.alpha = 1;
             const a = this.anchor(walking.side, walking.slot);
             walking.actor.x = walking.side === 0 ? -20 : this.view.w + 20;
             walking.actor.y = a.y;
@@ -2676,7 +2682,23 @@ export class BattleStage {
     // Scoba was marked and when, not one status at a time.
     if (ev.kind === "status" || ev.kind === "faint" || ev.kind === "hyper" || ev.kind === "fuse") {
       const live = this.st.teams[ref.side][ref.index];
-      if (live) held.marks = statusSummary(live);
+      // What is read off the Scoba is what it carries at the end of the round,
+      // and a Scoba that falls drops the lot. Reading a fallen one before the
+      // scene has played its fall would empty its row for the rest of the
+      // round, so its row is left as it stands until the fall itself.
+      if (live && (!live.fainted || ev.kind === "faint")) held.marks = statusSummary(live);
+      // The same goes for the mark this very line is about: it landed, and it
+      // went down with the Scoba before anything read the row, so the line
+      // that announced it is what puts it there.
+      if (ev.kind === "status" && ev.status && !held.marks.some((m) => m.id === ev.status)) {
+        held.marks = [...held.marks, {
+          id: ev.status,
+          name: STATUSES[ev.status]?.name ?? ev.status,
+          stacks: ev.stacks ?? 1,
+          turnsLeft: -1,
+          chargesLeft: -1,
+        }];
+      }
     }
   }
 

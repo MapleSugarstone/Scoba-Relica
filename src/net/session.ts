@@ -381,6 +381,9 @@ export class Session {
       case "battle-choice":
         this.forBattle(msg.battleId)?.peerChoice(msg.turn, msg.choice);
         return;
+      case "battle-answer":
+        this.forBattle(msg.battleId)?.peerAnswer(msg.turn, msg.seq, msg.index, msg.answer);
+        return;
       case "battle-send-in":
         this.forBattle(msg.battleId)?.peerSendIn(msg.turn, msg.slot, msg.benchIndex);
         return;

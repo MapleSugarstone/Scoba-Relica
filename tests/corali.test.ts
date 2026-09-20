@@ -13,9 +13,9 @@ const wild = (id: string, lv = 30, seed = id): ScobaInstance => makeWild(id, lv,
 const mine = (s: ScobaInstance): ScobaInstance => ({ ...s, owner: "A" });
 
 /** Corali against one enemy, with a full bar and nothing on cooldown. */
-function reef(enemies = ["plib"], slots: 1 | 2 = 1): BattleState {
+function reef(enemies = ["pieble"], slots: 1 | 2 = 1): BattleState {
   const me = mine(wild("corali"));
-  const st = startBattle("reef", [me, mine(wild("plib", 30, "ally"))], enemies.map((e, i) => wild(e, 30, `e${i}`)), { slots });
+  const st = startBattle("reef", [me, mine(wild("pieble", 30, "ally"))], enemies.map((e, i) => wild(e, 30, `e${i}`)), { slots });
   st.teams[0][0]!.mana = 100;
   st.teams[0][0]!.cds = {};
   return st;
@@ -67,7 +67,7 @@ describe("Coral Growth", () => {
 
 describe("Coral Burst", () => {
   it("counts every coral on every enemy and spends them all", () => {
-    const st = reef(["plib", "grima"], 2);
+    const st = reef(["pieble", "grima"], 2);
     const foes = [st.teams[1][0]!, st.teams[1][1]!];
     for (const c of foes) c.hp = combatantMaxHp(c) * 20;
     // Two casts, so one enemy is wearing two corals and the other one.
@@ -125,7 +125,7 @@ describe("Coral Shield", () => {
 describe("Coral Feast", () => {
   it("pays 10 mana whenever anything faints", () => {
     // Two enemies, so the fight goes on after one of them falls and the turn pays out.
-    const st = reef(["plib", "grima"], 2);
+    const st = reef(["pieble", "grima"], 2);
     const me = st.teams[0][0]!;
     expect(me.scoba.secondaryAbility).toBe("coral-feast");
     const foe = st.teams[1][0]!;
@@ -140,7 +140,7 @@ describe("Coral Feast", () => {
 
 describe("Coral Ritual", () => {
   it("raises a fallen Scoba as a Moon and Flux Pawn at three quarters of its level", () => {
-    const st = reef(["plib", "grima"], 2);
+    const st = reef(["pieble", "grima"], 2);
     const body = st.teams[1][1]!;
     body.hp = 0;
     body.fainted = true;
@@ -163,7 +163,7 @@ describe("Coral Ritual", () => {
 
   it("hands the Pawn whatever elements the raiser itself has", () => {
     // A bred Corali carries its father's element, and what it raises carries it too.
-    const st = reef(["plib", "grima"], 2);
+    const st = reef(["pieble", "grima"], 2);
     const me = st.teams[0][0]!;
     me.scoba.type2 = "firework";
     const body = st.teams[1][1]!;
@@ -177,7 +177,7 @@ describe("Coral Ritual", () => {
   });
 
   it("takes a tenth of the Pawn's pool at the end of each turn", () => {
-    const st = reef(["plib", "grima"], 2);
+    const st = reef(["pieble", "grima"], 2);
     const body = st.teams[1][1]!;
     body.hp = 0;
     body.fainted = true;

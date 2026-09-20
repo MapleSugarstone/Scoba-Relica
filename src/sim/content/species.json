@@ -406,32 +406,67 @@
     "role": "bruiser",
     "type": "plain",
     "genes": {
-      "hp": 150,
-      "str": 115,
-      "def": 95,
-      "res": 70,
-      "mag": 25,
-      "spd": 45
+      "hp": 90,
+      "str": 78,
+      "def": 60,
+      "res": 42,
+      "mag": 0,
+      "spd": 30
     },
-    "primaryAbility": "plainspoken",
+    "primaryAbility": "very-plain",
     "secondaryPool": [
-      "brawn",
-      "thick-coat"
+      "self-defense"
     ],
     "moves": [
-      "fury",
-      "crush",
-      "sugar-rush",
-      "slam",
-      "nuzzle-nap"
+      "punch",
+      "yelp",
+      "rock-throw",
+      "squash"
     ],
     "sprite": {
       "kind": "art",
       "art": "plib"
     },
     "movement": "skitter",
-    "blurb": "It's Plib!",
-    "starter": true
+    "blurb": "Small, ordinary and entirely willing to hit back.",
+    "starter": true,
+    "baby": true,
+    "evolvesTo": "poba"
+  },
+  {
+    "id": "poba",
+    "name": "Poba",
+    "role": "bruiser",
+    "type": "plain",
+    "genes": {
+      "hp": 150,
+      "str": 130,
+      "def": 100,
+      "res": 70,
+      "mag": 0,
+      "spd": 50
+    },
+    "primaryAbility": "very-plain",
+    "secondaryPool": [
+      "self-defense"
+    ],
+    "hyperAbility": "roughhouse",
+    "moves": [
+      "punch",
+      "yelp",
+      "rock-throw",
+      "squash"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "poba",
+      "forms": {
+        "hyper": "hyper-poba"
+      }
+    },
+    "movement": "skitter",
+    "blurb": "Poba hits as hard as it is hit, and it is built to be hit.",
+    "starter": false
   },
   {
     "id": "catsquito",

@@ -14,12 +14,12 @@ const wild = (species: string, level: number, seed: string): ScobaInstance =>
   makeWild(species, level, rngFrom(seed));
 const owned = (s: ScobaInstance): ScobaInstance => ({ ...s, owner: "A" });
 
-/** One Octoshake and an ally, against three Plibs. */
+/** One Octoshake and an ally with no Hyper-Mode, against three Pobas. */
 function field(opts: { slots?: 1 | 2 } = {}): BattleState {
   const oct = owned(wild("octoshake", 30, "oct"));
   oct.secondaryAbility = "cherry-on-top";
   return startBattle("octo", [oct, owned(wild("plib", 30, "ally"))], [
-    wild("plib", 30, "e1"), wild("plib", 30, "e2"), wild("plib", 30, "e3"),
+    wild("poba", 30, "e1"), wild("poba", 30, "e2"), wild("poba", 30, "e3"),
   ], { slots: opts.slots ?? 1 });
 }
 
@@ -255,11 +255,11 @@ describe("the Octoshake spell list", () => {
 });
 
 describe("what a Scoba is seen wearing", () => {
-  const plib = SPECIES.plib!;
+  const plain = SPECIES.plib!;
   const octo = SPECIES.octoshake!;
 
   it("puts the cherry on a line that inherited the passive", () => {
-    expect(accessoryOf(plib, "cherry-on-top", [])).toBe("cherry");
+    expect(accessoryOf(plain, "cherry-on-top", [])).toBe("cherry");
   });
 
   it("leaves a line that has the passive of its own alone", () => {
@@ -269,7 +269,7 @@ describe("what a Scoba is seen wearing", () => {
   });
 
   it("takes the cherry off the moment the move is spent", () => {
-    expect(accessoryOf(plib, "cherry-on-top", ["cherryless"])).toBeNull();
+    expect(accessoryOf(plain, "cherry-on-top", ["cherryless"])).toBeNull();
   });
 
   it("costumes a line that has the cherry drawn in, for the same tag", () => {

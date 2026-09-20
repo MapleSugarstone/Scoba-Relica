@@ -367,3 +367,31 @@ status jolted "Jolted"
   power 50% of source magic
   while carried:
     speed - power
+
+# Plib and Poba. The guard it answers a blow with, the strength it works up,
+# and the dent its attacks leave in whoever it is swinging at.
+status on-guard "Self-Defense"
+  good
+  icon selfdefense
+  stacks up to 4
+  lost on switching out
+  spends a stack
+  text "Answers physical damage with a free basic attack on the enemy that dealt it. Each answer spends a stack."
+  when hit by physical:
+    basic attack other
+
+status yelped "Yelping"
+  good
+  icon yelp
+  stacks up to 4
+  lost on switching out
+  while carried:
+    strength x1.25
+
+status dented "Dented"
+  bad
+  icon defensedown
+  stacks up to 5
+  lost on switching out
+  while carried:
+    defense x0.95

@@ -3,7 +3,7 @@
 // all game logic stays client-side. See claude-notes/architecture.md.
 import type { ScobaInstance } from "../sim/scoba";
 import type { CareState } from "../sim/care";
-import type { BattleState, Choice, OwnerId } from "../sim/battle";
+import type { Answer, BattleState, Choice, OwnerId } from "../sim/battle";
 import type { Step } from "./presence";
 import type { Companionship } from "../sim/companionship";
 
@@ -20,10 +20,11 @@ import type { Companionship } from "../sim/companionship";
  * raise it once already cost an evening of a phone sitting on "Knocking..."
  * while the relay quietly refused every word the host said.
  *
+ * 4: battle-answer
  * 3: lobby, lobby-start, profile
  * 2: rtc-offer/answer/ice, at, relica, battle-open/join/sync/close
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Two players share a campaign under one room code. */
 export interface RoomInfo {
@@ -56,6 +57,13 @@ export type ClientMessage =
   /** The fight is over on the sender's side, so the peer can drop its copy. */
   | { t: "battle-close"; battleId: string; outcome: string }
   | { t: "battle-choice"; battleId: string; turn: number; choice: Choice }
+  /**
+   * What one of the peer's Scobas was asked mid-round, and what they said.
+   * `seq` names which run of questions the index counts in, since a round and
+   * a replacement walking on each ask from zero, and both clients work the
+   * same name out for the same run.
+   */
+  | { t: "battle-answer"; battleId: string; turn: number; seq: string; index: number; answer: Answer }
   /**
    * A replacement walking on between rounds. It is not one of the turn's
    * choices, since arriving costs no turn, so a peer has to be told about it
@@ -146,6 +154,7 @@ export type ServerMessage =
   | { t: "battle-sync"; battleId: string; state: BattleState }
   | { t: "battle-close"; battleId: string; outcome: string }
   | { t: "battle-choice"; battleId: string; turn: number; choice: Choice }
+  | { t: "battle-answer"; battleId: string; turn: number; seq: string; index: number; answer: Answer }
   | { t: "battle-send-in"; battleId: string; turn: number; slot: 0 | 1; benchIndex: number }
   | { t: "peer-illegal"; battleId: string; reason: string }
   | { t: "rtc-offer"; sdp: string }

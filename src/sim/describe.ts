@@ -112,7 +112,14 @@ const scopeOf = (w: Who): Subject => {
   if (typeof w !== "object") return SCOPES[w];
   if ("aim" in w) return THE_TARGET;
   if ("asked" in w) return one("whoever was picked", "the picked Scoba's");
-  if ("next" in w) return w.next === "ally" ? one("the other ally Scoba", "the other ally Scoba's") : one("the other enemy Scoba", "the other enemy Scoba's");
+  if ("next" in w) {
+    // Counted from the one running the step, it is simply the first one over
+    // there. Counted from a target, it is the one beside that target.
+    const own = w.from === "self" || w.from === "source";
+    return w.next === "ally"
+      ? own ? one("the first ally Scoba", "the first ally Scoba's") : one("the other ally Scoba", "the other ally Scoba's")
+      : own ? one("the first enemy Scoba", "the first enemy Scoba's") : one("the other enemy Scoba", "the other enemy Scoba's");
+  }
   return scopeOf(w.first);
 };
 
@@ -358,6 +365,33 @@ function powerLine(def: StatusDef, moved: StatPower[], who: Subject, level?: num
 }
 
 /** What a fired effect does, as a verb phrase in the third person. */
+/**
+ * What a run of steps does, as one clause. A step written several times over is
+ * said once and counted: three of the same mark is three stacks of it, and
+ * anything else repeated says how many times rather than saying itself again.
+ */
+function firedList(steps: StatusEffect[], def: StatusDef, who: Subject, opts: StatusOpts): string {
+  const said: string[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+    const same = JSON.stringify(step);
+    let n = 1;
+    while (i + n < steps.length && JSON.stringify(steps[i + n]) === same) n += 1;
+    i += n - 1;
+    const inner = step.kind === "inflict" ? (opts.statuses ?? STATUSES)[step.status] : undefined;
+    if (n > 1 && step.kind === "inflict" && inner) {
+      const sub = scopeOf(step.on);
+      const gains = sub.noun ? `${sub.noun} ${sub.plural ? "gain" : "gains"}` : "gains";
+      said.push(`${gains} ${n} stacks of ${inner.name}`);
+      continue;
+    }
+    const one = fired(step, def, who, opts);
+    if (one === "") continue;
+    said.push(n > 1 ? `${one}, ${n === 2 ? "twice" : `${n} times`}` : one);
+  }
+  return said.join(" and ");
+}
+
 function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts): string {
   switch (e.kind) {
     case "damage": {
@@ -384,6 +418,8 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
     }
     case "ask":
       return `has ${scopeOf(e.who).noun || "itself"} pick ${TARGETS[e.mode].noun || "itself"}`;
+    case "swing":
+      return `makes a free basic attack on ${scopeOf(e.at).noun || "itself"}`;
     case "plant": {
       const inner = (opts.statuses ?? STATUSES)[e.status];
       return `grows ${inner?.name ?? e.status} under ${scopeOf(e.under).noun || "itself"}`;
@@ -501,7 +537,7 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
     const times = withCharges && def.charges && !onlyOnce
       ? def.charges === 1 ? ", once a battle" : `, up to ${def.charges} times`
       : "";
-    const verbs = goes.map((e) => fired(e, def, who, opts)).filter((v) => v !== "").join(" and ");
+    const verbs = firedList(goes, def, who, opts);
     const subject = who.noun ? `${who.noun} ` : "";
     const body = `${subject}${verbs}${times}${dur}`;
     out.push({ text: lead ? `${lead}, ${body}.` : `${cap(body)}.`, triggered: lead !== "" });
@@ -510,7 +546,7 @@ function statusPieces(def: StatusDef, who: Subject, opts: StatusOpts): Piece[] {
   // Every `when` block after the first says what it does on its own trigger.
   for (const block of def.also ?? []) {
     const acts = block.steps.filter((e) => !SHOWN.has(e.kind));
-    const verbs = acts.map((e) => fired(e, def, who, opts)).filter((v) => v !== "").join(" and ");
+    const verbs = firedList(acts, def, who, opts);
     if (verbs === "") continue;
     const lead = when(block.trigger);
     const body = `${who.noun ? `${who.noun} ` : ""}${verbs}`;
@@ -642,10 +678,18 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       const each = e.perStackOf !== undefined
         ? ` for each stack of ${STATUSES[e.perStackOf]?.name ?? e.perStackOf} it carries`
         : "";
+      const share = e.ofTargetHp !== undefined ? ` plus ${pct(e.ofTargetHp)} of the target's HP bar` : "";
+      const bounce = e.bounce !== undefined
+        ? ` It carries on to every other enemy, each taking ${pct(e.bounce)} of what the one before it took.`
+        : "";
       return [{
-        text: `Deals ${amount} ${elements} ${category} damage to ${t.noun || "itself"}${each}.`,
+        text: `Deals ${amount}${share} ${elements} ${category} damage to ${t.noun || "itself"}${each}.${bounce}`,
         triggered: false,
       }];
+    }
+    case "swing": {
+      const t = who(e.at);
+      return [{ text: `Makes a free basic attack on ${t.noun || "itself"}.`, triggered: true }];
     }
     case "heal": {
       const t = who(e.to);

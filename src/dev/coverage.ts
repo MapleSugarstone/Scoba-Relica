@@ -25,7 +25,7 @@ export type Mechanic =
   | "switch-lock" | "cast-denial" | "taunt"
   | "mana-gain" | "mana-denial"
   | "summon" | "raise-fallen"
-  | "status-amplify" | "double-cast" | "field" | "ground" | "time";
+  | "status-amplify" | "double-cast" | "counter" | "field" | "ground" | "time";
 
 /** Every mechanic the roster is counted against, and what it means. */
 export const MECHANICS: { tag: Mechanic; says: string }[] = [
@@ -51,6 +51,7 @@ export const MECHANICS: { tag: Mechanic; says: string }[] = [
   { tag: "raise-fallen", says: "a fallen Scoba back as a Pawn" },
   { tag: "status-amplify", says: "making other statuses stronger" },
   { tag: "double-cast", says: "casting twice" },
+  { tag: "counter", says: "a free attack outside its own turn" },
   { tag: "field", says: "weather over a side" },
   { tag: "ground", says: "a patch on a mark that works on whoever stands there" },
   { tag: "time", says: "winding the battle back" },
@@ -224,6 +225,9 @@ function scan(effects: StatusEffect[], sides: Side[], seen: Set<string>, aims: T
         break;
       case "mana":
         add(sidesOf(step.on, aims).includes("enemies") ? "mana-denial" : "mana-gain");
+        break;
+      case "swing":
+        add("counter");
         break;
       case "summon":
         add("summon");

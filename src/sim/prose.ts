@@ -84,6 +84,13 @@ export interface ProseFor {
    * rather than only that it exists.
    */
   types?: ElementType[];
+  /**
+   * What multiplies the caster's attacks of an element, named by whatever
+   * does it: its own passives, the marks on it and the field it stands under.
+   * The battle folds these into every hit, so a number written without them
+   * is not the number that lands.
+   */
+  powers?: (element: ElementType) => { name: string; mult: number }[];
 }
 
 /** Everything a written line may put in brackets, for the editor to list. */
@@ -265,6 +272,11 @@ function damageWork(hit: HitStep, at: ProseFor): WorkLine[] {
   } else if (types.length > 0) {
     out.push({ label: `Elemental Synergy, for ${types.map(cap).join(" or ")}`, value: "1.5x" });
   }
+  // A mark, a passive or a field that makes this element hit harder. Each one
+  // is named, since the number is theirs rather than the move's.
+  for (const { name, mult } of powersOn(types, at)) {
+    out.push({ label: name, value: `${Math.round(mult * 100) / 100}x` });
+  }
   // As far as the arithmetic goes without a target. The chart and the armor are
   // read off whoever is being hit, and a move is read here before anyone has
   // been aimed at, so the total is what the caster brings to it.
@@ -272,7 +284,7 @@ function damageWork(hit: HitStep, at: ProseFor): WorkLine[] {
   if (base !== null) {
     out.push({
       label: "Total",
-      value: String(Math.max(1, Math.floor(base * synergyFor(types, at)))),
+      value: String(Math.max(1, Math.floor(base * synergyFor(types, at) * powerFor(types, at)))),
       dmg: hitCategory(hit),
     });
   }
@@ -484,13 +496,17 @@ function damageLabel(hit: HitStep, at: ProseFor, move: Move): string {
   // A flat share is written as what it comes to at the ceiling, and read out as
   // what each level of the caster adds.
   const flat = hit.flatAtCeiling ?? 0;
+  // The share read off whoever it lands on cannot be a number here, since the
+  // label is written without a target, so it is carried as what it is.
+  const bar = hit.ofTargetHp !== undefined ? ` + ${pct(hit.ofTargetHp)} of their HP bar` : "";
   if (!at.stats) {
     const shares = hit.scaling.map((s) => `${pct(s.scale)} ${STAT_LABELS[s.stat]}`).join(" + ");
-    return `${shares}${flat ? ` + ${perLevel(flat)} damage per level` : ""}`;
+    return `${shares}${flat ? ` + ${perLevel(flat)} damage per level` : ""}${bar}`;
   }
   let base = flat && at.level !== undefined ? (flat * at.level) / MAX_LEVEL : 0;
   for (const s of hit.scaling) base += at.stats[s.stat] * s.scale;
-  return String(Math.max(1, Math.floor(base * synergyFor(hitElements(hit, move), at))));
+  const types = hitElements(hit, move);
+  return `${Math.max(1, Math.floor(base * synergyFor(types, at) * powerFor(types, at)))}${bar}`;
 }
 
 /**
@@ -501,6 +517,16 @@ function damageLabel(hit: HitStep, at: ProseFor, move: Move): string {
  */
 function synergyFor(types: ElementType[], at: ProseFor): number {
   return at.types && types.some((t) => at.types!.includes(t)) ? 1.5 : 1;
+}
+
+/** What the caster's own passives, marks and field do to an attack of these elements. */
+function powersOn(types: ElementType[], at: ProseFor): { name: string; mult: number }[] {
+  return at.powers ? types.flatMap((t) => at.powers!(t)) : [];
+}
+
+/** The same, as the one number the battle multiplies in. */
+function powerFor(types: ElementType[], at: ProseFor): number {
+  return powersOn(types, at).reduce((mult, p) => mult * p.mult, 1);
 }
 
 /** The long form, for the window that opens on hovering it. */
@@ -515,9 +541,11 @@ function damageDetail(hit: HitStep): string {
   const each = hit.perStackOf !== undefined
     ? `, for each ${STATUSES[hit.perStackOf]?.name ?? hit.perStackOf} on the target`
     : "";
+  const bar = hit.ofTargetHp !== undefined ? ` and ${pct(hit.ofTargetHp)} of the target's HP bar` : "";
   // What it meets on the way in is the last line of the working rather than
   // part of this, so the opening line says only where the number comes from.
-  return `${main}${also}${flat}${each}.`;
+  // What the attack does past this target is the move's text to explain.
+  return `${main}${also}${bar}${flat}${each}.`;
 }
 
 /** What a hand of exactly 21 pays out, which the battle reads off the dealer's Strength as physical damage. */

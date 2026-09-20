@@ -366,6 +366,15 @@ function readStep(line: Line, scope: Scope): Step {
       return { kind: "say", text };
     }
     case "hit": return readHit(line, scope);
+    case "basic": {
+      const usage = "basic attack <who>";
+      noBlock(line, usage);
+      const c = single(line, usage);
+      c.expect("basic attack");
+      const at = readWho(c, scope);
+      c.done();
+      return { kind: "swing", at };
+    }
     case "damage": return readDamage(line, scope);
     case "heal": {
       const usage = "heal <who> <share> of <whose> <stat> | heal <who> power, sound <name>";
@@ -905,8 +914,9 @@ function readThrow(line: Line, scope: Scope): Step {
 }
 
 function readHit(line: Line, scope: Scope): Step {
-  const usage = "hit <who> <share> <stat> + <share> <stat> + <n> at max level"
-    + " | hit <who> <n> per level, per stack of <status>, as <element> <physical|magic>, sound <name>";
+  const usage = "hit <who> <share> <stat> + <share> <stat> + <share> of their max hp + <n> at max level"
+    + " | hit <who> <n> per level, per stack of <status>, bouncing at <share> throwing <art>,"
+    + " as <element> <physical|magic>, sound <name>";
   noBlock(line, usage);
   const c = clause(line, 0, usage);
   c.expect("hit");
@@ -919,8 +929,15 @@ function readHit(line: Line, scope: Scope): Step {
     const scaling: Scaling[] = [];
     for (;;) {
       const scale = c.percent("the share");
-      const stat = c.vocab(STAT_WORDS, "a stat");
-      scaling.push({ stat, scale });
+      // The one share read off the Scoba the attack lands on rather than off
+      // the one throwing it.
+      if (c.take("of")) {
+        c.expect("their max hp");
+        step.ofTargetHp = (step.ofTargetHp ?? 0) + scale;
+      } else {
+        const stat = c.vocab(STAT_WORDS, "a stat");
+        scaling.push({ stat, scale });
+      }
       if (!c.take("+")) break;
       // A number with no percent after the plus is the flat amount, which ends the list.
       if (c.seesNumber()) {
@@ -937,6 +954,9 @@ function readHit(line: Line, scope: Scope): Step {
     if (o.take("per stack of")) {
       step.perStackOf = o.id("the status the stacks are counted off");
       scope.refs.push({ table: "statuses", id: step.perStackOf, line: line.no });
+    } else if (o.take("bouncing at")) {
+      step.bounce = o.percent("the share each bounce takes");
+      if (o.take("throwing")) step.bounceArt = o.token("the art each bounce throws");
     } else if (o.take("sound")) step.sound = o.token("the sound");
     else {
       o.expect("as");
@@ -1428,7 +1448,7 @@ function snapshots(steps: Step[]): number {
 function readStatus(head: Line, refs: Ref[]): StatusDef {
   const { id, name } = header(head, "status");
   const known = [
-    "good", "bad", "text", "icon", "planted", "lit", "sound", "lasts", "charges", "stacks", "lost on switching out",
+    "good", "bad", "text", "icon", "planted", "lit", "sound", "lasts", "charges", "stacks", "lost on switching out", "spends a stack",
     "shows a hand of cards", "grows", "power", "no sigil", "always as written", "while carried", "when",
   ];
   const scope: Scope = { record: id, kind: "status", aims: new Map(), asked: new Set(), rewrites: 0, drawn: false, picked: false, refs };
@@ -1502,6 +1522,11 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
       c.expect("lost on switching out");
       c.done();
       def.persists = false;
+    } else if (c0.sees("spends a stack")) {
+      const c = plain("spends a stack");
+      c.expect("spends a stack");
+      c.done();
+      def.spendsStack = true;
     } else if (c0.sees("shows a hand of cards")) {
       const c = plain("shows a hand of cards");
       c.expect("shows a hand of cards");
@@ -1650,6 +1675,10 @@ function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: Statu
     ? {
       id, name, polarity: "good", trigger: b.trigger, duration: null, charges,
       stacks: false, maxStacks: 1, persists: true, innate: true,
+      // No `text` here on purpose. The sigil a passive is carried as reads the
+      // sentence the game builds from its steps, which is what lets the numbers
+      // in it be the live ones, boosts and all. The written line is what the
+      // ability itself says, on the card and in the ability row.
       effects: [...b.standing, ...b.steps],
       ...(b.also.length > 0 ? { also: b.also } : {}),
       ...(icon !== undefined ? { icon } : {}),

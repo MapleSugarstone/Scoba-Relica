@@ -17,7 +17,7 @@ const wild = (id: string, lv = 30): ScobaInstance => makeWild(id, lv, rngFrom(`$
 const mine = (s: ScobaInstance): ScobaInstance => ({ ...s, owner: "A" });
 
 /** Allin against one Plib, with a full bar and nothing on cooldown. */
-function table(enemy = "plib"): BattleState {
+function table(enemy = "pieble"): BattleState {
   const st = startBattle("allin", [mine(wild("allin"))], [wild(enemy)], { slots: 1 });
   st.teams[0][0]!.mana = 100;
   st.teams[0][0]!.cds = {};
@@ -27,7 +27,7 @@ function table(enemy = "plib"): BattleState {
 /** The same table with a Scoba that is not Invested, for measuring against. */
 function plainTable(): BattleState {
   const me = { ...mine(wild("allin")), secondaryAbility: "brawn" };
-  const st = startBattle("allin", [me], [wild("plib")], { slots: 1 });
+  const st = startBattle("allin", [me], [wild("pieble")], { slots: 1 });
   st.teams[0][0]!.mana = 100;
   st.teams[0][0]!.cds = {};
   return st;

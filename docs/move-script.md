@@ -159,6 +159,12 @@ that needs a pick, in order, before the move goes off.
 After the mode you can write a prompt in double quotes, which the picker shows
 while that group is being chosen.
 
+A pick is aimed at a mark rather than at a body. Switching happens ahead of
+every action in the round, so a Scoba aimed at can be on the bench by the time
+the move reaches it, and the move lands on whoever took its mark. A Scoba that
+fell is not replaced until the round is over, so a move aimed at one that fell
+finds nobody, and a pick aimed at the bench is left where it was pointed.
+
 Steps name the groups. The first group is `target`, the second is `target2`, the
 third is `target3`, and so on. Write `as <name>` at the end of an `aim` line to
 give a group a name of your own:
@@ -242,6 +248,7 @@ status slowed "Slowed"
 | `charges <n>` | No | How many times it can go off: its `when` steps running is one, and a `blocks <element> hits` effect catching a hit is one. When the charges run out, it is gone. Leave it out for no limit. |
 | `stacks` or `stacks up to <n>` | No | Landing it again adds another stack instead of refreshing it. `stacks` alone allows 99. Leave it out and landing it again refreshes the one already there. |
 | `lost on switching out` | No | It comes off when its holder is called back. Leave it out and it stays through a switch. |
+| `spends a stack` | No | One stack answers a trigger rather than every stack answering it, and that stack is gone once it has. What it stacks up to is how many times it can answer before it is spent. |
 | `shows a hand of cards` | No | Its stack count is a hand of cards, with the last card dealt drawn over the holder's head. `deal drawn card` uses a status like this. |
 | `no sigil` | No | It is never shown in the sigil row. Hyper-Mode takes this line, since the Scoba's drawing already shows it. |
 | `always as written` | No | Nothing makes it more or less effective: a `marks ... hit` effect passes it by. Hyper-Mode and EZ mode take this line. |
@@ -668,6 +675,31 @@ physical.
 the shares, scaled by the attacker's level against the ceiling of 30, so `+ 8 at
 max level` is 8 damage at level 30 and a fifth of that at level 6.
 
+**`+ <share> of their max hp`** adds a share of the HP bar of whoever the attack
+lands on, which is the one part of an attack read off the target rather than off
+the attacker. It joins the shares before any multiplier, so the same-type bonus,
+the type chart and the target's armor all cut it the same way they cut the rest.
+
+```
+hit target 100% strength + 100% of their max hp
+```
+
+**`, bouncing at <share>`** carries the attack on to every other enemy standing,
+in mark order, after the ones it was aimed at. Each one takes that share of what
+the one before it took, so `bouncing at 70%` lands at 70% on the second, 49% on
+the third and so on. Each bounce is worked out against the Scoba it lands on, so
+armor and the type chart still read against that Scoba.
+
+Write `throwing <art>` after it to draw the bounce: the art arcs from each
+target to the next one it reaches, and lands before the damage it delivers. The
+first leg, from the caster to the target it was aimed at, is an ordinary `throw`
+step above the hit.
+
+```
+throw rockthrow as lob to target
+hit target 100% strength, bouncing at 70% throwing rockthrow
+```
+
 **`, per stack of <status>`** counts the hit once for each stack of that status
 the target carries, and throws it at nobody carrying none.
 
@@ -847,6 +879,18 @@ inflict decaying-coral on raised
 **`give <who> <move> in slot <n>`** puts a named move in that slot for the rest
 of the battle, the same way `give <who> picked move in slot <n>` puts the move a
 `pick` turned up. `as extra` hands it over beside the four instead.
+
+**`basic attack <who>`** makes the Scoba running the step take one free basic
+attack on each Scoba in `<who>`, the same swing a chosen attack makes: the move
+a passive turned the basic attack into where there is one, and a plain blow
+otherwise. It costs nothing, and everything watching for a basic attack answers
+it, so a passive that acts on the holder's basic attacks acts on this one too.
+Where the step is run by a status answering `when hit`, write `other` to swing
+back at whoever landed the hit.
+
+```
+basic attack other
+```
 
 **`ask <who> to pick <aim> as <name>, saying "<words>"`** stops the round and
 asks each Scoba in `<who>` to pick one Scoba, in the same words an `aim` line
@@ -1122,6 +1166,11 @@ reaches several Scobas, their hits flash and shake together.
 A basic attack is not written in move script. It lunges and lands a Plain
 physical blow, unless a passive the Scoba carries says `basic attack is <move>`,
 and then it is aimed and cast the way that move is.
+
+The blow is 10, plus the attacker's level, plus 90% of its Strength, and from
+there it is a Plain hit like any other: a Plain Scoba lands it for half again,
+the chart reads Plain against whoever it hits, and anything the attacker
+carries that powers Plain powers it too. The target's Defense reduces it.
 
 ## Written text
 

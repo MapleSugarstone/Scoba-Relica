@@ -36,8 +36,8 @@ function court(opts: { level?: number; enemy?: number; dress?: (q: ScobaInstance
   opts.dress?.(queen);
   return startBattle(
     "court",
-    [queen, owned(wild("plib", level, "spare"), "A")],
-    [wild("plib", opts.enemy ?? level, "foe")],
+    [queen, owned(wild("pieble", level, "spare"), "A")],
+    [wild("pieble", opts.enemy ?? level, "foe")],
     { slots: 1, owners: ["A", null] },
   );
 }

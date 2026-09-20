@@ -38,9 +38,9 @@ const held = (c: Combatant): string[] => c.statuses.map((s) => s.id);
 
 describe("passives as statuses", () => {
   it("hangs both abilities on a Scoba as it goes out, and reads the standing ones on the row", () => {
-    const st = duel("plib", "grima");
+    const st = duel("pieble", "grima");
     const me = st.teams[0][0]!;
-    const sp = SPECIES["plib"]!;
+    const sp = SPECIES["pieble"]!;
     expect(held(me)).toContain(sp.primaryAbility);
     expect(held(me)).toContain(me.scoba.secondaryAbility);
     // A passive that holds for as long as it is carried is true of the Scoba
@@ -58,7 +58,7 @@ describe("passives as statuses", () => {
   });
 
   it("survives switching out, since a Scoba does not lose what it was born with", () => {
-    const st = duel("plib", "grima");
+    const st = duel("pieble", "grima");
     const me = st.teams[0][0]!;
     const before = held(me);
     resolveTurn(st, [{ kind: "switch", side: 0, slot: 0, benchIndex: 1 }]);

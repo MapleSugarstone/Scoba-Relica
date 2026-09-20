@@ -16,9 +16,9 @@ const wild = (id: string, lv = 30, seed = id): ScobaInstance => makeWild(id, lv,
 const mine = (s: ScobaInstance): ScobaInstance => ({ ...s, owner: "A" });
 
 /** Unwind and an ally against as many enemies as asked for. */
-function clock(enemies = ["plib"], slots: 1 | 2 = 1): BattleState {
+function clock(enemies = ["pieble"], slots: 1 | 2 = 1): BattleState {
   const me = mine(wild("unwind"));
-  const st = startBattle("clock", [me, mine(wild("plib", 30, "ally"))], enemies.map((e, i) => wild(e, 30, `e${i}`)), { slots });
+  const st = startBattle("clock", [me, mine(wild("pieble", 30, "ally"))], enemies.map((e, i) => wild(e, 30, `e${i}`)), { slots });
   st.teams[0][0]!.mana = 100;
   st.teams[0][0]!.cds = {};
   return st;
@@ -125,7 +125,7 @@ describe("Accelerated", () => {
     // Measured on the ally rather than on Unwind, which carries Accelerated
     // out of its own pool and would be hurried either way.
     const hit = (accelerated: boolean): number => {
-      const st = clock(["plib"], 2);
+      const st = clock(["pieble"], 2);
       const ally = st.teams[0][1]!;
       if (accelerated) ally.statuses.push(newStatus("accelerated")!);
       const before = ally.hp;
@@ -142,7 +142,7 @@ describe("Accelerated", () => {
 
 describe("Undo", () => {
   it("puts every ally back to the HP and statuses it had", () => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     const me = st.teams[0][0]!;
     const ally = st.teams[0][1]!;
     const wasMe = me.hp;
@@ -169,7 +169,7 @@ describe("Undo", () => {
   });
 
   it("leaves a Scoba that actually fell where it fell", () => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     const ally = st.teams[0][1]!;
     ally.hp = 1;
     resolveTurn(st, [
@@ -258,7 +258,7 @@ describe("Deathlock", () => {
    * falls.
    */
   const doomed = (): BattleState => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     const me = st.teams[0][0]!;
     me.hp = combatantMaxHp(me) * 10;
     for (let i = 0; i < 3; i++) resolveTurn(st, [block(0), block(1), block(0, 1), block(1, 1)]);
@@ -340,7 +340,7 @@ describe("Deathlock", () => {
 describe("Time Travel, the mode", () => {
   /** Unwind in its mode, with a target too big to fall over. */
   const hyped = (): BattleState => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     const me = st.teams[0][0]!;
     me.mana = 100;
     resolveTurn(st, [{ kind: "hyper", side: 0, slot: 0 } as Choice, block(1), block(0, 1), block(1, 1)]);
@@ -421,7 +421,7 @@ describe("Time Travel, the mode", () => {
 
 describe("Time Machine", () => {
   /** Unwind three rounds into a fight, with everything ready to travel. */
-  const wound = (enemies = ["plib", "grima"]): BattleState => {
+  const wound = (enemies = ["pieble", "grima"]): BattleState => {
     const st = clock(enemies, 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     for (let i = 0; i < 3; i++) {
@@ -459,7 +459,7 @@ describe("Time Machine", () => {
   };
 
   it("sends a replacement on again at the round it walked on for", () => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     const spare = benched(st, 1, 0);
     // Turn 0: nothing. Then the enemy on the first mark falls and the spare
@@ -493,7 +493,7 @@ describe("Time Machine", () => {
   });
 
   it("lets whoever took the mark cast what was cast from it", () => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     const spare = benched(st, 1, 0);
     resolveTurn(st, [block(0), block(1), block(0, 1), block(1, 1)]);
@@ -519,7 +519,7 @@ describe("Time Machine", () => {
   });
 
   it("aims a repeated move at the mark it was aimed at, not at who stood there", () => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     const spare = benched(st, 1, 0);
     // Three rounds of the ally swinging at whoever holds the first enemy mark.
@@ -579,7 +579,7 @@ describe("Time Machine", () => {
 
   it("takes the journey off a Scoba that joins after one has been made", () => {
     // A co-op fight with the second seat still open, so somebody can walk in.
-    const st = startBattle("join", [mine(wild("unwind"))], [wild("plib", 30, "e0")],
+    const st = startBattle("join", [mine(wild("unwind"))], [wild("pieble", 30, "e0")],
       { slots: 2, owners: ["A", null] });
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     for (let i = 0; i < 3; i++) resolveTurn(st, [block(0), block(0, 1)]);
@@ -600,7 +600,7 @@ describe("Time Machine", () => {
     // Two Unwinds on the field from the start, so the second is standing there
     // in the past as well and could reach for a journey of its own.
     const st = startBattle("twin", [mine(wild("unwind")), mine(wild("unwind", 30, "twin"))],
-      [wild("plib", 30, "e0"), wild("grima", 30, "e1")], { slots: 2 });
+      [wild("pieble", 30, "e0"), wild("grima", 30, "e1")], { slots: 2 });
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     for (let i = 0; i < 3; i++) resolveTurn(st, [block(0), block(1), block(0, 1), block(1, 1)]);
     for (const c of st.teams[0]) { c.mana = MAX_MANA; c.cds = {}; }
@@ -632,7 +632,7 @@ describe("Time Machine", () => {
   it("goes nowhere, and takes nothing with it, when there is no time behind it", () => {
     // The very first round of a fight: one round on file, and the round it
     // would leave is not one of the ones played again, so there is nothing.
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     const foe = st.teams[1][0]!;
     foe.hp -= 40;
@@ -649,7 +649,7 @@ describe("Time Machine", () => {
   });
 
   it("plays on after the traveller has gone, so the board it leaves is not the final one", () => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     // Rounds with blows in them, so there is something left to show afterwards.
     for (let i = 0; i < 3; i++) {
@@ -863,7 +863,7 @@ describe("Time Machine", () => {
   });
 
   it("does nothing where there is no past to step into", () => {
-    const st = clock(["plib"], 2);
+    const st = clock(["pieble"], 2);
     const me = st.teams[0][0]!;
     me.mana = 100;
     const events = resolveTurn(st, [travel(), block(1), block(0, 1)]);
@@ -875,7 +875,7 @@ describe("Time Machine", () => {
 
 describe("the traveller in the past", () => {
   const wound = (): BattleState => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     for (let i = 0; i < 3; i++) resolveTurn(st, [block(0), block(1), block(0, 1), block(1, 1)]);
     const me = st.teams[0][0]!;
@@ -954,7 +954,7 @@ describe("the traveller in the past", () => {
 
 describe("Deathlock while the past is being played again", () => {
   it("winds the battle back again rather than letting it stand", () => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     for (const c of [...st.teams[0], ...st.teams[1]]) c.hp = combatantMaxHp(c);
     for (let i = 0; i < 3; i++) resolveTurn(st, [block(0), block(1), block(0, 1), block(1, 1)]);
     const me = st.teams[0][0]!;
@@ -980,7 +980,7 @@ describe("Deathlock while the past is being played again", () => {
 
 describe("Undo and Accelerated together", () => {
   it("puts back what the extra damage took", () => {
-    const st = clock(["plib", "grima"], 2);
+    const st = clock(["pieble", "grima"], 2);
     const ally = st.teams[0][1]!;
     ally.statuses.push(newStatus("accelerated")!);
     const was = ally.hp;

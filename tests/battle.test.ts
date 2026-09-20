@@ -14,13 +14,14 @@ import {
   catchChance,
   combatantStats,
   basicPower,
+  attackPowers,
   combatantMaxHp,
   START_MANA,
   type BattleState,
   type Choice,
 } from "../src/sim/battle";
 import { enemyChoices } from "../src/sim/ai";
-import { MAX_LEVEL, commonStat, makeWild, statsAt, maxHp, type ScobaInstance } from "../src/sim/scoba";
+import { MAX_LEVEL, commonStat, makeWild, scobaTypes, statsAt, maxHp, type ScobaInstance } from "../src/sim/scoba";
 import { STAT_NAMES } from "../src/sim/types";
 import { MOVES, SPECIES } from "../src/sim/species";
 import { rngFrom } from "../src/sim/rng";
@@ -93,7 +94,12 @@ describe("battle", () => {
     const def = combatantStats(st.teams[1][0]!).def;
     const power = basicPower(st.teams[0][0]!.scoba.level, str);
     expect(power).toBe(10 + 10 + str * 0.9);
-    const expected = Math.max(1, Math.floor(Math.max(1, Math.floor(power / (1 + def / 100))) * 0.5));
+    // A swing is a Plain hit like any other: half again for a Plain Scoba, and
+    // whatever the attacker carries that powers Plain.
+    const own = scobaTypes(st.teams[0][0]!.scoba).includes("plain") ? 1.5 : 1;
+    const powers = attackPowers(st, { side: 0, index: 0 }, "plain").reduce((m, p) => m * p.mult, 1);
+    const swung = power * own * powers;
+    const expected = Math.max(1, Math.floor(Math.max(1, Math.floor(swung / (1 + def / 100))) * 0.5));
     const hit = events.find((e) => e.kind === "hit")!;
     expect(hpBefore - hit.hp!).toBe(expected);
   });
@@ -154,6 +160,28 @@ describe("battle", () => {
     expect(win).toBe(events.length - 1);
     // Mana did not regenerate, because the turn stopped when the fight did.
     expect(st.teams[0][0]!.mana).toBe(START_MANA);
+  });
+
+  it("lands a blow on whoever took the mark, where the Scoba it was aimed at switched out", () => {
+    const st = startBattle(
+      "swapped",
+      [owned(wild("pieble", 20, "out"), "A"), owned(wild("pieble", 20, "beside"), "A"), owned(wild("pieble", 20, "in"), "A")],
+      [wild("catsquito", 20, "foe")],
+      { slots: 2, wild: true },
+    );
+    const leaving = st.teams[0][0]!;
+    const coming = st.teams[0][2]!;
+    const full = [leaving.hp, coming.hp];
+    const events = resolveTurn(st, [
+      { kind: "switch", side: 0, slot: 0, benchIndex: 2 },
+      { kind: "block", side: 0, slot: 1 },
+      // Aimed at the one that is about to walk off, which is all the enemy
+      // could aim at: the choices are made before the round runs.
+      { kind: "attack", side: 1, slot: 0, picks: [{ side: 0, index: 0 }] },
+    ]);
+    expect(leaving.hp).toBe(full[0]);
+    expect(coming.hp).toBeLessThan(full[1]!);
+    expect(events.some((e) => e.kind === "hit" && e.at?.index === 2)).toBe(true);
   });
 
   it("rejects passing with an active Scoba", () => {
@@ -361,8 +389,8 @@ describe("battle", () => {
     expect(choiceError(st, { kind: "flee", side: 0, slot: 0 })).toBeNull();
     const me = st.teams[0][0]!;
     me.mana = 10;
-    expect(choiceError(st, { kind: "spell", side: 0, slot: 0, moveId: "crush", picks: [at(st, 1, 0)] })).toMatch(/mana/i);
-    expect(() => resolveTurn(st, [{ kind: "spell", side: 0, slot: 0, moveId: "crush", picks: [at(st, 1, 0)] }])).toThrow(/illegal/);
+    expect(choiceError(st, { kind: "spell", side: 0, slot: 0, moveId: "punch", picks: [at(st, 1, 0)] })).toMatch(/mana/i);
+    expect(() => resolveTurn(st, [{ kind: "spell", side: 0, slot: 0, moveId: "punch", picks: [at(st, 1, 0)] }])).toThrow(/illegal/);
   });
 
   it("catching is deterministic per seed and ends the battle", () => {

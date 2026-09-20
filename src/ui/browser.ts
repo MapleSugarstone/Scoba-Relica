@@ -11,8 +11,8 @@ import { ART, UI_PER_UNIT } from "../engine/renderer";
 import { sfx } from "../engine/sfx";
 import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
-import { moveCost, scobaTypes, speciesName, statsAt, type ScobaInstance } from "../sim/scoba";
-import { hobbyDoing } from "../sim/status";
+import { moveCost, passiveStatuses, scobaTypes, speciesName, statsAt, type ScobaInstance } from "../sim/scoba";
+import { elementPowers, hobbyDoing } from "../sim/status";
 import { MOVES, SPECIES, type Species } from "../sim/species";
 import { scobaText } from "../game/texts";
 import { STAT_LABELS, TYPES, TYPE_COLORS, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
@@ -404,7 +404,12 @@ export function openScobaCard(ui: UI, art: Art, s: ScobaInstance, onBack: () => 
     // Its own elements too: a number lands for half again where the Scoba
     // casting it shares one, and a line read without them said a move was
     // worth less than it is.
-    prose: { stats: statsAt(s), level: s.level, types: scobaTypes(s) },
+    // Its passives count too: one that makes an element hit harder is part of
+    // every number the Scoba's own moves land for.
+    prose: {
+      stats: statsAt(s), level: s.level, types: scobaTypes(s),
+      powers: (element) => elementPowers(passiveStatuses(s), element),
+    },
     onBack,
   });
 }

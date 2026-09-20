@@ -77,11 +77,11 @@ describe("the common stat", () => {
 
 describe("baby lines", () => {
   /** The worked example from the design document, built as three species. */
-  const A: Species = { ...SPECIES.plib!, id: "tA", genes: stats(100, 100, 100, 100, 100, 0), evolvesTo: undefined };
+  const A: Species = { ...SPECIES.plib!, id: "tA", genes: stats(100, 100, 100, 100, 100, 0), baby: false, evolvesTo: undefined };
   const babyA: Species = { ...SPECIES.plib!, id: "tBabyA", genes: stats(10, 10, 10, 10, 10, 0), baby: true, evolvesTo: "tA" };
-  const B: Species = { ...SPECIES.plib!, id: "tB", genes: stats(100, 100, 100, 100, 100, 0), evolvesTo: undefined };
+  const B: Species = { ...SPECIES.plib!, id: "tB", genes: stats(100, 100, 100, 100, 100, 0), baby: false, evolvesTo: undefined };
   const babyB: Species = { ...SPECIES.plib!, id: "tBabyB", genes: stats(30, 30, 30, 30, 30, 0), baby: true, evolvesTo: "tB" };
-  const C: Species = { ...SPECIES.plib!, id: "tC", genes: stats(100, 100, 100, 100, 100, 0) };
+  const C: Species = { ...SPECIES.plib!, id: "tC", genes: stats(100, 100, 100, 100, 100, 0), baby: false, evolvesTo: undefined };
 
   for (const sp of [A, babyA, B, babyB, C]) SPECIES[sp.id] = sp;
 

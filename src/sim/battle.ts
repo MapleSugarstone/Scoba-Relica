@@ -33,6 +33,7 @@ import {
   STATUSES,
   applyStatus,
   continuousEffects,
+  elementPowers,
   fieldEffects,
   foldStatEffects,
   isContinuous,
@@ -1162,6 +1163,25 @@ function vulnerabilityMult(c: Combatant, element: ElementType, field: FieldEffec
   return mult;
 }
 
+/**
+ * Every multiple on one Scoba's attacks of an element, named by whatever does
+ * it: the marks and passives it carries, then the field it stands under. The
+ * battle folds these into a hit, and a readout shows them one at a time.
+ */
+export function attackPowers(
+  st: BattleState, ref: TargetRef, element: ElementType,
+): { name: string; mult: number }[] {
+  const c = combatantAt(st, ref);
+  if (!c) return [];
+  const out = elementPowers(c.statuses, element, (inst) => worthOf(c, inst));
+  const field = st.fields[ref.side];
+  const name = field ? FIELDS[field.id]?.name ?? field.id : "";
+  for (const effect of fieldEffects(field)) {
+    if (effect.kind === "element-power" && effect.element === element) out.push({ name, mult: effect.mult });
+  }
+  return out;
+}
+
 function elementPower(c: Combatant, element: ElementType, field: FieldEffect[]): number {
   let mult = 1;
   for (const { effect, stacks } of readEffects(c, field)) {
@@ -1497,7 +1517,14 @@ function damageOf(
   let dmg: number;
   let eff = 1;
   if (attack === null) {
+    // A basic attack is a Plain hit like any other: it lands for half again
+    // from a Plain Scoba, it reads the chart against whoever it hits, and
+    // whatever powers Plain on the attacker powers it too.
     dmg = basicPower(user.scoba.level, uStats.str);
+    if (scobaTypes(user.scoba).includes("plain")) dmg *= 1.5;
+    eff = typesEffectiveness(["plain"], scobaTypes(target.scoba));
+    dmg *= eff;
+    dmg *= elementPower(user, "plain", field);
     dmg *= mitigation(tStats.def);
   } else {
     // A flat hit takes its number off the caster's level instead of a stat,
@@ -1518,6 +1545,9 @@ function damageOf(
       const flat = attack.step.flatAtCeiling;
       if (flat !== undefined) dmg += (flat * user.scoba.level) / MAX_LEVEL;
     }
+    // The one share read off the Scoba the attack lands on. It joins the rest
+    // before any multiplier, so armor and the type chart cut it the same way.
+    if (attack.step.ofTargetHp !== undefined) dmg += combatantMaxHp(target) * attack.step.ofTargetHp;
     // Every multiplier below reaches both halves alike, so the share stays put.
     const magicShare = dmg > 0 ? magical / dmg : 0;
     // Counted once per stack the target carries, so what it comes to is what
@@ -1780,10 +1810,13 @@ function reactTo(ctx: Ctx, hit: Landed): void {
  */
 function dealTogether(
   ctx: Ctx,
-  strikes: { at: TargetRef; raw: number; meta: HitMeta }[],
+  strikes: { at: TargetRef; raw: number; meta: HitMeta; lead?: BattleEvent }[],
 ): void {
   const landed: Landed[] = [];
   for (const s of strikes) {
+    // What the scene draws on the way to this one, such as the arc a bounce
+    // travels. It is written before the blow it delivers.
+    if (s.lead) ctx.events.push(s.lead);
     const hit = landDamage(ctx, s.at, s.raw, s.meta);
     if (hit) landed.push(hit);
   }
@@ -1956,11 +1989,14 @@ function fire(ctx: Ctx, holderRef: TargetRef, event: TriggerEvent, other: Target
     tryFusing(ctx, holderRef);
     refreshWorth(ctx.st);
   }
+  /** Statuses that spend a stack to answer, and have already answered this one. */
+  const spent = new Set<string>();
   for (const inst of [...holder.statuses]) {
     // Fused, and what it carried went to the fusion, which answers for itself.
     if (holder.fusedInto !== undefined) break;
     const def = STATUSES[inst.id];
     if (!def || inst.chargesLeft === 0) continue;
+    if (def.spendsStack && spent.has(inst.id)) continue;
     // Every `when` block a record has answers its own trigger.
     const blocks = [
       { trigger: def.trigger, steps: def.effects.filter((e): e is Step => !isContinuous(e.kind)) },
@@ -1971,7 +2007,12 @@ function fire(ctx: Ctx, holderRef: TargetRef, event: TriggerEvent, other: Target
       if (!triggerFits(block.trigger, event)) continue;
       // A mark that landed this turn waits for the next one before it ticks.
       if (!ticksThisTurn(inst, event, ctx.st.turn)) continue;
-      if (inst.chargesLeft > 0) inst.chargesLeft -= 1;
+      // One stack answers, and answering is what it was for: it is gone before
+      // the steps run, so nothing they set off can spend it twice.
+      if (def.spendsStack) {
+        spent.add(inst.id);
+        inst.chargesLeft = 0;
+      } else if (inst.chargesLeft > 0) inst.chargesLeft -= 1;
       // A status made stronger or weaker where it sits deals and mends that much.
       const worth = worthOf(holder, inst);
       runSteps(ctx, {
@@ -2196,13 +2237,37 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
       // Scoba struck second is struck by the same move the first one was.
       const field = fieldEffects(ctx.st.fields[run.self.side]);
       const element = step.element ?? move?.type ?? "plain";
-      const strikes = group.flatMap((ref) => {
+      // An attack that bounces carries on to every other enemy standing, in
+      // mark order, and each one takes a share of what the one before it took.
+      const bounced = step.bounce === undefined
+        ? []
+        : standing(ctx.st, (1 - run.self.side) as 0 | 1).filter((r) => !group.some((g) => sameRef(g, r)));
+      const fade = (ref: TargetRef): number => {
+        const n = bounced.findIndex((r) => sameRef(r, ref));
+        return n < 0 ? 1 : Math.pow(step.bounce ?? 1, n + 1);
+      };
+      /**
+       * The throw between one target and the next, where the bounce carries
+       * art. It goes in front of the damage it delivers, so the scene draws
+       * the arc and then the blow at the end of it.
+       */
+      const leg = (ref: TargetRef): BattleEvent | undefined => {
+        const n = bounced.findIndex((r) => sameRef(r, ref));
+        const from = n < 0 || step.bounceArt === undefined ? null : [...group, ...bounced][n];
+        if (!from) return undefined;
+        return {
+          text: "", kind: "show", at: run.self, off: from, to: [ref],
+          visual: { kind: "throw", art: step.bounceArt, path: "lob", to: "self" },
+          ...(move ? { moveId: move.id } : {}),
+        };
+      };
+      const strikes = [...group, ...bounced].flatMap((ref) => {
         const target = combatantAt(ctx.st, ref);
         if (!target || target.fainted) return [];
         // A hit counted per stack is not thrown at all where there are none.
         if (step.perStackOf !== undefined && stacksOf(target.statuses, step.perStackOf) === 0) return [];
         const { dmg, eff } = damageOf(user, target, attack, field);
-        const worth = Math.max(1, Math.floor(dmg * (run.scale ?? 1)));
+        const worth = Math.max(1, Math.floor(dmg * (run.scale ?? 1) * fade(ref)));
         const note = eff > 1 ? " Super effective!" : eff < 1 ? " Not very effective." : "";
         const meta: HitMeta = {
           element,
@@ -2215,9 +2280,14 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
           ...(run.basic ? { basic: true } : {}),
           ...(step.sound !== undefined ? { sound: step.sound } : {}),
         };
-        return [{ at: ref, raw: worth, meta }];
+        const lead = leg(ref);
+        return [{ at: ref, raw: worth, meta, ...(lead ? { lead } : {}) }];
       });
       dealTogether(ctx, strikes);
+      return true;
+    }
+    case "swing": {
+      swing(ctx, run.self, whoRefs(ctx, run, step.at));
       return true;
     }
     case "damage": {
@@ -3166,6 +3236,9 @@ function runTurn(st: BattleState, unordered: Choice[], events: BattleEvent[], as
   const choices = foresight(ctx, asked);
   if (choices !== asked) refile(st, choices);
 
+  // Who stood where as the round opened, which is what everyone aimed at.
+  const stood = st.active.map((side) => [...side]);
+
   // Fleeing ends the battle before anything else happens.
   if (choices.some((c) => c.kind === "flee")) {
     st.outcome = "fled";
@@ -3289,9 +3362,10 @@ function runTurn(st: BattleState, unordered: Choice[], events: BattleEvent[], as
 
     // Each spec is resolved once and reused, so a move's own hit and its
     // effects agree on which Scoba "target 1" meant. A pick made before a
-    // fusion formed this round names one of its halves, which is the fusion now.
+    // fusion formed this round names one of its halves, which is the fusion now,
+    // and one made before its target walked off names whoever took its mark.
     const specs = specsFor(c, st);
-    const picks = c.picks.map((p) => (p ? throughFusion(st, p) : p));
+    const picks = c.picks.map((p) => (p ? throughFusion(st, onMarkNow(st, stood, p)) : p));
     const hits = specs.map((spec, i) => resolveTargets(st, userRef, spec, picks[i] ?? null, rng));
 
     if (move) {
@@ -3551,6 +3625,22 @@ function markIn(field: number[], index: number): Slot | undefined {
 }
 
 /**
+ * A pick names a Scoba, and a Scoba can leave the mark it was named on before
+ * the move reaches it: switching happens ahead of every action in the round.
+ * What was aimed at is the mark, so the blow lands on whoever is standing there
+ * now, and switching is no way to make an attack miss. A pick aimed at a Scoba
+ * that was on no mark to begin with, or at a mark nobody is on any more, is
+ * left as it was: a Scoba that fell is not replaced until the round is over.
+ */
+function onMarkNow(st: BattleState, stood: number[][], pick: TargetRef): TargetRef {
+  if (st.active[pick.side].includes(pick.index)) return pick;
+  const was = markIn(stood[pick.side] ?? [], pick.index);
+  if (was === undefined) return pick;
+  const now = st.active[pick.side][was] ?? -1;
+  return now >= 0 ? { side: pick.side, index: now } : pick;
+}
+
+/**
  * A recorded target, aimed at whoever holds that mark now. What a Scoba aimed
  * at is the Scoba across from it, so where the one it picked has fallen and
  * another has taken the mark, the move lands on the one standing there.
@@ -3670,6 +3760,35 @@ export function rewind(st: BattleState, turns: number): TurnRecord[] {
 }
 
 /** A basic attack, on the Scobas its target resolved to. */
+/**
+ * One free basic attack, the same swing a chosen attack makes: the move a
+ * passive turned the basic attack into where there is one, and a plain blow
+ * otherwise. Everything watching for a basic attack answers it.
+ */
+function swing(ctx: Ctx, userRef: TargetRef, at: TargetRef[]): void {
+  const user = combatantAt(ctx.st, userRef);
+  if (!user || user.fainted || at.length === 0) return;
+  const actor = actingAs(ctx.st, user);
+  const ref = refOf(ctx.st, actor) ?? userRef;
+  const basic = basicAttackOf(actor);
+  ctx.events.push({
+    text: `${displayName(actor.scoba)} attacks!`, kind: "spell", at: ref,
+    ...(basic ? { moveId: basic.id } : {}),
+  });
+  if (basic) {
+    runSteps(ctx, {
+      record: basic.id, self: ref, source: ref, other: null,
+      groups: [at], alive: aliveNow(ctx.st), picked: null, raised: null, card: null, draws: 0,
+      status: null, cast: { move: basic, paid: 0 }, basic: true,
+    }, basic.cast);
+  } else {
+    basicAttack(ctx, ref, at);
+  }
+  if (ctx.depth < MAX_TRIGGER_DEPTH) {
+    fire({ ...ctx, depth: ctx.depth + 1 }, ref, { on: "basic-attack" }, at[0] ?? null);
+  }
+}
+
 function basicAttack(ctx: Ctx, userRef: TargetRef, targets: TargetRef[]): void {
   const user = combatantAt(ctx.st, userRef);
   if (!user) return;
@@ -3681,7 +3800,7 @@ function basicAttack(ctx: Ctx, userRef: TargetRef, targets: TargetRef[]): void {
   const strikes: { at: TargetRef; raw: number; meta: HitMeta }[] = targets.flatMap((ref) => {
     const target = combatantAt(ctx.st, ref);
     if (!target || target.fainted) return [];
-    const { dmg } = damageOf(user, target, null, field);
+    const { dmg, eff } = damageOf(user, target, null, field);
     return [{
       at: ref,
       raw: dmg,
@@ -3691,7 +3810,7 @@ function basicAttack(ctx: Ctx, userRef: TargetRef, targets: TargetRef[]): void {
         damageClass: "attack",
         triggersOnHit: true,
         source: userRef,
-        note: "",
+        note: eff > 1 ? " Super effective!" : eff < 1 ? " Not very effective." : "",
       },
     }];
   });
@@ -3796,6 +3915,15 @@ function dealCard(
 /** Takes a settled hand off, whether it paid out or busted. */
 function forgetHand(target: Combatant, hand: string): void {
   target.statuses = target.statuses.filter((s) => s.id !== hand);
+}
+
+/** Everyone standing on one side, in mark order. */
+function standing(st: BattleState, side: 0 | 1): TargetRef[] {
+  const out: TargetRef[] = [];
+  forEachStanding(st, (ref) => {
+    if (ref.side === side) out.push(ref);
+  });
+  return out;
 }
 
 function forEachStanding(st: BattleState, fn: (ref: TargetRef) => void): void {

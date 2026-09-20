@@ -13,7 +13,7 @@ const wild = (id: string, lv: number, owner?: "A" | "B"): ScobaInstance => ({
 });
 
 /** Addiza for A and a Plib for B, against two sturdy wilds. */
-function pair(ally = "plib"): BattleState {
+function pair(ally = "pieble"): BattleState {
   const st = startBattle(
     "addiza",
     [wild("addiza", 30, "A"), wild(ally, 30, "B")],

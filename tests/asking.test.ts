@@ -10,6 +10,7 @@ import { makeWild, type ScobaInstance } from "../src/sim/scoba";
 import { rngFrom } from "../src/sim/rng";
 import { startReplay, stopReplay, takeReplay } from "../src/sim/replay";
 import { runReplay } from "../src/dev/replay";
+import { PeerAnswers } from "../src/net/battlelink";
 
 /** A move that stops the round and has every ally Scoba pick who it lands on. */
 const PICK = [
@@ -135,5 +136,51 @@ describe("a round that stops to ask", () => {
     expect(replay!.rounds[0]!.answers).toEqual(answers);
     const ran = runReplay(replay!);
     expect(ran[0]!.hash).toBe(stateHash(done));
+  });
+});
+
+describe("two clients answering the same round", () => {
+  it("land on the same battle when the answer travels, and a different one when it does not", () => {
+    install(PICK);
+    const here = field();
+    const there = field();
+    // What the player picked on one client, carried to the other as it is.
+    const said: Answer[] = [{ pick: { side: 1, index: 1 } }, { pick: { side: 1, index: 1 } }];
+    resolveTurn(here, round, said);
+    resolveTurn(there, round, structuredClone(said));
+    expect(stateHash(there)).toBe(stateHash(here));
+
+    // The same round answered on its own is a different battle, which is what
+    // the exchange is for.
+    const alone = field();
+    resolveTurn(alone, round, [{ pick: { side: 1, index: 0 } }, { pick: { side: 1, index: 0 } }]);
+    expect(stateHash(alone)).not.toBe(stateHash(here));
+  });
+
+  it("pairs an answer with its question by where it falls in the run", async () => {
+    const peer = new PeerAnswers();
+    // One that arrives before the local client knows it was asked.
+    peer.add(4, "round", 1, { pick: { side: 1, index: 1 } });
+    expect(await peer.get(4, "round", 1)).toEqual({ pick: { side: 1, index: 1 } });
+    // One the local client is already waiting on.
+    const waiting = peer.get(4, "round", 0);
+    peer.add(4, "round", 0, { pick: null });
+    expect(await waiting).toEqual({ pick: null });
+    // A replacement walking on asks from zero again, under its own name.
+    peer.add(4, "sendin:1:3", 0, { pick: { side: 1, index: 0 } });
+    expect(await peer.get(4, "sendin:1:3", 0)).toEqual({ pick: { side: 1, index: 0 } });
+    // Spent once the round it belongs to is resolved.
+    peer.clearThrough(4);
+    let late = false;
+    void peer.get(4, "round", 1).then(() => { late = true; });
+    await Promise.resolve();
+    expect(late).toBe(false);
+  });
+
+  it("carries a whole action, which is what a move that looks ahead asks for", async () => {
+    const peer = new PeerAnswers();
+    const act: Choice = { kind: "spell", side: 0, slot: 0, moveId: "probe-pick", picks: [{ side: 1, index: 0 }] };
+    peer.add(2, "round", 0, { pick: null, act });
+    expect((await peer.get(2, "round", 0)).act).toEqual(act);
   });
 });

@@ -5,6 +5,7 @@ import {
   startBattle,
   resolveTurn,
   joinBattle,
+  attackPowers,
   benchFor,
   slotOf,
   slotsAwaitingChoice,
@@ -59,7 +60,7 @@ import { BUILD_VERSION, devMode } from "../version";
 import { fitWindow } from "./fit";
 import { startReplay, stopReplay, takeReplay } from "../sim/replay";
 import { enemyChoices, pawnChoices } from "../sim/ai";
-import { PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
+import { PeerAnswers, PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
 import { rngFrom } from "../sim/rng";
 import { kitted } from "../sim/kit";
 import { gainXp, MAX_LEVEL, maxHp, moveName, scobaTypes, settleCaught, type ScobaInstance } from "../sim/scoba";
@@ -208,6 +209,16 @@ function runBattle(
   const localOwner = save.localSlot;
   const guestOwner = OTHER[localOwner];
   const fighters: OwnerId[] = coop ? [localOwner] : ["A", "B"];
+  /**
+   * Which side this client plays, and where side 1's choices come from. Every
+   * fight there is stands both players on side 0 against a hand the AI plays,
+   * so these are 0 and the AI. A fight between the two players would set them
+   * otherwise, and the two things the relay touches, which choices this client
+   * makes up and which questions it answers, read them rather than assuming.
+   * See `claude-notes/co-op-battles.md` for what else that would take.
+   */
+  const ourSide: 0 | 1 = net?.localSide ?? 0;
+  const enemyIsPeer = net?.enemyHand === "peer";
 
   // Slot 0 is always character A and slot 1 always character B, so two
   // clients building the same battle agree on which slot is whose.
@@ -269,6 +280,8 @@ function runBattle(
   let pendingJoin: OwnerId | null = null;
   /** Choices the peer has sent for this turn, keyed by turn so an early one keeps. */
   const peerChoices = new PeerChoices();
+  /** What the peer's Scobas answered questions with, keyed the same way. */
+  const peerAnswers = new PeerAnswers();
   /** Teams the peer sent with its join, keyed by character. */
   const joinTeams = new Map<OwnerId, ScobaInstance[]>();
   /** Set once the local player has answered for every slot they own. */
@@ -1043,6 +1056,16 @@ function runBattle(
   };
 
   /**
+   * One run of questions, for pairing an answer with its question across two
+   * clients. A round and a replacement walking on each ask from zero, so the
+   * turn alone is not enough to say which run a question's place counts in.
+   */
+  interface AskRun {
+    turn: number;
+    name: string;
+  }
+
+  /**
    * A question the round stopped on, and what to call once it is answered.
    * Only one is put to the player at a time, so a stop that asks two of our
    * Scobas asks them one after the other.
@@ -1398,8 +1421,10 @@ function runBattle(
     out.append(`${move.name}: `);
     // Cast by the fusion, for one of its halves, so read against the fusion.
     const caster = actingAs(st, me);
+    const from = actingRef(st, me);
     out.appendChild(proseNodes(moveText(move), {
       move, stats: combatantStats(caster), level: caster.scoba.level, types: scobaTypes(caster.scoba),
+      ...(from ? { powers: (element: ElementType) => attackPowers(st, from, element) } : {}),
     }));
     return out;
   };
@@ -1692,10 +1717,14 @@ function runBattle(
 
     // The rule's own line first, then what it comes to against whoever is
     // standing there right now.
+    const from = (holder ? actingRef(st, holder) : null) ?? ref;
     box.appendChild(proseBox(moveText(move), {
       move,
       ...(caster
-        ? { stats: combatantStats(caster), level: caster.scoba.level, types: scobaTypes(caster.scoba) }
+        ? {
+          stats: combatantStats(caster), level: caster.scoba.level, types: scobaTypes(caster.scoba),
+          powers: (element: ElementType) => attackPowers(st, from, element),
+        }
         : {}),
     }));
     if (preview && preview.heal !== null) {
@@ -1858,13 +1887,20 @@ function runBattle(
    * An answer nobody is there to give is rolled off the battle's own seed, so
    * two clients resolving the round apart are told the same thing.
    */
-  const answerTo = (q: Question, n: number): Promise<Answer> => {
+  const answerTo = (q: Question, n: number, run: AskRun): Promise<Answer> => {
     const slot = st.active[q.at.side].indexOf(q.at.index);
-    const c = q.at.side === 0 && slot >= 0 ? st.teams[0][q.at.index] : null;
-    const by = c ? answeredBy(slot, c) : null;
+    const c = q.at.side === ourSide && slot >= 0 ? st.teams[q.at.side][q.at.index] : null;
+    const by = c && !selfRunning(c) ? answeredBy(slot, c) : null;
     // Solo, one player answers for both characters; with a peer, each answers
     // only its own. A Pawn that runs itself is nobody's to answer for.
-    const ours = !!c && !selfRunning(c) && (!net ? by !== null : by === net.localOwner);
+    const ours = by !== null && (!net || by === net.localOwner);
+    const theirs = !!net && by !== null && by !== net.localOwner;
+    if (theirs) {
+      // The peer's to answer. Both clients ask the same questions in the same
+      // order, so the answer is paired with the question by its place in the
+      // run rather than by anything about the question itself.
+      return peerAnswers.get(run.turn, run.name, n);
+    }
     if (!ours || (q.kind !== "act" && q.options.length === 0)) {
       const roll = rngFrom(`${st.seed}:answer:${st.turn}:${n}`);
       const pick = q.options[Math.floor(roll() * q.options.length)] ?? null;
@@ -1872,12 +1908,22 @@ function runBattle(
       // reads a missing action that way, and both clients read it the same.
       return Promise.resolve({ pick });
     }
+    /** Ours to answer, so the peer is told what we said before we carry on. */
+    const tell = (say: (answer: Answer) => void) => (answer: Answer): void => {
+      if (net) {
+        net.send({
+          t: "battle-answer", battleId: net.battleId,
+          turn: run.turn, seq: run.name, index: n, answer,
+        });
+      }
+      say(answer);
+    };
     // A move that looks ahead: the round is shown first, and then the whole
     // action row opens for whoever cast it.
     if (q.kind === "act") {
       return new Promise((say) => {
         showVision(slot, () => {
-          acting = { slot, say };
+          acting = { slot, say: tell(say) };
           busy = false;
           menu = "main";
           roundSlots = [slot];
@@ -1888,7 +1934,7 @@ function runBattle(
       });
     }
     return new Promise((say) => {
-      asked = { q, say };
+      asked = { q, say: tell(say) };
       render();
     });
   };
@@ -1915,6 +1961,7 @@ function runBattle(
     answers: Answer[],
     played: number,
     resolve: (events: BattleEvent[]) => void,
+    ask: AskRun = { turn: st.turn, name: "round" },
   ): void => {
     const events = run(answers);
     const asking = st.asking;
@@ -1923,11 +1970,11 @@ function runBattle(
         resolve(events);
         return;
       }
-      for (const [i, q] of asking.entries()) answers.push(await answerTo(q, answers.length + i));
+      for (const [i, q] of asking.entries()) answers.push(await answerTo(q, answers.length + i, ask));
       asked = null;
       // Back to where the round began, and resolved again with what it was told.
       reset();
-      playRound(run, reset, answers, events.length, resolve);
+      playRound(run, reset, answers, events.length, resolve, ask);
     });
   };
 
@@ -2005,7 +2052,11 @@ function runBattle(
     // this array from opposite ends.
     const resolvedTurn = st.turn;
     const peers = net ? peerChoices.forTurn(resolvedTurn) : [];
-    const choices = [...staged, ...peers, ...pawnChoices(st, 0), ...enemyChoices(st)];
+    const choices = [
+      ...staged, ...peers, ...pawnChoices(st, ourSide),
+      // Nothing asks the AI for a side the other player is playing.
+      ...(enemyIsPeer ? [] : enemyChoices(st)),
+    ];
     staged = [];
     localReady = false;
     stage.setAiming(null);
@@ -2019,6 +2070,7 @@ function runBattle(
     roundFrom = { before, choices };
     playRound((answers) => resolveTurn(st, choices, answers), () => rewindTo(before), [], 0, () => {
       roundFrom = null;
+      peerAnswers.clearThrough(resolvedTurn);
       if (net) {
         peerChoices.clearThrough(resolvedTurn);
         // Both clients hash the result and the relay compares them. Nothing is
@@ -2029,7 +2081,7 @@ function runBattle(
       stage.settle();
       busy = false;
       finishTurn();
-    });
+    }, { turn: resolvedTurn, name: "round" });
   };
 
   const finishTurn = (): void => {
@@ -2087,7 +2139,6 @@ function runBattle(
   };
 
   const chooseSendIn = (slot: number, benchIndex: number): void => {
-    const events = sendIn(st, 0, slot, benchIndex);
     sendInSlots = sendInSlots.filter((s) => s !== slot);
     // Arriving costs no turn, so a replacement is not one of the round's
     // choices and the peer has to be told about it separately or the two
@@ -2095,15 +2146,39 @@ function runBattle(
     if (net && (slot === 0 || slot === 1)) {
       net.send({ t: "battle-send-in", battleId: net.battleId, turn: st.turn, slot, benchIndex });
     }
-    playThen(events, askSendIn);
+    walkOn(slot, benchIndex);
   };
 
   /** A replacement the peer walked on. Applied without asking anyone here. */
   const applyPeerSendIn = (slot: 0 | 1, benchIndex: number): void => {
     if (!emptySlots(st, 0).includes(slot)) return;
-    const events = sendIn(st, 0, slot, benchIndex);
     sendInSlots = sendInSlots.filter((s) => s !== slot);
-    playThen(events, askSendIn);
+    walkOn(slot, benchIndex);
+  };
+
+  /**
+   * A replacement taking the field. An entry passive can stop to ask, the same
+   * as one in a round, so it goes through the same run: the questions are put
+   * to whoever owns the Scoba, and in a co-op fight the answers travel.
+   */
+  const walkOn = (slot: number, benchIndex: number): void => {
+    const at = st.turn;
+    const before = structuredClone(st);
+    busy = true;
+    stage.snapshot();
+    render();
+    stage.instant = (window as { __scobaFast?: boolean }).__scobaFast === true;
+    playRound(
+      (answers) => sendIn(st, 0, slot, benchIndex, answers),
+      () => rewindTo(before),
+      [], 0,
+      () => {
+        stage.settle();
+        busy = false;
+        askSendIn();
+      },
+      { turn: at, name: `sendin:${slot}:${benchIndex}` },
+    );
   };
 
   const syncHp = (): void => {
@@ -2317,6 +2392,11 @@ function runBattle(
       if (turn < st.turn) return;
       peerChoices.add(turn, choice);
       tryResolve();
+    },
+    peerAnswer(turn: number, seq: string, index: number, answer: Answer) {
+      // Kept even for a turn that looks past: a round waiting on this answer
+      // has already moved the state on to the turn after it.
+      peerAnswers.add(turn, seq, index, answer);
     },
     peerSendIn(turn: number, slot: 0 | 1, benchIndex: number) {
       if (turn < st.turn) return;

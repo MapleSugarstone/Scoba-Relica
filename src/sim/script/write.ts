@@ -116,12 +116,17 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
   const line = (text: string): string[] => [`${pad}${text}`];
   switch (s.kind) {
     case "hit": {
-      const shares = s.scaling.map((x) => `${pct(x.scale)} ${STAT_WORDS.write[x.stat]}`).join(" + ");
+      const parts = s.scaling.map((x) => `${pct(x.scale)} ${STAT_WORDS.write[x.stat]}`);
+      if (s.ofTargetHp !== undefined) parts.push(`${pct(s.ofTargetHp)} of their max hp`);
+      const shares = parts.join(" + ");
       const amount = s.perLevel !== undefined
         ? `${num(s.perLevel)} per level`
         : `${shares}${s.flatAtCeiling !== undefined ? ` + ${num(s.flatAtCeiling)} at max level` : ""}`;
       const opts: string[] = [];
       if (s.perStackOf !== undefined) opts.push(`per stack of ${s.perStackOf}`);
+      if (s.bounce !== undefined) {
+        opts.push(`bouncing at ${pct(s.bounce)}${s.bounceArt !== undefined ? ` throwing ${bare(s.bounceArt)}` : ""}`);
+      }
       if (s.element !== undefined || s.category !== undefined) {
         opts.push(`as${s.element ? ` ${s.element}` : ""}${s.category ? ` ${s.category}` : ""}`);
       }
@@ -148,6 +153,7 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
     case "ask":
       return line(`ask ${who(s.who, names)} to pick ${AIM_WORDS.write[s.mode]} as ${s.name}`
         + `${s.prompt !== undefined ? `, saying ${quote(s.prompt)}` : ""}`);
+    case "swing": return line(`basic attack ${who(s.at, names)}`);
     case "inflict":
       return line(`inflict ${s.status} on ${who(s.on, names)}`
         + `${s.turns !== undefined ? `, for ${num(s.turns)} turn${s.turns === 1 ? "" : "s"}` : ""}`);
@@ -335,6 +341,7 @@ export function writeStatus(s: StatusDef): string {
   if (s.charges !== null) out.push(`${INDENT}charges ${num(s.charges)}`);
   if (s.stacks) out.push(`${INDENT}stacks${s.maxStacks >= 99 ? "" : ` up to ${num(s.maxStacks)}`}`);
   if (!s.persists) out.push(`${INDENT}lost on switching out`);
+  if (s.spendsStack) out.push(`${INDENT}spends a stack`);
   if (s.hand) out.push(`${INDENT}shows a hand of cards`);
   if (s.unseen) out.push(`${INDENT}no sigil`);
   if (s.asWritten) out.push(`${INDENT}always as written`);

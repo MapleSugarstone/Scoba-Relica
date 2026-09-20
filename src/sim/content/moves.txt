@@ -936,3 +936,42 @@ move crystal-ball "Crystal Ball"
   cast:
     caster focus
     show crystalball as glow on caster
+
+# Plib and Poba: a punch, a shout, a rock and a boot.
+move punch "Punch"
+  type plain
+  costs 20 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy."
+  cast:
+    caster lunge
+    hit target 120% strength
+
+move yelp "Yelp"
+  type plain
+  costs 20 mana
+  cooldown 1
+  aim self "Work up"
+  text "Gains [status:yelped|a yelp], raising strength by 25%. Stacks up to 4."
+  cast:
+    caster rear
+    inflict yelped on target
+
+move rock-throw "Rock Throw"
+  type plain
+  costs 40 mana
+  aim any enemy
+  text "Throws a rock at one enemy for [damage] damage. The rock bounces on to every other enemy, dropping to 70% of its damage with each bounce."
+  cast:
+    caster rear
+    throw rockthrow as lob to target
+    hit target 100% strength, bouncing at 70% throwing rockthrow
+
+move squash "Squash"
+  type plain
+  costs 100 mana
+  aim any enemy
+  text "Stomps on one enemy for [damage] damage."
+  cast:
+    caster rear
+    hit target 100% strength + 100% of their max hp

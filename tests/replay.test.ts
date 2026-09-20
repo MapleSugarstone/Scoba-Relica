@@ -11,8 +11,8 @@ const mine = (s: ScobaInstance): ScobaInstance => ({ ...s, owner: "A" });
 function fight(): BattleState {
   const st = startBattle(
     "replay",
-    [mine(wild("unwind")), mine(wild("plib", 30, "ally"))],
-    [wild("plib", 30, "e0"), wild("clikkit", 30, "e1")],
+    [mine(wild("unwind")), mine(wild("pieble", 30, "ally"))],
+    [wild("pieble", 30, "e0"), wild("clikkit", 30, "e1")],
     { slots: 2 },
   );
   st.teams[0][0]!.mana = 100;

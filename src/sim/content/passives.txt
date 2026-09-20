@@ -369,3 +369,27 @@ passive double-hex "Double Hex"
   when it takes the field:
     show hex as burst on enemies
     inflict hexed on enemies
+
+# Plib and Poba. What its own type is worth, what it does about being hit, and
+# the Hyper-Mode that opens with a swing and dents whatever it swings at.
+passive very-plain "Very Plain"
+  text "Its Plain damage is 25% stronger."
+  icon veryplain
+  while carried:
+    plain moves x1.25
+
+passive self-defense "Self-Defense"
+  text "On entry, it stands [status:on-guard|on guard]: physical damage that lands on it is answered with a free basic attack, which spends a stack."
+  when it takes the field:
+    inflict on-guard on holder
+
+passive roughhouse "Roughhouse"
+  text "On entry, makes a free basic attack on an enemy and stands 3 more stacks [status:on-guard|on guard]. Its basic attacks leave an enemy [status:dented|dented], reducing their defense by 5% until they switch out. Stacks up to 5."
+  icon selfdefense
+  when it takes the field:
+    basic attack next enemy scoba from holder
+    inflict on-guard on holder
+    inflict on-guard on holder
+    inflict on-guard on holder
+  when it makes a basic attack:
+    inflict dented on other

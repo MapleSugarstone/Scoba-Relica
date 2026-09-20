@@ -89,14 +89,16 @@ describe("events carry the values behind them", () => {
   });
 
   it("reports mana after a cast, so the bar drops with the animation", () => {
+    // A move the line learns itself, so the bar drops by what the move says
+    // rather than by that and the surcharge an unnatural move carries.
     const me = owned(wild("plib", 20, "m1"), "A");
-    me.moves = ["crush"];
+    me.moves = ["punch"];
     const st = startBattle("mana", [me], [wild("obera", 20, "m2")], { slots: 1, owners: ["A", null] });
     const events = resolveTurn(st, [{
-      kind: "spell", side: 0, slot: 0, moveId: "crush", picks: [{ side: 1, index: 0 }],
+      kind: "spell", side: 0, slot: 0, moveId: "punch", picks: [{ side: 1, index: 0 }],
     }]);
     const cast = events.find((e) => e.kind === "spell");
-    expect(cast?.mana).toBe(START_MANA - MOVES["crush"]!.manaCost);
+    expect(cast?.mana).toBe(START_MANA - MOVES["punch"]!.manaCost);
   });
 
   it("puts the faint after the hit that caused it, and reports it at zero", () => {

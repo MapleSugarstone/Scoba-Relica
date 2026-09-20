@@ -68,7 +68,7 @@ describe("spending Aetus", () => {
   });
 
   it("refuses to evolve a line that has nothing to evolve into", () => {
-    const s = wild("plib", 3, "a3");
+    const s = wild("pieble", 3, "a3");
     expect(evolveError(s, EVOLVE_COST)).toMatch(/nothing to evolve into/i);
   });
 
