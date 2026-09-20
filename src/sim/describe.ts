@@ -111,6 +111,7 @@ const SCOPES: Record<Extract<Who, string>, Subject> = {
 const scopeOf = (w: Who): Subject => {
   if (typeof w !== "object") return SCOPES[w];
   if ("aim" in w) return THE_TARGET;
+  if ("asked" in w) return one("whoever was picked", "the picked Scoba's");
   if ("next" in w) return w.next === "ally" ? one("the other ally Scoba", "the other ally Scoba's") : one("the other enemy Scoba", "the other enemy Scoba's");
   return scopeOf(w.first);
 };
@@ -381,6 +382,8 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
       }
       return `heals ${healAmount(e.basis, e.frac, who)}`;
     }
+    case "ask":
+      return `has ${scopeOf(e.who).noun || "itself"} pick ${TARGETS[e.mode].noun || "itself"}`;
     case "plant": {
       const inner = (opts.statuses ?? STATUSES)[e.status];
       return `grows ${inner?.name ?? e.status} under ${scopeOf(e.under).noun || "itself"}`;
@@ -616,6 +619,14 @@ function movePieces(move: Move, opts: StatusOpts): Piece[] {
     return SCOPES[w];
   };
   const out: Piece[] = [];
+  // Looking ahead is the move rather than anything its steps do, so it is
+  // described off the move itself.
+  if (move.looksAhead) {
+    out.push({
+      text: "Casts before anything else in the round, shows the round as it would go without it, and then its caster picks what to do.",
+      triggered: true,
+    });
+  }
   for (const e of move.cast) out.push(...stepPieces(e, move, who, opts));
   return out;
 }
@@ -644,6 +655,13 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       const amount = e.power ? "what it holds" : `${pct(e.frac)} of ${of}`;
       return [{ text: `Heals ${t.noun ? `${t.noun} ` : ""}for ${amount}.`, triggered: false }];
     }
+    case "ask": {
+      const t = who(e.who);
+      return [{
+        text: `${cap(t.noun || "the caster")} picks ${TARGETS[e.mode].noun || "itself"} before the rest happens.`,
+        triggered: false,
+      }];
+    }
     case "plant": {
       const def = (opts.statuses ?? STATUSES)[e.status];
       const t = who(e.under);
@@ -657,7 +675,11 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       const def = (opts.statuses ?? STATUSES)[e.status];
       if (!def) return [{ text: `Leaves ${e.status} on ${who(e.on).noun || "itself"}.`, triggered: false }];
       const held = e.turns === undefined ? def : { ...def, duration: e.turns };
-      return statusPieces(held, who(e.on), opts);
+      const said = statusPieces(held, who(e.on), opts);
+      // A mark written out by hand rather than built from effects says what it
+      // says: leaving it is the whole of what the move does.
+      if (said.length === 0 && def.text !== undefined) return [{ text: def.text, triggered: false }];
+      return said;
     }
     case "if": {
       const inner = e.then.flatMap((s) => stepPieces(s, move, who, opts));

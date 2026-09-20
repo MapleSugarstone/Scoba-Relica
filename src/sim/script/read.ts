@@ -215,6 +215,8 @@ interface Scope {
   kind: "move" | "status";
   /** A move's target groups, by name. */
   aims: Map<string, number>;
+  /** What an `ask` step above named its picks, so a step below can reach them. */
+  asked: Set<string>;
   /** How many rewrites the record has read so far, for naming each one. */
   rewrites: number;
   /** Whether a step above has drawn a card, for the steps that use it. */
@@ -232,12 +234,13 @@ const TEAM_WORDS: Record<string, Who> = {
 };
 
 function whoWords(scope: Scope): Record<string, Who> {
-  if (scope.kind === "move") {
-    const out: Record<string, Who> = { caster: "self", raised: "raised", traveller: "traveller", ...TEAM_WORDS };
-    for (const [name, aim] of scope.aims) out[name] = { aim };
-    return out;
-  }
-  return { holder: "self", source: "source", other: "other", ...TEAM_WORDS };
+  const out: Record<string, Who> = scope.kind === "move"
+    ? { caster: "self", raised: "raised", traveller: "traveller", ...TEAM_WORDS }
+    : { holder: "self", source: "source", other: "other", ...TEAM_WORDS };
+  if (scope.kind === "move") for (const [name, aim] of scope.aims) out[name] = { aim };
+  // Whatever an `ask` step above named, which the steps below it reach.
+  for (const name of scope.asked) out[name] = { asked: name };
+  return out;
 }
 
 /** Who a step reaches: a word, "next ally scoba from <who>", and "<who> or <who>" for a fallback. */
@@ -288,7 +291,7 @@ function readShare(c: Clause, scope: Scope): { basis: Basis; frac: number } {
 
 const STEP_STARTS = [
   "throw", "show", "sound", "flash", "wait", "say", "hit", "damage", "heal", "inflict", "clear", "cleanse", "copy", "raise", "undo", "rewind", "travel",
-  "take", "sap", "summon", "find", "give", "lay", "plant", "draw", "deal", "if", "refund", "pick", "change",
+  "take", "sap", "summon", "find", "give", "lay", "plant", "ask", "draw", "deal", "if", "refund", "pick", "change",
 ];
 
 function readSteps(lines: Line[], scope: Scope): Step[] {
@@ -638,6 +641,30 @@ function readStep(line: Line, scope: Scope): Step {
       const off = readWho(c, scope);
       c.done();
       return { kind: "mana", on: off, amount: -amount };
+    }
+    case "ask": {
+      const usage = "ask <who> to pick <aim> as <name>, saying \"<words>\"";
+      noBlock(line, usage);
+      const c = clause(line, 0, usage);
+      c.expect("ask");
+      const asked = readWho(c, scope);
+      c.expect("to pick");
+      const mode = c.vocab(AIM_WORDS, "a way to aim");
+      c.expect("as");
+      const name = c.id("the name of the pick");
+      c.done();
+      if (scope.aims.has(name) || scope.asked.has(name)) {
+        c.fail(`"${name}" already means something here, so pick another name`);
+      }
+      scope.asked.add(name);
+      const step: Step = { kind: "ask", who: asked, mode, name };
+      for (let i = 1; i < line.clauses.length; i++) {
+        const o = clause(line, i, usage);
+        o.expect("saying");
+        step.prompt = o.quoted("what it asks");
+        o.done();
+      }
+      return step;
     }
     case "plant": {
       const usage = "plant <status> under <who>";
@@ -1223,13 +1250,14 @@ export function hitCategory(s: Extract<Step, { kind: "hit" }>): HitCategory {
 
 function readMove(head: Line, refs: Ref[]): Move {
   const { id, name } = header(head, "move");
-  const known = ["type", "costs", "cooldown", "starts on cooldown", "priority", "once per battle", "aim", "text", "cast"];
+  const known = ["type", "costs", "cooldown", "starts on cooldown", "priority", "once per battle", "looks ahead", "aim", "text", "cast"];
   let types: Move["type"][] = [];
   let cost: number | null = null;
   let cooldown = 0;
   let startCooldown = 0;
   let priority: number | undefined;
   let once = false;
+  let ahead = false;
   let text: string | undefined;
   const targets: TargetSpec[] = [];
   const aims = new Map<string, number>();
@@ -1278,6 +1306,12 @@ function readMove(head: Line, refs: Ref[]): Move {
       c.expect("once per battle");
       c.done();
       once = true;
+    } else if (c0.sees("looks ahead")) {
+      const c = single(line, "looks ahead");
+      noBlock(line, "looks ahead");
+      c.expect("looks ahead");
+      c.done();
+      ahead = true;
     } else if (c0.sees("aim")) {
       const usage = "aim <mode> \"<prompt>\" as <name>";
       noBlock(line, usage);
@@ -1315,7 +1349,7 @@ function readMove(head: Line, refs: Ref[]): Move {
   if (cost === null) throw new ScriptError(head.no, `move ${id} needs a "costs <n> mana" line`);
   if (targets.length === 0) throw new ScriptError(head.no, `move ${id} needs at least one "aim" line`);
   if (!castLine) throw new ScriptError(head.no, `move ${id} needs a "cast:" block`);
-  const scope: Scope = { record: id, kind: "move", aims, rewrites: 0, drawn: false, picked: false, refs };
+  const scope: Scope = { record: id, kind: "move", aims, asked: new Set(), rewrites: 0, drawn: false, picked: false, refs };
   const cast = readSteps(castLine.children, scope);
   const { kind, scale } = summarize(cast);
   const move: Move = {
@@ -1325,6 +1359,7 @@ function readMove(head: Line, refs: Ref[]): Move {
   };
   if (priority !== undefined) move.priority = priority;
   if (once) move.oncePerBattle = true;
+  if (ahead) move.looksAhead = true;
   if (text !== undefined) move.text = text;
   return move;
 }
@@ -1396,7 +1431,7 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
     "good", "bad", "text", "icon", "planted", "lit", "sound", "lasts", "charges", "stacks", "lost on switching out",
     "shows a hand of cards", "grows", "power", "no sigil", "always as written", "while carried", "when",
   ];
-  const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs };
+  const scope: Scope = { record: id, kind: "status", aims: new Map(), asked: new Set(), rewrites: 0, drawn: false, picked: false, refs };
   const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], also: [], wrote: false };
   const def: StatusDef = {
     id, name, polarity: "good", trigger: { on: "passive" }, duration: null, charges: null,
@@ -1533,7 +1568,7 @@ function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: Statu
     "text", "icon", "wears", "grants move", "fuses with", "basic attack is", "once per battle", "charges",
     "while carried", "when",
   ];
-  const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs };
+  const scope: Scope = { record: id, kind: "status", aims: new Map(), asked: new Set(), rewrites: 0, drawn: false, picked: false, refs };
   const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], also: [], wrote: false };
   const ability: Ability = { id, name };
   let charges: number | null = null;
@@ -1632,7 +1667,7 @@ function readPassive(head: Line, refs: Ref[]): { ability: Ability; status: Statu
 function readHobby(head: Line): HobbyDef {
   const { id, name } = header(head, "hobby");
   const known = ["doing", "text", "while carried"];
-  const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs: [] };
+  const scope: Scope = { record: id, kind: "status", aims: new Map(), asked: new Set(), rewrites: 0, drawn: false, picked: false, refs: [] };
   const b: Behaviour = { trigger: { on: "passive" }, standing: [], steps: [], also: [], wrote: false };
   let doing: string | undefined;
   let text: string | undefined;

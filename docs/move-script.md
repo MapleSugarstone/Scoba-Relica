@@ -117,6 +117,7 @@ move cold-wave "Cold Wave"
 | `starts on cooldown <n>` | No | Turns it waits at the start of a battle. Leave it out for none. |
 | `priority <n>` | No | A move with a higher priority resolves ahead of every move with a lower one, whatever either caster's Speed. Leave it out for 0. |
 | `once per battle` | No | It can be cast once a battle. |
+| `looks ahead` | No | It is cast before anything else in the round, and then its caster picks an action that takes its place. See [Looking ahead](#looking-ahead). |
 | `aim <mode>` | Yes, at least one | Who it asks you to aim at. Write one `aim` line per target group. See [Aiming](#aiming). |
 | `text "<words>"` | No | The line a player reads. See [Written text](#written-text). A move with none shows a sentence the game builds from its steps. |
 | `cast:` | Yes | The steps casting it runs, in order. See [Steps](#steps). |
@@ -177,6 +178,30 @@ move blood-pact "Blood Pact"
 
 A group's name cannot be `caster`, `allies`, `enemies`, `everyone` or `others`,
 since those already mean something in a step.
+
+### Looking ahead
+
+A move with a `looks ahead` line is cast before the round is ordered and before
+anything else in the round happens. It is the caster's whole round until it is
+answered: the player is shown the round as it would go with that Scoba standing
+still, and then picks an action, which takes the move's place in the round and
+is paid for as usual. A caster nobody is there to answer for braces.
+
+```
+move crystal-ball "Crystal Ball"
+  type mystic
+  costs 60 mana
+  cooldown 5
+  looks ahead
+  aim self
+  cast:
+    caster focus
+    show crystalball as glow on caster
+```
+
+The steps still run, ahead of the question, so the move keeps whatever it is
+drawn and heard as. Nothing looks ahead twice in one round: an action picked
+this way is a plain action, even where the move behind it looks ahead.
 
 ## Statuses
 
@@ -822,6 +847,18 @@ inflict decaying-coral on raised
 **`give <who> <move> in slot <n>`** puts a named move in that slot for the rest
 of the battle, the same way `give <who> picked move in slot <n>` puts the move a
 `pick` turned up. `as extra` hands it over beside the four instead.
+
+**`ask <who> to pick <aim> as <name>, saying "<words>"`** stops the round and
+asks each Scoba in `<who>` to pick one Scoba, in the same words an `aim` line
+uses. What they pick stands as the group `<name>` for the steps below it. A
+Scoba that cannot be asked, or that is answered with nothing, is not in the
+group. The round carries on where it stopped once everyone it asked has
+answered, so ask everyone in one step rather than one at a time.
+
+```
+ask ally scobas to pick any enemy as chosen, saying "Who takes it?"
+hit chosen 100% magic
+```
 
 **`summon <species> at level <n>`** calls a Scoba to the side of the one running
 the step. A Pawn species takes a Pawn slot and comes out at its summoner's level,

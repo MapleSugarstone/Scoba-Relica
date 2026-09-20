@@ -65,6 +65,7 @@ interface Names {
 function who(w: Who, names: Names): string {
   if (typeof w === "object") {
     if ("aim" in w) return names.aims[w.aim] ?? `target${w.aim + 1}`;
+    if ("asked" in w) return w.asked;
     if ("next" in w) return `next ${w.next} scoba from ${who(w.from, names)}`;
     return `${who(w.first, names)} or ${who(w.then, names)}`;
   }
@@ -144,6 +145,9 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
         + `${s.sound !== undefined ? `, sound ${bare(s.sound)}` : ""}`);
     case "plant":
       return line(`plant ${s.status} under ${who(s.under, names)}`);
+    case "ask":
+      return line(`ask ${who(s.who, names)} to pick ${AIM_WORDS.write[s.mode]} as ${s.name}`
+        + `${s.prompt !== undefined ? `, saying ${quote(s.prompt)}` : ""}`);
     case "inflict":
       return line(`inflict ${s.status} on ${who(s.on, names)}`
         + `${s.turns !== undefined ? `, for ${num(s.turns)} turn${s.turns === 1 ? "" : "s"}` : ""}`);
@@ -307,6 +311,7 @@ export function writeMove(m: Move, aimNames?: string[]): string {
   if (m.startCooldown > 0) out.push(`${INDENT}starts on cooldown ${num(m.startCooldown)}`);
   if (m.priority !== undefined) out.push(`${INDENT}priority ${num(m.priority)}`);
   if (m.oncePerBattle) out.push(`${INDENT}once per battle`);
+  if (m.looksAhead) out.push(`${INDENT}looks ahead`);
   m.targets.forEach((t, i) => {
     const prompt = t.prompt !== undefined ? ` ${quote(t.prompt)}` : "";
     const named = aims[i] !== (i === 0 ? "target" : `target${i + 1}`) ? ` as ${aims[i]}` : "";

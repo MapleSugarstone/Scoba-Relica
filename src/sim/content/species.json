@@ -269,28 +269,25 @@
   {
     "id": "wispen",
     "name": "Wispen",
-    "role": "burst",
+    "role": "control",
     "type": "mystic",
     "genes": {
-      "hp": 95,
-      "str": 30,
-      "def": 40,
-      "res": 85,
-      "mag": 145,
-      "spd": 105
+      "hp": 57,
+      "str": 18,
+      "def": 24,
+      "res": 51,
+      "mag": 87,
+      "spd": 63
     },
-    "primaryAbility": "far-sight",
+    "primaryAbility": "hexing",
     "secondaryPool": [
-      "mystic",
-      "swift"
+      "ward-bubble"
     ],
     "moves": [
-      "crush",
-      "hex",
-      "moonbeam",
-      "blood-pact",
-      "mirror-mark",
-      "third-eye"
+      "minor-curse",
+      "fireball",
+      "lightning-bolt",
+      "crystal-ball"
     ],
     "sprite": {
       "kind": "art",
@@ -298,7 +295,43 @@
     },
     "movement": "hover",
     "blurb": "Glass and starlight: the biggest Magic, the thinnest skin.",
-    "starter": true
+    "starter": true,
+    "baby": true,
+    "evolvesTo": "hexala"
+  },
+  {
+    "id": "hexala",
+    "name": "Hexala",
+    "role": "control",
+    "type": "mystic",
+    "genes": {
+      "hp": 110,
+      "str": 0,
+      "def": 80,
+      "res": 90,
+      "mag": 125,
+      "spd": 95
+    },
+    "primaryAbility": "hexing",
+    "secondaryPool": [
+      "ward-bubble"
+    ],
+    "hyperAbility": "double-hex",
+    "moves": [
+      "minor-curse",
+      "fireball",
+      "lightning-bolt",
+      "crystal-ball"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "hexala",
+      "forms": {
+        "hyper": "hyper-hexala"
+      }
+    },
+    "movement": "hover",
+    "blurb": "Hexala keeps one enemy in mind at all times, and that enemy knows it."
   },
   {
     "id": "pieble",

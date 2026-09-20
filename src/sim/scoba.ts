@@ -173,10 +173,23 @@ export const SHINY_TURN = 0.25;
 
 let uidCounter = 0;
 
+/**
+ * An id for one Scoba. Given a seeded roll it is worked out from that roll
+ * alone, so the same seed always names the same Scoba: two clients resolving
+ * one round apart agree on who was called up, and a round resolved a second
+ * time to answer a question mid-round calls up the same body rather than a new
+ * one. Without a roll it is a fresh id off the clock, for anything made outside
+ * a battle.
+ */
 export function freshUid(rng?: Rng): string {
+  if (rng) {
+    // One roll, the same one it always took, so everything rolled after it is
+    // rolled off the same number it was before ids were worked out this way.
+    const r = Math.floor(rng() * 0xffffffff);
+    return `${r.toString(36)}-${(r % 0xffffff).toString(36)}`;
+  }
   uidCounter += 1;
-  const r = rng ? Math.floor(rng() * 0xffffff) : Math.floor(Math.random() * 0xffffff);
-  return `${Date.now().toString(36)}-${uidCounter.toString(36)}-${r.toString(36)}`;
+  return `${Date.now().toString(36)}-${uidCounter.toString(36)}-${Math.floor(Math.random() * 0xffffff).toString(36)}`;
 }
 
 /**

@@ -46,6 +46,12 @@ export interface Move {
   /** Casts once a battle, however much mana and cooldown would allow. */
   oncePerBattle?: boolean;
   /**
+   * Casts before anything else in the round, and is the caster's whole round
+   * until it is answered: the caster is shown the round as it would go without
+   * it and then picks what to do, which takes the move's place in the round.
+   */
+  looksAhead?: boolean;
+  /**
    * What it does, in words, with the numbers left in brackets for the reader to
    * hover. See `sim/prose.ts` for what a bracket may hold. A move with none
    * falls back to the long sentence the game builds out of its own data, and

@@ -329,6 +329,12 @@ export interface BattleState {
    */
   ground: Patch[];
   /**
+   * What the round it is half way through stopped to ask. Set by a round that
+   * could not finish, and gone the moment one is resolved with the answers.
+   * Nothing carries it between rounds: it belongs to the round that raised it.
+   */
+  asking?: Question[];
+  /**
    * EZ mode. Kept on the state rather than spent at the opening, because a
    * Pawn called mid-battle has to be given the same leg-up as the Scoba that
    * called it: without it the court stays at a quarter of everyone's size.
@@ -610,7 +616,9 @@ export function emptySlots(st: BattleState, side: 0 | 1): Slot[] {
  * a turn's action: what fell is replaced after the round that felled it, and
  * the one that walked on picks a move in the next one like anybody else.
  */
-export function sendIn(st: BattleState, side: 0 | 1, slot: Slot, benchIndex: number): BattleEvent[] {
+export function sendIn(
+  st: BattleState, side: 0 | 1, slot: Slot, benchIndex: number, answers: Answer[] = [],
+): BattleEvent[] {
   if (!slotInPlay(st, side, slot) || (st.active[side][slot] ?? -1) >= 0) return [];
   if (!benchFor(st, side, slot).includes(benchIndex)) return [];
   const c = st.teams[side][benchIndex]!;
@@ -623,9 +631,10 @@ export function sendIn(st: BattleState, side: 0 | 1, slot: Slot, benchIndex: num
     kind: "switch",
     at: { side, index: benchIndex },
   }];
-  const ctx: Ctx = { st, events, rng: turnRng(st), depth: 0 };
-  fire(ctx, { side, index: benchIndex }, { on: "switch-in" }, null);
-  return events;
+  return asking(st, answers, events, (asks) => {
+    const ctx: Ctx = { st, events, rng: turnRng(st), depth: 0, asks };
+    fire(ctx, { side, index: benchIndex }, { on: "switch-in" }, null);
+  });
 }
 
 export function startBattle(
@@ -636,6 +645,12 @@ export function startBattle(
     slots?: 1 | 2; wild?: boolean; owners?: [SlotHolder, SlotHolder];
     /** EZ mode: the players' own Scobas fight this one with a leg-up. */
     ez?: boolean;
+    /**
+     * What the opening was told, where an entry trigger stopped it to ask
+     * something. A battle is built from its seed and its teams, so it is built
+     * again with the answers rather than picked up where it stopped.
+     */
+    answers?: Answer[];
   } = {},
 ): BattleState {
   const slots = opts.slots ?? 1;
@@ -660,11 +675,13 @@ export function startBattle(
   // The opening triggers: passives that want to know a battle has started, and
   // the send-out of whoever is fielded first. No round is running yet, so what
   // they say is kept on the state for the scene to play after the walk-on.
-  const ctx: Ctx = { st, events: st.opening, rng: turnRng(st), depth: 0 };
-  for (const side of [0, 1] as const) {
-    st.teams[side].forEach((_c, index) => fire(ctx, { side, index }, { on: "battle-start" }, null));
-  }
-  forEachStanding(st, (ref) => fire(ctx, ref, { on: "switch-in" }, null));
+  asking(st, opts.answers ?? [], st.opening, (asks) => {
+    const ctx: Ctx = { st, events: st.opening, rng: turnRng(st), depth: 0, asks };
+    for (const side of [0, 1] as const) {
+      st.teams[side].forEach((_c, index) => fire(ctx, { side, index }, { on: "battle-start" }, null));
+    }
+    forEachStanding(st, (ref) => fire(ctx, ref, { on: "switch-in" }, null));
+  });
   return st;
 }
 
@@ -695,7 +712,9 @@ function fillSlots(st: BattleState, side: 0 | 1): number[] {
  * than spliced in so indices already in the choice log keep pointing at the
  * same combatant, and they take the slot that was held open for them.
  */
-export function joinBattle(st: BattleState, owner: OwnerId, team: ScobaInstance[]): BattleEvent[] {
+export function joinBattle(
+  st: BattleState, owner: OwnerId, team: ScobaInstance[], answers: Answer[] = [],
+): BattleEvent[] {
   const slot = slotOf(owner);
   if (st.winner !== -1 || st.outcome !== "") return [];
   if (st.slotOwner[slot] !== null || slot >= st.slots) return [];
@@ -708,12 +727,13 @@ export function joinBattle(st: BattleState, owner: OwnerId, team: ScobaInstance[
   const joined = idx >= 0 ? st.teams[0][idx]! : null;
   if (!joined) return [{ text: "They have nobody left to send in.", kind: "info" }];
   const events: BattleEvent[] = [{ text: `${displayName(joined.scoba)} joins the fight.`, kind: "switch" }];
-  const ctx: Ctx = { st, events, rng: turnRng(st), depth: 0 };
-  st.teams[0].forEach((_c, i) => {
-    if (i >= base) fire(ctx, { side: 0, index: i }, { on: "battle-start" }, null);
+  return asking(st, answers, events, (asks) => {
+    const ctx: Ctx = { st, events, rng: turnRng(st), depth: 0, asks };
+    st.teams[0].forEach((_c, i) => {
+      if (i >= base) fire(ctx, { side: 0, index: i }, { on: "battle-start" }, null);
+    });
+    fire(ctx, { side: 0, index: idx }, { on: "switch-in" }, null);
   });
-  fire(ctx, { side: 0, index: idx }, { on: "switch-in" }, null);
-  return events;
 }
 
 function combatant(st: BattleState, side: 0 | 1, slot: Slot): Combatant | null {
@@ -1337,6 +1357,99 @@ interface Ctx {
   events: BattleEvent[];
   rng: Rng;
   depth: number;
+  /**
+   * What the round has been told and what it still wants to know. Held as one
+   * object rather than as fields, because a trigger runs on a copy of the
+   * context and the count of questions has to be the round's own.
+   */
+  asks: Asks;
+}
+
+interface Asks {
+  /** What the round has already been told, in the order it asked. */
+  answers: Answer[];
+  /** How many questions it has raised, which is what an answer is keyed by. */
+  count: number;
+  /** The ones nobody has answered. */
+  open: Question[];
+}
+
+/**
+ * One question a round stopped to ask. A round can stop several times, and a
+ * stop can hold a question for each of several Scobas: everyone answers, then
+ * the round carries on from where it was.
+ */
+export interface Question {
+  /** Which Scoba is being asked, by where it stands. */
+  at: TargetRef;
+  /** What it is being asked, written for the action row. */
+  prompt: string;
+  /** What it may pick. A question with nothing to pick is answered with nothing. */
+  options: TargetRef[];
+  /** The move or the status that raised it, so a readout can name what is asking. */
+  by: string;
+  /**
+   * What it wants back. A "pick" question wants one of its options, and an
+   * "act" question wants the whole action its asker takes this round, which
+   * is what a move that looks ahead asks for once it has shown the round.
+   */
+  kind?: "pick" | "act";
+}
+
+/** What one question was answered with. */
+export interface Answer {
+  pick: TargetRef | null;
+  /** The action taken, where the question asked for one. */
+  act?: Choice;
+}
+
+/**
+ * Thrown to stop a round that has asked something nobody has answered. The
+ * round is resolved again from the start once the answers are in hand, so
+ * whatever it did before it stopped is thrown away with the state it did it to.
+ */
+class Asked extends Error {}
+
+/** A run that cannot stop to ask anything. */
+const noAsks = (): Asks => ({ answers: [], count: 0, open: [] });
+
+/**
+ * Runs something that can stop to ask, and files what it asked rather than
+ * letting the stop escape. What comes back is whatever it said before it
+ * stopped. Anything that stops this way is run again from where it started,
+ * with the answers in hand, so its caller keeps what it was working on.
+ */
+function asking(
+  st: BattleState, answers: Answer[], events: BattleEvent[], run: (asks: Asks) => void,
+): BattleEvent[] {
+  const asks: Asks = { answers, count: 0, open: [] };
+  delete st.asking;
+  try {
+    run(asks);
+  } catch (stopped) {
+    if (!(stopped instanceof Asked)) throw stopped;
+    st.asking = asks.open;
+  }
+  return events;
+}
+
+/**
+ * Puts a question to one Scoba. It comes back with what that Scoba was
+ * answered with, or undefined where nobody has answered it yet, in which case
+ * the question is filed and the step that raised it stops the round.
+ */
+function askOne(ctx: Ctx, q: Question): Answer | undefined {
+  const n = ctx.asks.count;
+  ctx.asks.count += 1;
+  const said = ctx.asks.answers[n];
+  if (said) return said;
+  ctx.asks.open.push(q);
+  return undefined;
+}
+
+/** Stops the round where anything it asked this step has gone unanswered. */
+function stopIfAsking(ctx: Ctx): void {
+  if (ctx.asks.open.length > 0) throw new Asked();
 }
 
 /** How a hit should be treated once it reaches `dealDamage`. */
@@ -1904,6 +2017,8 @@ interface Run {
   alive: Set<string>;
   /** The move a `pick-move` step picked, for the steps after it. */
   picked: string | null;
+  /** What an `ask` step was answered with, by the name that step gave it. */
+  asked?: Map<string, TargetRef[]>;
   /** The Scoba a `raise` step put on the field, for the steps after it. */
   raised: TargetRef | null;
   /**
@@ -1944,6 +2059,7 @@ function aliveNow(st: BattleState): Set<string> {
 function whoRefs(ctx: Ctx, run: Run, who: Who): TargetRef[] {
   if (typeof who === "object") {
     if ("aim" in who) return run.groups[who.aim] ?? [];
+    if ("asked" in who) return run.asked?.get(who.asked) ?? [];
     if ("next" in who) {
       const skip = whoRefs(ctx, run, who.from);
       const side = who.next === "ally" ? run.self.side : run.self.side === 0 ? 1 : 0;
@@ -2291,6 +2407,27 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
     case "plant":
       for (const ref of whoRefs(ctx, run, step.under)) plant(ctx, ref, step.status, run.source ?? run.self);
       return true;
+    case "ask": {
+      // Everyone it asks is asked at once, so the round stops once and the
+      // whole table answers together rather than one after another.
+      const picks: TargetRef[] = [];
+      for (const asker of whoRefs(ctx, run, step.who)) {
+        const c = combatantAt(ctx.st, asker);
+        if (!c || c.fainted) continue;
+        const options = candidates(ctx.st, asker, step.mode);
+        const said = askOne(ctx, {
+          at: asker,
+          prompt: step.prompt ?? "Pick one",
+          options,
+          by: run.record,
+        });
+        if (said?.pick) picks.push(said.pick);
+      }
+      stopIfAsking(ctx);
+      run.asked ??= new Map();
+      run.asked.set(step.name, picks);
+      return true;
+    }
     case "deal-card":
       if (!run.card) return true;
       for (const ref of whoRefs(ctx, run, step.to)) dealCard(ctx, run.self, ref, step.payoff, step.hand, run.card);
@@ -2905,27 +3042,129 @@ function canonicalOrder(choices: Choice[]): Choice[] {
   return [...choices].sort((a, b) => a.side - b.side || a.slot - b.slot);
 }
 
-export function resolveTurn(st: BattleState, unordered: Choice[]): BattleEvent[] {
+/** A choice to do nothing, which is what an unanswered question comes to. */
+function bracing(c: Choice): Choice {
+  return { kind: "block", side: c.side, slot: c.slot };
+}
+
+/**
+ * Casts the moves that look ahead, before the round is ordered and before
+ * anything else in it happens, and hands back the round with whatever each
+ * caster picked instead of the move it cast. A caster nobody answers for
+ * braces, and so does one whose answer will not stand.
+ *
+ * The move is the whole of the caster's round until the answer comes: it pays
+ * for the move, and then it pays for what it does about what it saw.
+ */
+function foresight(ctx: Ctx, asked: Choice[]): Choice[] {
+  const st = ctx.st;
+  const ahead = asked.filter((c) => c.kind === "spell" && MOVES[c.moveId]?.looksAhead === true);
+  if (ahead.length === 0) return asked;
+  const said = new Map<Choice, Answer | undefined>();
+  for (const c of ahead) {
+    if (c.kind !== "spell") continue;
+    const move = MOVES[c.moveId];
+    const user = combatant(st, c.side, c.slot);
+    if (!move || !user || user.fainted) continue;
+    // A half of a fusion pays from its own bar, and the fusion is what casts.
+    const actor = actingAs(st, user);
+    const userRef = refOf(st, actor);
+    const payerRef = refOf(st, user);
+    if (actor.fainted || !userRef || !payerRef) continue;
+    const paid = castCost(user, move.id);
+    user.mana -= paid;
+    if (move.cooldown > 0) user.cds[move.id] = move.cooldown + 1;
+    if (move.oncePerBattle && !user.spent.includes(move.id)) user.spent.push(move.id);
+    ctx.events.push({
+      text: `${displayName(actor.scoba)} cast ${move.name}!`,
+      kind: "spell", at: userRef, moveId: move.id, mana: user.mana, ...barsAt(st, userRef),
+    });
+    const specs = specsFor(c, st);
+    const picks = c.picks.map((p) => (p ? throughFusion(st, p) : p));
+    const hits = specs.map((spec, i) => resolveTargets(st, userRef, spec, picks[i] ?? null, ctx.rng));
+    runSteps(ctx, {
+      record: move.id, self: userRef, source: userRef, other: null,
+      groups: hits, alive: aliveNow(st), picked: null, raised: null, card: null, draws: 0,
+      status: null, cast: { move, paid, payer: payerRef },
+    }, move.cast);
+    fire(ctx, userRef, { on: "use-ability" }, hits[0]?.[0] ?? null);
+    said.set(c, askOne(ctx, {
+      at: userRef, prompt: "What will you do now?", options: [], by: move.id, kind: "act",
+    }));
+  }
+  stopIfAsking(ctx);
+  return asked.map((c) => {
+    if (!said.has(c)) return c;
+    const act = said.get(c)?.act ?? null;
+    if (!act || act.side !== c.side || act.slot !== c.slot) return bracing(c);
+    // Nothing looks ahead twice in a round: the second one would be cast with
+    // the round already ordered, which is not where it goes.
+    if (act.kind === "spell" && MOVES[act.moveId]?.looksAhead === true) return bracing(c);
+    return choiceError(st, act) === null ? act : bracing(c);
+  });
+}
+
+/**
+ * Files a round again under what was actually chosen, once a move that looks
+ * ahead has been answered. A rewind plays the round back from what is filed,
+ * and a round filed as the question would stop to ask it all over again.
+ */
+function refile(st: BattleState, choices: Choice[]): void {
+  const round = st.history?.[st.history.length - 1];
+  if (round) round.choices = structuredClone(choices);
+}
+
+/**
+ * Resolves a round. What comes back is everything that happened, in order.
+ *
+ * A round can stop part way to ask something: a step that puts a question to a
+ * Scoba needs an answer before the rest of the round can be worked out. Where
+ * that happens, what comes back is everything up to the question, and
+ * `st.asking` holds the questions. The state is then half a round old and is
+ * no use for anything: throw it away, answer the questions, and resolve the
+ * round again from where it started with the answers in hand. The round is
+ * worked out from its choices, its seed and its answers alone, so the second
+ * run does everything the first one did and then carries on past the question.
+ */
+export function resolveTurn(st: BattleState, unordered: Choice[], answers: Answer[] = []): BattleEvent[] {
+  const asks: Asks = { answers, count: 0, open: [] };
+  const events: BattleEvent[] = [];
+  delete st.asking;
+  try {
+    return runTurn(st, unordered, events, asks);
+  } catch (stopped) {
+    if (!(stopped instanceof Asked)) throw stopped;
+    st.asking = asks.open;
+    return events;
+  }
+}
+
+function runTurn(st: BattleState, unordered: Choice[], events: BattleEvent[], asks: Asks): BattleEvent[] {
   if (st.winner !== -1 || st.outcome !== "") return [{ text: "The battle is over.", kind: "info" }];
   // Filed before anything reads the state, since `withRecorded` takes a round
   // off a journey and a replay that started after that would run a round short.
-  if (recording()) logRound(st.turn, structuredClone(st), structuredClone(unordered));
+  if (recording()) logRound(st.turn, structuredClone(st), structuredClone(unordered), asks.answers);
   // Declared before the choices are settled: a round being played again walks
   // its replacements back on first, and that is the round's opening rather than
   // something that happened before it.
-  const events: BattleEvent[] = [];
-  const choices = canonicalOrder(withRecorded(st, unordered, events));
-  for (const c of choices) {
+  const asked = canonicalOrder(withRecorded(st, unordered, events));
+  for (const c of asked) {
     const err = choiceError(st, c);
     if (err) throw new Error(`illegal choice from side ${c.side} slot ${c.slot}: ${err}`);
   }
   const rng = turnRng(st);
-  remember(st, choices);
+  // Filed before anything happens, since the round is wound back to here.
+  remember(st, asked);
   st.turn += 1;
-  const ctx: Ctx = { st, events, rng, depth: 0 };
+  const ctx: Ctx = { st, events, rng, depth: 0, asks };
   // Between rounds a replacement can have walked on or a field been handed
   // over, so what makes whose statuses stronger is read again before anything.
   refreshWorth(st);
+
+  // A move that looks ahead is cast before the round is ordered, and the round
+  // is ordered with whatever its caster picked instead of it.
+  const choices = foresight(ctx, asked);
+  if (choices !== asked) refile(st, choices);
 
   // Fleeing ends the battle before anything else happens.
   if (choices.some((c) => c.kind === "flee")) {

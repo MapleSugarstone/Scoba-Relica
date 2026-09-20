@@ -344,3 +344,28 @@ passive fae-court "Fae Court"
 # What a Fae Retainer is, beyond the second passive it wears.
 passive fae-bound "Fae-Bound"
   text "Wears the second passive of the Obera that called it."
+
+# Hexala's. The hex it picks a target for as it arrives, the bubble it opens
+# with, and the second hex Hyper-Mode lays on the other enemy.
+passive hexing "Hex"
+  text "On entry, picks an enemy and leaves [status:hexed|a Hex] on them, dealing [damage:hexed] damage at the end of each turn for 7 turns. Doesn't stack."
+  icon hex
+  when it takes the field:
+    ask holder to pick any enemy as cursed, saying "Who do you hex?"
+    show hex as burst on cursed
+    inflict hexed on cursed
+
+passive ward-bubble "Ward Bubble"
+  text "On entry, opens a [status:bubble|bubble] that cuts the next hit it takes by 25%. Once a battle, and lost on switching out."
+  icon wardbubble
+  once per battle
+  when it takes the field:
+    show wardbubble as glow on holder
+    inflict bubble on holder
+
+passive double-hex "Double Hex"
+  text "On entry, leaves [status:hexed|a Hex] on every enemy."
+  icon hex
+  when it takes the field:
+    show hex as burst on enemies
+    inflict hexed on enemies

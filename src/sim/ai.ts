@@ -82,9 +82,12 @@ function actFor(st: BattleState, side: 0 | 1, slot: Slot, c: Combatant, rng: Rng
   // round it reached for it with was thrown out as an illegal choice.
   const allowed = (id: string, picks: (TargetRef | null)[]): boolean =>
     choiceError(st, { kind: "spell", side, slot, moveId: id, picks }) === null;
+  // A move that looks ahead asks its caster what to do with what it saw, and
+  // nobody is there to answer for this one, so it would spend the round on a
+  // vision and then brace.
   const usable = heldMoves(c)
     .map((id) => MOVES[id])
-    .filter((m): m is Move => !!m && moveReady(c, m.id).ok);
+    .filter((m): m is Move => !!m && !m.looksAhead && moveReady(c, m.id).ok);
 
   // Healing is never held back for a bigger spell later: an ally about to fall
   // is worth the bar.

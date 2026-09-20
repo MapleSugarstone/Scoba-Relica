@@ -910,11 +910,18 @@ function litSkin(skin: ActorSkin, color: string | null): ActorSkin {
   return { ...skin, sprite: { ...skin.sprite, img: lit(skin.sprite.img, color) } };
 }
 
+/**
+ * `lit` is the colour its line art is drawn in: a colour to light it, null for
+ * the black it was drawn in, and left out to read it off `carried`. A battle
+ * passes it in, since what a Scoba is carrying and what the scene has shown it
+ * being given are not the same thing until the round has finished playing.
+ */
 export function critterLook(
   art: Art, sp: Species, s: ScobaInstance, forms: readonly FormTag[] = [], carried?: readonly string[],
+  lit?: string | null,
 ): ActorSkin {
-  const glow = litBy(carried);
-  if (glow) return litSkin(critterLook(art, sp, s, forms, (carried ?? []).filter((id) => !STATUSES[id]?.lit)), glow);
+  const glow = lit === undefined ? litBy(carried) : lit;
+  if (glow) return litSkin(critterLook(art, sp, s, forms, carried, null), glow);
   if (s.fusedFrom) {
     const costume = formKey(sp, forms);
     const worn = fusionImage(art, sp, s.fusedFrom, costume, lookOf(sp, s, forms, carried).accessory ?? null);

@@ -311,7 +311,7 @@ status grove-patch "Grove"
     show groveheal as glow on holder
     heal holder power
 
-status faefire "Faefire"
+status faefire "Lit"
   bad
   icon faefire
   lit #d9553f
@@ -326,3 +326,44 @@ status rallied "Rallied"
   while carried:
     strength x1.2
     magic x1.2
+
+# Hexala's. The hex it picks a target for, the bubble it opens with, and what
+# its three spells leave behind.
+status hexed "Hexed"
+  bad
+  icon hex
+  lasts 7 turns
+  when a turn ends:
+    damage holder 60% of source magic, as mystic magic, fixed when applied
+
+status bubble "Ward Bubble"
+  good
+  icon wardbubble
+  charges 1
+  lost on switching out
+  while carried:
+    cuts the next hit by 25%
+
+status cursed "Minor Curse"
+  bad
+  icon minorcurse
+  lasts 2 turns
+  when a turn ends:
+    damage holder 60% of source magic, as plain magic, fixed when applied
+
+status burned "Burn"
+  bad
+  icon fireburn
+  lasts 5 turns
+  stacks
+  when a turn ends:
+    damage holder 10% of source magic, as firework magic, fixed when applied
+
+status jolted "Jolted"
+  bad
+  icon lightningbolt
+  stacks up to 6
+  lost on switching out
+  power 50% of source magic
+  while carried:
+    speed - power

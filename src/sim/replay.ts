@@ -5,7 +5,7 @@
 //
 // Recording is off unless something turns it on, and the cost of a round that
 // is not being recorded is one boolean.
-import type { BattleState, Choice } from "./battle";
+import type { Answer, BattleState, Choice } from "./battle";
 
 /** What one round needs to be run again. */
 export interface ReplayRound {
@@ -18,6 +18,12 @@ export interface ReplayRound {
   before: BattleState;
   /** The picks as they were handed in, before the round sorted them. */
   choices: Choice[];
+  /**
+   * What the round was told when it stopped to ask something, in the order it
+   * asked. A round that asked nothing has none, and so does every replay
+   * recorded before a round could ask.
+   */
+  answers?: Answer[];
 }
 
 export interface Replay {
@@ -62,8 +68,12 @@ export function resumeReplay(data: Replay): void {
  * Files a round. The caller clones, because it is the one that knows whether
  * anything is listening.
  */
-export function logRound(turn: number, before: BattleState, choices: Choice[]): void {
-  rounds?.push({ turn, before, choices });
+export function logRound(turn: number, before: BattleState, choices: Choice[], answers: Answer[] = []): void {
+  // A round that stopped to ask is resolved again from the same place, so only
+  // the run that got the whole way through is kept.
+  const held = rounds?.[rounds.length - 1];
+  if (held?.turn === turn) rounds!.pop();
+  rounds?.push({ turn, before, choices, ...(answers.length > 0 ? { answers: structuredClone(answers) } : {}) });
 }
 
 /** The recording so far, or null if nothing is being recorded. */

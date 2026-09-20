@@ -232,10 +232,9 @@ interface Effect {
  * can hold one mark across a round. Keying only on the costume left the old
  * body standing there wearing the new one's name.
  */
-function drawnAs(c: Combatant, forms: string[]): string {
+function drawnAs(c: Combatant, forms: string[], glow: string | null): string {
   const sp = SPECIES[c.scoba.speciesId];
   const piece = sp ? pieceWorn(sp, carriedBy(c), forms) : null;
-  const glow = litBy(carriedBy(c));
   return [
     bodyKey(c), ...forms,
     ...(piece ? [`piece:${piece}`] : []),
@@ -487,6 +486,9 @@ const WAITING_TINT = "brightness(0.4) saturate(0.7)";
 const PAST_KEEP = 0.45;
 /** The warmth laid over it, and how much of it. */
 const PAST_WARM = "#b98a52";
+/** What a vision is washed in, and how much of it the drawing takes. */
+const VISION_TINT = "#8d63c0";
+const VISION_TINT_A = 0.42;
 const PAST_WARM_A = 0.22;
 
 /**
@@ -877,11 +879,12 @@ export class BattleStage {
     const sp = c ? SPECIES[c.scoba.speciesId] : undefined;
     if (!c || !sp) return;
     const forms = this.formsShown(c);
-    const worn = drawnAs(c, forms);
+    const glow = this.litShown(f.side, f.index);
+    const worn = drawnAs(c, forms, glow);
     if (f.worn === worn) return;
     // Compared as keys rather than read off `worn`: a fusion's uid has a "+" in it.
     if (!arriving && f.key !== bodyKey(c)) return;
-    f.actor.skin = critterLook(this.art, sp, c.scoba, forms, carriedBy(c));
+    f.actor.skin = critterLook(this.art, sp, c.scoba, forms, carriedBy(c), glow);
     f.bounds = critterBounds(this.art, sp, lookOf(sp, c.scoba, forms, carriedBy(c)));
     f.head = f.bounds.top + idleLift(sp.movement, f.actor.idleMix);
     f.worn = worn;
@@ -898,6 +901,18 @@ export class BattleStage {
    * comes second is already in it while the first one's is still playing.
    */
   private withheld = new Map<string, string[]>();
+
+  /**
+   * The colour a body's line art is drawn in, read off the marks the scene has
+   * shown it being given rather than off what the battle has already put on it.
+   * A status that lights its holder lights it on the beat it lands, the same as
+   * its sigil turns up then.
+   */
+  private litShown(side: 0 | 1, index: number): string | null {
+    const held = this.shown.get(BattleStage.key(side, index));
+    const c = this.st.teams[side][index];
+    return litBy(held ? held.marks.map((m) => m.id) : c ? carriedBy(c) : []);
+  }
 
   /** The costumes a Scoba is drawn in right now: what it wears, less what has not been shown going on. */
   private formsShown(c: Combatant): string[] {
@@ -966,7 +981,8 @@ export class BattleStage {
         const sp = SPECIES[c.scoba.speciesId];
         if (!sp) continue;
         const forms = this.formsShown(c);
-        const worn = drawnAs(c, forms);
+        const glow = this.litShown(side, index);
+        const worn = drawnAs(c, forms, glow);
         // Matched on which body it is rather than on where it sits. A rewind
         // renumbers the team under every mark at once, and matching on the
         // number put one Scoba's body on another's mark. The mark it is already
@@ -975,10 +991,17 @@ export class BattleStage {
         const mine = (f: Fighter): boolean => !taken.has(f) && f.side === side && f.key === key;
         const kept = this.fighters.find((f) => mine(f) && f.slot === slot)
           ?? this.fighters.find(mine);
+        // Whoever this pass is bringing in: the event that brings them is what
+        // reveals them, so they are left as they are.
+        const brought = arriving !== undefined && sameRef({ side, index }, arriving);
         if (kept) {
           taken.add(kept);
           kept.index = index;
           kept.slot = slot;
+          // A board that was wound back stands everyone on it whole. A body
+          // that fell, or walked off, in a round that no longer happened is
+          // still half faded out, and nothing is coming to play it back in.
+          if (fresh && !brought) this.standWhole(kept, side, slot);
           // Changed costume since it was last drawn: re-skin it where it
           // stands rather than replacing the actor, so nothing it is in the
           // middle of is interrupted. This is the one place a mark is allowed
@@ -995,7 +1018,6 @@ export class BattleStage {
         // Neither one walks on: a Pawn is called and a traveller is set down,
         // so whichever of them this event is bringing in starts hidden and
         // that event reveals it.
-        const brought = arriving !== undefined && sameRef({ side, index }, arriving);
         // Anyone else the round has already put on the board waits for the
         // event that brings them: a round that calls two Pawns resolves both
         // before either is played, and standing the second one up here had it
@@ -1003,7 +1025,7 @@ export class BattleStage {
         if (hold && !brought) continue;
         const pawn = isPawnSlot(slot);
         const at = this.anchor(side, slot);
-        const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba, forms, carriedBy(c)));
+        const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba, forms, carriedBy(c), glow));
         actor.dir = side === 0 ? 1 : -1;
         actor.speed = ENTER_SPEED;
         actor.radius = 3;
@@ -1061,14 +1083,34 @@ export class BattleStage {
    * past was on screen.
    */
   private tintPast(ctx: CanvasRenderingContext2D): void {
-    if (!this.inPast) return;
+    const wash = this.vision
+      ? { color: VISION_TINT, alpha: VISION_TINT_A }
+      : this.inPast ? { color: PAST_WARM, alpha: PAST_WARM_A } : null;
+    if (!wash) return;
     const { w, h } = this.view;
     ctx.save();
     ctx.globalCompositeOperation = "source-atop";
-    ctx.globalAlpha = PAST_WARM_A;
-    ctx.fillStyle = PAST_WARM;
+    ctx.globalAlpha = wash.alpha;
+    ctx.fillStyle = wash.color;
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
+  }
+
+  /**
+   * A round being shown as something that has not happened. It is the same
+   * fill the past is washed in, in another colour: a filter over the whole
+   * canvas costs a copy of the surface every frame, which is what made the
+   * first time machine crawl.
+   */
+  private vision = false;
+
+  setVision(on: boolean): void {
+    this.vision = on;
+  }
+
+  /** Washes the screen in a colour and fades it out, the way a `flash` step does. */
+  flashOver(color: string, dur: number): void {
+    this.flash = { color, t: 0, dur };
   }
 
   /**
@@ -1308,6 +1350,32 @@ export class BattleStage {
    */
   private restOf(f: Fighter): Anchor {
     return { x: f.actor.x, y: f.actor.y };
+  }
+
+  /**
+   * Puts a body back on its mark whole: solid, readout up, nothing in the
+   * middle of playing. What a round did to it is undone by the wind-back
+   * itself, and this is the scene catching up with that.
+   */
+  private standWhole(f: Fighter, side: 0 | 1, slot: number): void {
+    const at = this.anchor(side, slot);
+    f.actor.x = at.x;
+    f.actor.y = at.y;
+    f.actor.moving = false;
+    f.actor.fade = 1;
+    f.actor.flash = 0;
+    f.actor.clearSparks();
+    f.actor.dir = side === 0 ? 1 : -1;
+    f.alpha = 1;
+    f.plate = 1;
+    f.settled = true;
+    f.leaving = null;
+    f.ox = 0;
+    f.oy = 0;
+    f.shake = 0;
+    f.hurt = 0;
+    f.heal = 0;
+    f.flare = 0;
   }
 
   /**

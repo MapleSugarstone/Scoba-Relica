@@ -126,6 +126,8 @@ function sidesOfMode(mode: TargetMode | undefined): Side[] {
 function sidesOf(who: Who, aims: TargetMode[]): Side[] {
   if (typeof who !== "string") {
     if ("aim" in who) return sidesOfMode(aims[who.aim]);
+    // Asked for mid-round, so what it reaches is whatever the question allowed.
+    if ("asked" in who) return ["self", "allies", "enemies"];
     if ("next" in who) return who.next === "ally" ? ["allies"] : ["enemies"];
     return sidesOf(who.first, aims);
   }

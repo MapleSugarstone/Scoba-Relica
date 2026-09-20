@@ -887,3 +887,52 @@ move groveborn-eviscerate "Groveborn Eviscerate"
     caster shake
     throw "graveborn eviscerate" as drop to target
     hit target 300% strength, as spring physical
+
+# Hexala's. A cheap curse, a burn that stacks, a bolt that slows, and the orb
+# it spends a whole bar on to see the round before it picks.
+move minor-curse "Minor Curse"
+  type mystic
+  costs 15 mana
+  cooldown 1
+  aim any enemy
+  text "Deals [damage] damage to one enemy and leaves them [status:cursed|cursed], taking [damage:cursed] at the end of each turn for 2 turns."
+  cast:
+    caster focus
+    throw minorcurse as bolt to target
+    hit target 80% magic
+    show minorcurseburn as burst on target
+    inflict cursed on target
+
+move fireball "Fireball"
+  type firework
+  costs 20 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy and [status:burned|burns] them for [damage:burned] at the end of each turn for 5 turns. Stacks."
+  cast:
+    caster focus
+    throw fireball as lob to target
+    hit target 100% magic
+    show redfire as flames on target
+    inflict burned on target
+
+move lightning-bolt "Lightning Bolt"
+  type mystic, cipher
+  costs 30 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy and leaves them [status:jolted|jolted], losing [power:jolted] speed until they switch out. Stacks."
+  cast:
+    caster focus
+    throw lightningbolt as bolt to target
+    hit target 130% magic
+    inflict jolted on target
+
+move crystal-ball "Crystal Ball"
+  type mystic
+  costs 60 mana
+  cooldown 5
+  looks ahead
+  aim self
+  text "Casts before anything else in the round and shows how the round would go with it standing still. It then picks what to do about it, and pays for that as usual."
+  cast:
+    caster focus
+    show crystalball as glow on caster

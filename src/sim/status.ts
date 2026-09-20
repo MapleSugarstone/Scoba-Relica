@@ -9,6 +9,7 @@
 // Everything here is data, written in move script. `sim/battle.ts` owns when
 // triggers fire, runs the steps they set off, and settles how the numbers land.
 import { STAT_FLOOR, STAT_NAMES, type ElementType, type StatName, type Stats } from "./types";
+import type { TargetMode } from "./targeting";
 import { CONTENT_TABLES } from "./content/tables";
 import type { CardFace } from "./cards";
 
@@ -151,6 +152,8 @@ export type Who =
   | "enemy-pawns"
   /** One of a move's target groups, by the order its aims are written in. */
   | { aim: number }
+  /** What an `ask` step above was answered with, by the name that step gave it. */
+  | { asked: string }
   /** The first ally or enemy Scoba standing on the field, in mark order, that `from` does not reach. */
   | { next: "ally" | "enemy"; from: Who }
   /** Whoever `first` reaches, or whoever `then` reaches where `first` reaches nobody standing. */
@@ -253,6 +256,13 @@ export type Step =
   | { kind: "inflict"; status: string; on: Who; turns?: number }
   /** Puts a status on the ground under each of `under`, where it stands on its own. */
   | { kind: "plant"; status: string; under: Who }
+  /**
+   * Stops the round and asks each Scoba in `who` to pick one Scoba, the way
+   * the round's own choices are picked. The picks stand as the group `name`
+   * for the steps below. Whoever cannot be asked, such as a Pawn nobody
+   * controls, is answered by the same hand that plays it.
+   */
+  | { kind: "ask"; who: Who; mode: TargetMode; name: string; prompt?: string }
   | { kind: "cleanse"; on: Who; polarity: StatusPolarity }
   /** Copies every status the first of `from` carries onto each of `to`. */
   | { kind: "copy-marks"; from: Who; to: Who }

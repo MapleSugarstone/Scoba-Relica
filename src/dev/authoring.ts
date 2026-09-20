@@ -350,6 +350,7 @@ export const REFERENCE: RefGroup[] = [
       { form: "starts on cooldown <n>", says: "Turns it waits at the start of a battle.", example: "starts on cooldown 1" },
       { form: "priority <n>", says: "Resolves ahead of every move with a lower one.", example: "priority 1" },
       { form: "once per battle", says: "Can be cast once a battle.", example: "once per battle" },
+      { form: "looks ahead", says: "Casts first, shows the round, then its caster picks an action.", example: "looks ahead" },
       { form: "aim <mode> \"<prompt>\" as <name>", says: "One group of targets. Write one line per group.", example: "aim any enemy" },
       { form: "text \"<words>\"", says: "The line a player reads.", example: "text \"Deals [damage] damage.\"" },
       { form: "cast:", says: "The steps casting it runs, in order.", example: "cast:" },

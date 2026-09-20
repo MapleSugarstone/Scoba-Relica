@@ -31,7 +31,9 @@ export function runReplay(data: Replay): RanRound[] {
   try {
     for (const round of data.rounds) {
       const st = structuredClone(round.before);
-      const events = resolveTurn(st, structuredClone(round.choices));
+      // The answers go back in with the choices: a round that stopped to ask
+      // is only the same round again if it is told the same things.
+      const events = resolveTurn(st, structuredClone(round.choices), structuredClone(round.answers ?? []));
       ran.push({ turn: round.turn, events, after: st, hash: stateHash(st) });
     }
   } finally {

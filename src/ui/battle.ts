@@ -37,9 +37,11 @@ import {
   fusionBars,
   fusionHalves,
   BASIC_ATTACK_TARGETS,
+  type Answer,
   type BattleEvent,
   type BattleState,
   type Choice,
+  type Question,
   type Combatant,
   type OwnerId,
   type SlotHolder,
@@ -145,6 +147,9 @@ const OTHER: Record<OwnerId, OwnerId> = { A: "B", B: "A" };
  */
 /** How many rows of buttons the action block is, on every page, beside the message box. */
 const BUTTON_ROWS = 2;
+/** What a vision flashes over the screen on its way in and out. */
+const VISION_WASH = "#8d63c0";
+
 const BAR_SHARE = 0.4;
 const BAR_MAX_W = 1120;
 
@@ -221,10 +226,13 @@ function runBattle(
   // The guest is handed the fight as it stands rather than rebuilding it: it
   // may have walked in several rounds late, and only the host was there for
   // what happened before that.
-  const st = net?.adopted ?? startBattle(
-    `${save.worldSeed}:${Date.now().toString(36)}`,
-    team, enemies, { slots: 2, wild: setup.wild, owners, ez: save.ez },
-  );
+  // Built from the one seed however many times it takes: an entry passive that
+  // stops the opening to ask something has the battle built again with the
+  // answer rather than picked up where it stopped.
+  const battleSeed = `${save.worldSeed}:${Date.now().toString(36)}`;
+  const buildBattle = (answers: Answer[] = []): BattleState =>
+    startBattle(battleSeed, team, enemies, { slots: 2, wild: setup.wild, owners, ez: save.ez, answers });
+  const st = net?.adopted ?? buildBattle();
   // A fight handed over part way through can name moves a step rewrote on the
   // host before this client arrived.
   restoreDerived(st);
@@ -833,12 +841,13 @@ function runBattle(
 
   /** Outlines a readout and makes it clickable while a target is being chosen. */
   const markTarget = (node: HTMLElement, ref: TargetRef): HTMLElement => {
-    if (!aiming || !aimOptions().some((r) => sameRef(r, ref))) return node;
+    const picking = pickingNow();
+    if (!picking || !picking.options.some((r) => sameRef(r, ref))) return node;
     node.classList.add("target");
     node.addEventListener("click", () => {
-      if (busy) return;
+      if (busy && !asked) return;
       sfx.tap();
-      choose(ref);
+      picking.take(ref);
     });
     // The readout sits above the aim layer, so it reports its own hover: the
     // highlight comes up whether the pointer is on the card or on the Scoba.
@@ -852,17 +861,39 @@ function runBattle(
   };
 
   /**
+   * What the field is offering to pick right now: whoever a move is being
+   * aimed at, or whoever answers a question the round stopped on. Both are
+   * picked the same way, off the ground or off a readout.
+   */
+  const pickingNow = (): { options: TargetRef[]; take: (ref: TargetRef) => void } | null => {
+    const open = asked;
+    if (open) {
+      return {
+        options: open.q.options,
+        take: (ref) => {
+          asked = null;
+          render();
+          open.say({ pick: ref });
+        },
+      };
+    }
+    if (aiming) return { options: aimOptions(), take: choose };
+    return null;
+  };
+
+  /**
    * While a move is being aimed, the field itself is clickable: the stage
    * turns a point into whoever is standing there, so a target can be picked
    * by its place on the ground rather than off a list.
    */
   const buildAimLayer = (): HTMLElement => {
     const layer = el("div", "baim");
-    if (!aiming) {
+    const picking = pickingNow();
+    if (!picking) {
       stage.setAiming(null);
       return layer;
     }
-    const options = aimOptions();
+    const options = picking.options;
     layer.classList.add("on");
     aimHover = null;
     stage.setAiming({ options, hover: null });
@@ -871,22 +902,22 @@ function runBattle(
       return hit && options.some((r) => sameRef(r, hit)) ? hit : null;
     };
     layer.addEventListener("pointermove", (e) => {
-      if (!aiming) return;
+      if (!pickingNow()) return;
       aimHover = pick(e);
       stage.setAiming({ options, hover: aimHover });
     });
     layer.addEventListener("pointerleave", () => {
-      if (!aiming) return;
+      if (!pickingNow()) return;
       aimHover = null;
       stage.setAiming({ options, hover: null });
     });
     layer.addEventListener("pointerdown", (e) => {
-      if (busy) return;
+      if (busy && !asked) return;
       const hit = pick(e);
       if (!hit) return;
       e.preventDefault();
       sfx.tap();
-      choose(hit);
+      picking.take(hit);
     });
     return layer;
   };
@@ -987,12 +1018,14 @@ function runBattle(
    * The shared move button, with the fight's own rule on top: nothing is
    * pressable while a round is playing itself out.
    */
+  // A round stopped on a question is waiting on the player, so its buttons are
+  // live even though the round is still running.
   const act = (
     label: string, sub: string, onPick: () => void, opts: ActOpts = {},
   ): HTMLButtonElement => actButton(label, sub, () => {
-    if (busy) return;
+    if (busy && !asked) return;
     onPick();
-  }, { ...opts, disabled: opts.disabled === true || busy });
+  }, { ...opts, disabled: opts.disabled === true || (busy && !asked) });
 
   /**
    * Who walks on for a slot that was emptied. It costs no turn: the pick is
@@ -1009,7 +1042,40 @@ function runBattle(
     return rows(grid(picks), null, who ? `${who}, send one in` : "Send one in");
   };
 
+  /**
+   * A question the round stopped on, and what to call once it is answered.
+   * Only one is put to the player at a time, so a stop that asks two of our
+   * Scobas asks them one after the other.
+   */
+  let asked: { q: Question; say: (answer: Answer) => void } | null = null;
+
+  /**
+   * A mark that has seen the round and is picking what to do about it. Its
+   * pick is the answer to the question the round stopped on rather than a
+   * choice of its own, since the round is already part way through.
+   */
+  let acting: { slot: number; say: (answer: Answer) => void } | null = null;
+
+  /** The picker for a question a move raised mid-round. */
+  const buildAskPicker = (): HTMLElement => {
+    const { q, say: answer } = asked!;
+    const mine = st.teams[q.at.side]?.[q.at.index];
+    const picks: HTMLElement[] = [];
+    for (const ref of q.options) {
+      const c = st.teams[ref.side][ref.index];
+      if (!c) continue;
+      const eff = aimEffect(c, ref);
+      const sub = `${c.hp}/${combatantMaxHp(c)}${eff ? ` · ${eff.label}` : ""}`;
+      // The same pick the field itself offers, so a button and a click on the
+      // Scoba do one thing.
+      picks.push(act(displayName(c.scoba), sub, () => pickingNow()?.take(ref), { alt: ref.side === 0 }));
+    }
+    const who = mine ? displayName(mine.scoba) : "";
+    return rows(grid(picks), null, who ? `${who}: ${q.prompt}` : q.prompt);
+  };
+
   const buildActions = (): HTMLElement => {
+    if (asked) return buildAskPicker();
     if (aiming) return buildTargetPicker();
     const waiting = sendInSlots[0];
     if (waiting !== undefined) return buildSendIn(waiting);
@@ -1228,7 +1294,9 @@ function runBattle(
     const box = el("div", "bacts");
     const top = el("div", "bhead");
     logEl = el("div", "bmsg");
-    if (busy) {
+    // A round stopped on a question is waiting on the player rather than
+    // playing, so the box asks rather than repeating the last line.
+    if (busy && !asked) {
       logEl.textContent = lastLine.text;
       if (lastLine.kind) logEl.classList.add(`ev-${lastLine.kind}`);
     } else {
@@ -1712,6 +1780,18 @@ function runBattle(
       ui.toast(err);
       return;
     }
+    // The round is waiting on this one rather than collecting choices for a
+    // round to come, so it goes back as the answer and the round carries on.
+    if (acting && acting.slot === choice.slot) {
+      const open = acting;
+      acting = null;
+      busy = true;
+      menu = "main";
+      roundSlots = [];
+      render();
+      open.say({ pick: null, act: choice });
+      return;
+    }
     staged.push(choice);
     net?.send({ t: "battle-choice", battleId: net.battleId, turn: st.turn, choice });
     // Fleeing ends the battle before anyone acts, so nobody else picks.
@@ -1772,6 +1852,143 @@ function runBattle(
     submitRound();
   };
 
+  /**
+   * Who answers a question: the player where it is put to a Scoba they are
+   * playing, and the same hand that picks the enemy's moves for anybody else.
+   * An answer nobody is there to give is rolled off the battle's own seed, so
+   * two clients resolving the round apart are told the same thing.
+   */
+  const answerTo = (q: Question, n: number): Promise<Answer> => {
+    const slot = st.active[q.at.side].indexOf(q.at.index);
+    const c = q.at.side === 0 && slot >= 0 ? st.teams[0][q.at.index] : null;
+    const by = c ? answeredBy(slot, c) : null;
+    // Solo, one player answers for both characters; with a peer, each answers
+    // only its own. A Pawn that runs itself is nobody's to answer for.
+    const ours = !!c && !selfRunning(c) && (!net ? by !== null : by === net.localOwner);
+    if (!ours || (q.kind !== "act" && q.options.length === 0)) {
+      const roll = rngFrom(`${st.seed}:answer:${st.turn}:${n}`);
+      const pick = q.options[Math.floor(roll() * q.options.length)] ?? null;
+      // Nobody is there to pick an action, so the asker holds still. The round
+      // reads a missing action that way, and both clients read it the same.
+      return Promise.resolve({ pick });
+    }
+    // A move that looks ahead: the round is shown first, and then the whole
+    // action row opens for whoever cast it.
+    if (q.kind === "act") {
+      return new Promise((say) => {
+        showVision(slot, () => {
+          acting = { slot, say };
+          busy = false;
+          menu = "main";
+          roundSlots = [slot];
+          pickIndex = 0;
+          localReady = false;
+          render();
+        });
+      });
+    }
+    return new Promise((say) => {
+      asked = { q, say };
+      render();
+    });
+  };
+
+  /**
+   * Puts the battle back the way it was before a round that stopped to ask.
+   * The object itself is kept, since the scene and the readouts hold it.
+   */
+  const rewindTo = (before: BattleState): void => {
+    for (const key of Object.keys(st)) delete (st as unknown as Record<string, unknown>)[key];
+    Object.assign(st, structuredClone(before));
+  };
+
+  /**
+   * Resolves a round that may stop to ask something. What it worked out is
+   * played as it comes, the questions are put to whoever answers them, and
+   * then the round is resolved again from where it began, one question
+   * further on. The events before the question come out the same every time,
+   * so only the ones nobody has seen are played.
+   */
+  const playRound = (
+    run: (answers: Answer[]) => BattleEvent[],
+    reset: () => void,
+    answers: Answer[],
+    played: number,
+    resolve: (events: BattleEvent[]) => void,
+  ): void => {
+    const events = run(answers);
+    const asking = st.asking;
+    void stage.play(events.slice(played), (ev) => say(ev.text, ev.kind)).then(async () => {
+      if (!asking || asking.length === 0) {
+        resolve(events);
+        return;
+      }
+      for (const [i, q] of asking.entries()) answers.push(await answerTo(q, answers.length + i));
+      asked = null;
+      // Back to where the round began, and resolved again with what it was told.
+      reset();
+      playRound(run, reset, answers, events.length, resolve);
+    });
+  };
+
+  /**
+   * The round a vision is being shown inside: where it began and what it was
+   * chosen by, since a vision plays that same round again from its beginning.
+   */
+  let roundFrom: { before: BattleState; choices: Choice[] } | null = null;
+
+  /**
+   * The round as it would go with the one that is looking holding still,
+   * played in the colours of something that has not happened and then wound
+   * back to where the round had got to. Whatever it stopped to ask is answered
+   * off the seed: a vision is nobody's decision, and asking about one would
+   * make it real.
+   */
+  const showVision = (slot: number, then: () => void): void => {
+    const round = roundFrom;
+    if (!round) {
+      then();
+      return;
+    }
+    // Where the round has got to, which is the move that looks ahead cast and
+    // nothing else done. The vision is wound back to here, not past it.
+    const asking = structuredClone(st);
+    const held: Choice[] = [
+      ...round.choices.filter((c) => !(c.side === 0 && c.slot === slot)),
+      { kind: "block", side: 0, slot },
+    ];
+    const turn = round.before.turn;
+    const answers: Answer[] = [];
+    let events: BattleEvent[] = [];
+    // Held before the round is worked out, so the plates keep what the player
+    // is looking at rather than picking up where the vision ends.
+    stage.snapshot();
+    for (let tries = 0; tries < 8; tries++) {
+      rewindTo(round.before);
+      events = resolveTurn(st, held, answers);
+      const open = st.asking ?? [];
+      if (open.length === 0) break;
+      for (const [i, q] of open.entries()) {
+        const roll = rngFrom(`${st.seed}:vision:${turn}:${answers.length + i}`);
+        answers.push({ pick: q.options[Math.floor(roll() * q.options.length)] ?? null });
+      }
+    }
+    stage.flashOver(VISION_WASH, 0.5);
+    stage.setVision(true);
+    say("A vision of what is to come...", "info");
+    void stage.play(events, (ev) => say(ev.text, ev.kind)).then(() => {
+      stage.setVision(false);
+      stage.flashOver(VISION_WASH, 0.5);
+      // None of it happened: the board goes back the way it was, and so does
+      // everything the scene was showing of it.
+      rewindTo(asking);
+      stage.restate();
+      stage.sync({ fresh: true });
+      stage.settle();
+      then();
+    });
+  };
+
   const submitRound = (): void => {
     busy = true;
     aiming = null;
@@ -1788,22 +2005,27 @@ function runBattle(
     // this array from opposite ends.
     const resolvedTurn = st.turn;
     const peers = net ? peerChoices.forTurn(resolvedTurn) : [];
-    const events = resolveTurn(st, [...staged, ...peers, ...pawnChoices(st, 0), ...enemyChoices(st)]);
+    const choices = [...staged, ...peers, ...pawnChoices(st, 0), ...enemyChoices(st)];
     staged = [];
     localReady = false;
-    if (net) {
-      peerChoices.clearThrough(resolvedTurn);
-      // Both clients hash the result and the relay compares them. Nothing is
-      // rolled back on a mismatch: it is reported, because a desync means the
-      // two of them stopped playing the same game and only a person can judge.
-      net.send({ t: "battle-hash", battleId: net.battleId, turn: resolvedTurn, hash: stateHash(st) });
-    }
     stage.setAiming(null);
     render();
     // The scene paces the round: each event writes its log line as its own
     // animation starts, so the text and the picture stay together.
     stage.instant = (window as { __scobaFast?: boolean }).__scobaFast === true;
-    void stage.play(events, (ev) => say(ev.text, ev.kind)).then(() => {
+    // Kept as it stood, since a round that stops to ask is resolved again from
+    // here rather than carried on from where it stopped.
+    const before = structuredClone(st);
+    roundFrom = { before, choices };
+    playRound((answers) => resolveTurn(st, choices, answers), () => rewindTo(before), [], 0, () => {
+      roundFrom = null;
+      if (net) {
+        peerChoices.clearThrough(resolvedTurn);
+        // Both clients hash the result and the relay compares them. Nothing is
+        // rolled back on a mismatch: it is reported, because a desync means the
+        // two of them stopped playing the same game and only a person can judge.
+        net.send({ t: "battle-hash", battleId: net.battleId, turn: resolvedTurn, hash: stateHash(st) });
+      }
       stage.settle();
       busy = false;
       finishTurn();
@@ -2063,7 +2285,27 @@ function runBattle(
     : stage.playIntro();
   void opening.then(() => {
     busy = false;
-    playThen(st.opening, fillEmpties);
+    if (!st.asking) {
+      playThen(st.opening, fillEmpties);
+      return;
+    }
+    // The opening stopped to ask: play what it got through, answer, and build
+    // the battle again from the same seed with the answers in hand.
+    busy = true;
+    stage.snapshot();
+    playRound(
+      (answers) => {
+        if (answers.length > 0) rewindTo(buildBattle(answers));
+        return st.opening;
+      },
+      () => {},
+      [],
+      0,
+      () => {
+        busy = false;
+        fillEmpties();
+      },
+    );
   });
 
   // The handle the session drives peer messages through. Registered even when
