@@ -12,6 +12,7 @@ import {
 import {
   ABILITIES, MOVES, SPECIES, artNameFor, babyOf, wornBy, type MovementStyle, type Species,
 } from "../sim/species";
+import { STATUSES } from "../sim/status";
 import {
   PLAYER_COSTUME, movementFor, placementFor, setupFor, shadowFor, type Placement, type Spot,
 } from "./cosmetics";
@@ -872,9 +873,48 @@ function fusionImage(
  * whoever called it and comes out small, a fusion takes both its halves', and
  * everything else wears its own.
  */
+/** The outline every drawing is held together with, which is what a status lights. */
+const OUTLINE: RGB = [0, 0, 0];
+
+const litArt = new WeakMap<ScobaImage, Map<string, HTMLCanvasElement>>();
+
+/**
+ * The colour a Scoba's line art is drawn in, from the first status it carries
+ * that lights it, or null for the black it was drawn in.
+ */
+export function litBy(carried: readonly string[] | undefined): string | null {
+  for (const id of carried ?? []) {
+    const lit = STATUSES[id]?.lit;
+    if (lit) return lit;
+  }
+  return null;
+}
+
+/** A drawing with its outline lit, kept against the drawing so it is swapped once. */
+function lit(img: ScobaImage, color: string): ScobaImage {
+  let byColor = litArt.get(img);
+  if (!byColor) {
+    byColor = new Map();
+    litArt.set(img, byColor);
+  }
+  const hit = byColor.get(color);
+  if (hit) return hit;
+  const out = paletteSwap(img, [[OUTLINE, hexToRgb(color)]]);
+  byColor.set(color, out);
+  return out;
+}
+
+/** A skin with whatever the Scoba is carrying lighting its outline. */
+function litSkin(skin: ActorSkin, color: string | null): ActorSkin {
+  if (!color) return skin;
+  return { ...skin, sprite: { ...skin.sprite, img: lit(skin.sprite.img, color) } };
+}
+
 export function critterLook(
   art: Art, sp: Species, s: ScobaInstance, forms: readonly FormTag[] = [], carried?: readonly string[],
 ): ActorSkin {
+  const glow = litBy(carried);
+  if (glow) return litSkin(critterLook(art, sp, s, forms, (carried ?? []).filter((id) => !STATUSES[id]?.lit)), glow);
   if (s.fusedFrom) {
     const costume = formKey(sp, forms);
     const worn = fusionImage(art, sp, s.fusedFrom, costume, lookOf(sp, s, forms, carried).accessory ?? null);

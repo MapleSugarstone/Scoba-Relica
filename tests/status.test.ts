@@ -36,7 +36,7 @@ const put = (c: Combatant, id: string, from?: { side: 0 | 1; index: number }) =>
 describe("status definitions", () => {
   it("matches a specific hit against a status listening for any hit", () => {
     const anyHit = { ...STATUSES["marked"]!, trigger: { on: "hit-any" as const } };
-    expect(triggerMatches(anyHit, { on: "hit", category: "magic", element: "sun", spell: true })).toBe(true);
+    expect(triggerMatches(anyHit, { on: "hit", category: "magic", element: "firework", spell: true })).toBe(true);
     expect(triggerMatches(anyHit, { on: "hit", category: "physical", element: "plain", spell: true })).toBe(true);
     expect(triggerMatches(anyHit, { on: "turn-end" })).toBe(false);
     // A status listening for one category ignores the other.

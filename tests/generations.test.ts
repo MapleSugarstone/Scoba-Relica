@@ -11,7 +11,7 @@ const cross = (mom: ReturnType<typeof wild>, dad: ReturnType<typeof wild>, seed:
 describe("a hybrid is one generation deep", () => {
   it("records its father as a species id and nothing else", () => {
     // Obera x Wispen: the child wears Wispen and is part Mystic.
-    const first = cross(wild("obera", "a"), wild("wispen", "b"), "1");
+    const first = cross(wild("pieble", "a"), wild("wispen", "b"), "1");
     expect(first.sire).toBe("wispen");
     expect(first.type2).toBe("mystic");
     expect(typeof first.sire).toBe("string");
@@ -20,14 +20,14 @@ describe("a hybrid is one generation deep", () => {
   });
 
   it("is its mother's species underneath, whatever it is called", () => {
-    const first = cross(wild("obera", "a"), wild("wispen", "b"), "1");
-    expect(sireOf(first)).toBe("obera");
-    expect(scobaTypes(first)).toEqual(["moss", "mystic"]);
-    expect(speciesName(first)).not.toBe("Obera");
+    const first = cross(wild("pieble", "a"), wild("wispen", "b"), "1");
+    expect(sireOf(first)).toBe("pieble");
+    expect(scobaTypes(first)).toEqual(["sugar", "mystic"]);
+    expect(speciesName(first)).not.toBe("Pieble");
   });
 
   it("goes no further, because a hybrid cannot breed", () => {
-    const first = cross(wild("obera", "a"), wild("wispen", "b"), "1");
+    const first = cross(wild("pieble", "a"), wild("wispen", "b"), "1");
     expect(canBreed(first, wild("plib", "c"))).toMatch(/hybrid/);
     expect(canBreed(wild("plib", "c"), first)).toMatch(/hybrid/);
     expect(() => cross(wild("plib", "c"), first, "2")).toThrow(/hybrid/);

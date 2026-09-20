@@ -24,7 +24,7 @@ function mistake(text: string, kind: "move" | "status" | "passive" | "field" = "
 
 const MOVE = (cast: string, head = ""): string => [
   "move test-move \"Test Move\"",
-  "  type sun",
+  "  type firework",
   "  costs 30 mana",
   "  aim any enemy",
   ...(head ? [head] : []),
@@ -156,7 +156,7 @@ describe("saying what is wrong, and where", () => {
   });
 
   it("names an element that does not exist", () => {
-    expect(mistake(MOVE("caster lunge").replace("type sun", "type fire"))).toContain('"fire" is not an element');
+    expect(mistake(MOVE("caster lunge").replace("type firework", "type fire"))).toContain('"fire" is not an element');
   });
 
   it("wants a percentage where a share goes", () => {
@@ -169,19 +169,19 @@ describe("saying what is wrong, and where", () => {
   });
 
   it("asks for the lines a move cannot do without", () => {
-    expect(mistake("move x \"X\"\n  type sun\n  aim any enemy\n  cast:\n    caster lunge"))
+    expect(mistake("move x \"X\"\n  type firework\n  aim any enemy\n  cast:\n    caster lunge"))
       .toContain('needs a "costs <n> mana" line');
-    expect(mistake("move x \"X\"\n  type sun\n  costs 10 mana\n  aim any enemy"))
+    expect(mistake("move x \"X\"\n  type firework\n  costs 10 mana\n  aim any enemy"))
       .toContain('needs a "cast:" block');
   });
 
   it("asks for the colon a block needs", () => {
-    expect(mistake("move x \"X\"\n  type sun\n  costs 10 mana\n  aim any enemy\n  cast\n    caster lunge"))
+    expect(mistake("move x \"X\"\n  type firework\n  costs 10 mana\n  aim any enemy\n  cast\n    caster lunge"))
       .toContain("should end in a colon");
   });
 
   it("catches a quote that never closes", () => {
-    expect(mistake("move x \"X\n  type sun")).toContain("never closed");
+    expect(mistake("move x \"X\n  type firework")).toContain("never closed");
   });
 
   it("names a trigger that does not exist", () => {

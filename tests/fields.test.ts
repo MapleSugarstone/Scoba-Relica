@@ -62,7 +62,7 @@ describe("fields", () => {
     expect(st.fields[0]!.turnsLeft).toBeLessThan(turns);
   });
 
-  it("gives the side under it 25% more out of a Sun move", () => {
+  it("gives the side under it 25% more out of a Firework move", () => {
     const bare = duel("flarea", "grima", ["cinder-spit"]);
     const blessed = duel("flarea", "grima", ["cinder-spit"]);
     const plain = previewMove(bare, { side: 0, index: 0 }, "cinder-spit")!.damage!;

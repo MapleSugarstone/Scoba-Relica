@@ -14,7 +14,7 @@ const wild = (id: string, lv: number, owner?: "A"): ScobaInstance => ({
 
 /** Poki, with a Plib on the bench, against one sturdy wild. */
 function duel(): BattleState {
-  const st = startBattle("poki", [wild("poki", 30, "A"), wild("plib", 30, "A")], [wild("obera", 30)], { slots: 1 });
+  const st = startBattle("poki", [wild("poki", 30, "A"), wild("plib", 30, "A")], [wild("pieble", 30)], { slots: 1 });
   st.teams[0][0]!.mana = 100;
   return st;
 }
@@ -48,7 +48,7 @@ describe("Poki", () => {
     expect(MOVES["fire-scratch"]!.kind).toBe("physical");
   });
 
-  it("sears on a sun physical hit only in Hyper-Mode, and not on a plain one", () => {
+  it("sears on a firework physical hit only in Hyper-Mode, and not on a plain one", () => {
     const st = duel();
     cast(st, "fire-scratch");
     expect(stacksOf(foe(st).statuses, "seared")).toBe(0);
@@ -100,7 +100,7 @@ describe("Poki", () => {
     const st = startBattle(
       "poki-pair",
       [{ ...wild("addiza", 30, "A") }, { ...wild("poki", 30), owner: "B" }],
-      [wild("obera", 30), wild("obera", 30)],
+      [wild("pieble", 30), wild("pieble", 30)],
       { slots: 2, owners: ["A", "B"] },
     );
     const addiza = st.teams[0][0]!;
@@ -122,7 +122,7 @@ describe("Poki", () => {
     const st = startBattle(
       "poki-pair",
       [{ ...wild("addiza", 30, "A") }, { ...wild("poki", 30), owner: "B" }],
-      [wild("obera", 30), wild("obera", 30)],
+      [wild("pieble", 30), wild("pieble", 30)],
       { slots: 2, owners: ["A", "B"] },
     );
     const ids = (c: Combatant): string[] => statusSummary(c).map((m) => m.id);
@@ -136,7 +136,7 @@ describe("Poki", () => {
     const st = startBattle(
       "poki-twins",
       [{ ...wild("poki", 30, "A") }, { ...wild("poki", 30), owner: "B" }],
-      [wild("obera", 30), wild("obera", 30)],
+      [wild("pieble", 30), wild("pieble", 30)],
       { slots: 2, owners: ["A", "B"] },
     );
     const reach = (c: Combatant, id: string) => statusSummary(c).find((m) => m.id === id);

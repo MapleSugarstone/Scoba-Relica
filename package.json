@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "coverage": "vitest run --config tools/coverage.config.ts",
     "cosmetics": "vite --config vite.cosmetics.config.ts"
   },
   "devDependencies": {

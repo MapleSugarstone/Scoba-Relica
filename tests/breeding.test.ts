@@ -64,7 +64,7 @@ describe("breeding within one line", () => {
 });
 
 describe("breeding a hybrid", () => {
-  const mom = (): ReturnType<typeof makeWild> => makeWild("obera", 20, rngFrom("mom"));
+  const mom = (): ReturnType<typeof makeWild> => makeWild("pieble", 20, rngFrom("mom"));
   const dad = (): ReturnType<typeof makeWild> => makeWild("plib", 20, rngFrom("dad"));
 
   it("is the mother's first form at level 1, marked a hybrid", () => {
@@ -72,15 +72,15 @@ describe("breeding a hybrid", () => {
     const d = dad();
     expect(makesHybrid(m, d)).toBe(true);
     const child = breed(m, d, rngFrom("x"));
-    // Obera has no baby form drawn, so its children are Oberas.
-    expect(child.speciesId).toBe("obera");
+    // Pieble has no baby form drawn, so its children are Piebles.
+    expect(child.speciesId).toBe("pieble");
     expect(child.level).toBe(1);
     expect(child.hybrid).toBe(true);
     expect(child.genes).toEqual(childGenes(m, d));
   });
 
   it("always takes the father's secondary passive and his colours", () => {
-    const m = makeWild("obera", 20, rngFrom("fm"));
+    const m = makeWild("pieble", 20, rngFrom("fm"));
     const d = makeWild("plib", 20, rngFrom("fd"));
     d.secondaryAbility = "thick-coat";
     m.secondaryAbility = "moss-heart";
@@ -123,7 +123,7 @@ describe("breeding a hybrid", () => {
   });
 
   it("leaves an inherited move on the slot it replaced", () => {
-    const m = makeWild("obera", 12, rngFrom("slot-mom"));
+    const m = makeWild("pieble", 12, rngFrom("slot-mom"));
     const d = makeWild("plib", 12, rngFrom("slot-dad"));
     const child = breed(m, d, rngFrom("slot-child"));
     expect(child.moves).toHaveLength(m.moves.length);
@@ -213,17 +213,17 @@ describe("the element a hybrid takes from its father", () => {
     breed(makeWild(momId, 20, rngFrom(`tm${momId}`)), makeWild(dadId, 20, rngFrom(`td${dadId}`)), rngFrom("t"));
 
   it("is the element he leads with", () => {
-    // Obera is Moss, Cresce is Moon.
+    // Obera is Spring, Cresce is Moon.
     const child = pair("obera", "cresce");
     expect(child.type2).toBe("moon");
-    expect(scobaTypes(child)).toEqual(["moss", "moon"]);
+    expect(scobaTypes(child)).toEqual(["spring", "moon"]);
   });
 
   it("stands in for its own line's second rather than making a third", () => {
-    // Meepa is Moon/Plain; a Sun father replaces the Plain half.
+    // Meepa is Moon/Plain; a Firework father replaces the Plain half.
     const child = pair("meepa", "flarea");
     expect(SPECIES.meepa!.type2).toBe("plain");
-    expect(scobaTypes(child)).toEqual(["moon", "sun"]);
+    expect(scobaTypes(child)).toEqual(["moon", "firework"]);
   });
 
   it("is nothing when he leads with what the child already is", () => {
@@ -236,8 +236,8 @@ describe("the element a hybrid takes from its father", () => {
 
   it("is what the chart is read against, not the species", () => {
     const child = pair("obera", "cresce");
-    // Moss alone resists Moon; Moss/Moon takes it square on.
-    expect(moveEffectiveness(MOVES["moonbeam"]!, ["moss"]))
+    // Spring alone resists Moon; Spring/Moon takes it square on.
+    expect(moveEffectiveness(MOVES["moonbeam"]!, ["spring"]))
       .not.toBe(moveEffectiveness(MOVES["moonbeam"]!, scobaTypes(child)));
   });
 });

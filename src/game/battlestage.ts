@@ -14,7 +14,7 @@ import { sfx } from "../engine/sfx";
 import { Actor, MOTIONS } from "./actors";
 import { stagePace } from "./pace";
 import {
-  accessoryAnchor, centerAnchor, critterLook, critterBounds, lookOf, originAnchor, personSkin, pieceWorn, sizeOf,
+  accessoryAnchor, centerAnchor, critterLook, critterBounds, litBy, lookOf, originAnchor, personSkin, pieceWorn, sizeOf,
   type CritterBounds, type FormTag,
   growthArt,
   growthMiddle,
@@ -235,7 +235,12 @@ interface Effect {
 function drawnAs(c: Combatant, forms: string[]): string {
   const sp = SPECIES[c.scoba.speciesId];
   const piece = sp ? pieceWorn(sp, carriedBy(c), forms) : null;
-  return [bodyKey(c), ...forms, ...(piece ? [`piece:${piece}`] : [])].join("+");
+  const glow = litBy(carriedBy(c));
+  return [
+    bodyKey(c), ...forms,
+    ...(piece ? [`piece:${piece}`] : []),
+    ...(glow ? [`lit:${glow}`] : []),
+  ].join("+");
 }
 
 /** The ids of every status a combatant carries, which is what decides the piece it wears. */
@@ -987,12 +992,16 @@ export class BattleStage {
         // any of it, so a mark whose replacement has already been sent on is a
         // mark whose replacement has not been announced yet. Putting it on the
         // field here had it appear standing there and then walk on again.
-        if (hold) continue;
-        const pawn = isPawnSlot(slot);
         // Neither one walks on: a Pawn is called and a traveller is set down,
         // so whichever of them this event is bringing in starts hidden and
         // that event reveals it.
         const brought = arriving !== undefined && sameRef({ side, index }, arriving);
+        // Anyone else the round has already put on the board waits for the
+        // event that brings them: a round that calls two Pawns resolves both
+        // before either is played, and standing the second one up here had it
+        // appear whole and then start over with its own puff.
+        if (hold && !brought) continue;
+        const pawn = isPawnSlot(slot);
         const at = this.anchor(side, slot);
         const actor = new Actor(at.x, at.y, critterLook(this.art, sp, c.scoba, forms, carriedBy(c)));
         actor.dir = side === 0 ? 1 : -1;
@@ -1157,7 +1166,9 @@ export class BattleStage {
         })),
       } : {}),
       fainted: held.fainted,
-      marks: held.marks,
+      // What it is standing on reads as a mark of its own, for as long as it
+      // stands there. Nothing carries it, so it is read off the mark.
+      marks: [...held.marks, ...this.patchMarks(side, this.fighters.find((f) => f.side === side && f.index === index)?.slot ?? -1)],
     };
   }
 
@@ -1210,6 +1221,7 @@ export class BattleStage {
    */
   restate(): void {
     this.shown.clear();
+    this.snapPatches();
     for (const side of [0, 1] as const) {
       this.st.teams[side].forEach((c, index) => {
         const live = liveBars(this.st, c);
@@ -1447,6 +1459,7 @@ export class BattleStage {
       this.inPast = !!this.st.travelling;
       this.visitor = this.st.travelling?.visitor ?? null;
       this.snapWashes();
+      this.snapPatches();
       return Promise.resolve();
     }
     if (this.queue.length === 0) return Promise.resolve();
@@ -1501,6 +1514,7 @@ export class BattleStage {
     }
     this.stepMotions(dt);
     this.stepWashes(dt);
+    this.stepPatches(dt);
     for (const v of this.shown.values()) {
       v.hpTrail = easeTrail(v.hpTrail, v.hp, dt);
       v.manaTrail = easeTrail(v.manaTrail, v.mana, dt);
@@ -1934,6 +1948,13 @@ export class BattleStage {
       });
     };
 
+    // Something planted on a mark or lifting off it, which is neither a Scoba's
+    // status nor a field over a side.
+    if (ev.ground) {
+      const patch = ev.ground;
+      return say(patch.id === null ? 0.2 : 0.35, { start: () => this.showPatch(patch) });
+    }
+
     switch (ev.kind) {
       case "show":
         // Nothing to say in the log: the step is only what is drawn and heard.
@@ -2275,7 +2296,7 @@ export class BattleStage {
             // the caller's Pawn as that Scoba.
             if (!this.named(pawnRef, ev.uid)) return;
             sfx.summon();
-            this.sync({ arriving: pawnRef });
+            this.sync({ arriving: pawnRef, hold: true });
             called = this.find(pawnRef);
             if (!called) return;
             called.alpha = 0;
@@ -2853,6 +2874,71 @@ export class BattleStage {
     }
   }
 
+  /**
+   * What the scene has growing on the marks, which lags the battle the way
+   * everything else does: a patch turns up on the beat the step that planted
+   * it plays, and fades once the line saying it lifted reaches that beat.
+   */
+  private patches: { side: 0 | 1; slot: number; id: string; alpha: number; going: boolean }[] = [];
+
+  /** Puts the patches level with the battle, for a scene that cannot fade into place. */
+  private snapPatches(): void {
+    this.patches = this.st.ground.map((p) => ({
+      side: p.side, slot: p.slot, id: p.status.id, alpha: 1, going: false,
+    }));
+  }
+
+  /** A patch planted or lifted, as its own event plays. */
+  private showPatch(at: { id: string | null; side: 0 | 1; slot: number }): void {
+    const held = this.patches.find((p) => p.side === at.side && p.slot === at.slot && !p.going);
+    if (at.id === null) {
+      if (held) held.going = true;
+      return;
+    }
+    if (held) held.id = at.id;
+    else this.patches.push({ side: at.side, slot: at.slot, id: at.id, alpha: 0, going: false });
+  }
+
+  /** Brings each patch toward being there or gone, and drops the ones that have faded. */
+  private stepPatches(dt: number): void {
+    for (const p of this.patches) {
+      p.alpha = Math.max(0, Math.min(1, p.alpha + (p.going ? -1 : 1) * dt * FIELD_FADE));
+    }
+    this.patches = this.patches.filter((p) => !(p.going && p.alpha <= 0));
+  }
+
+  /** What is growing on the marks, drawn flat on the ground under everyone. */
+  private drawPatches(ctx: CanvasRenderingContext2D): void {
+    for (const p of this.patches) {
+      const drawn = artNamed(this.art, STATUSES[p.id]?.planted, undefined);
+      if (!drawn || p.alpha <= 0.01) continue;
+      const at = this.anchor(p.side, p.slot);
+      const u = 1 / ART;
+      const w = (drawn as HTMLCanvasElement).width * u;
+      const h = (drawn as HTMLCanvasElement).height * u;
+      ctx.save();
+      ctx.globalAlpha = p.alpha;
+      ctx.imageSmoothingEnabled = false;
+      // Standing on it rather than in front of it: the art sits with its foot
+      // on the mark, which is where the Scoba's own feet are.
+      ctx.drawImage(drawn, at.x - w / 2, at.y - h, w, h);
+      ctx.restore();
+    }
+  }
+
+  /** Which patches a Scoba is standing on, as marks for its readout. */
+  patchMarks(side: 0 | 1, slot: number): StatusMark[] {
+    return this.patches
+      .filter((p) => p.side === side && p.slot === slot && !p.going)
+      .map((p) => ({
+        id: p.id,
+        name: STATUSES[p.id]?.name ?? p.id,
+        stacks: 1,
+        turnsLeft: this.st.ground.find((g) => g.side === side && g.slot === slot)?.status.turnsLeft ?? -1,
+        chargesLeft: -1,
+      }));
+  }
+
   /** The wash over the half of the view `x` stands in, or null where that half has none. */
   private weatherAt(x: number): { tint: string; alpha: number } | null {
     const wash = this.washes[x < Math.round(this.view.w / 2) ? 0 : 1];
@@ -3012,6 +3098,9 @@ export class BattleStage {
     ctx.fillRect(0, step, w, h - step);
     ctx.fillStyle = GROUND.nearLip;
     ctx.fillRect(0, step, w, 1);
+    // What is growing on the marks is part of the ground, so it goes down with
+    // it and everyone standing there is drawn over it.
+    this.drawPatches(ctx);
 
     const items: Item[] = [];
     for (const p of this.people) {

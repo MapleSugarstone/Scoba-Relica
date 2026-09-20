@@ -165,7 +165,7 @@ describe("Coral Ritual", () => {
     // A bred Corali carries its father's element, and what it raises carries it too.
     const st = reef(["plib", "grima"], 2);
     const me = st.teams[0][0]!;
-    me.scoba.type2 = "sun";
+    me.scoba.type2 = "firework";
     const body = st.teams[1][1]!;
     body.hp = 0;
     body.fainted = true;
@@ -173,7 +173,7 @@ describe("Coral Ritual", () => {
     resolveTurn(st, [cast("coral-ritual", [{ side: 1, index: 1 }]), { kind: "block", side: 0, slot: 1 }]);
     const raised = st.teams[0].find((c) => c.pawn)!;
     expect(scobaTypes(raised.scoba)).toEqual(scobaTypes(me.scoba));
-    expect(scobaTypes(raised.scoba)).toEqual(["moon", "sun"]);
+    expect(scobaTypes(raised.scoba)).toEqual(["moon", "firework"]);
   });
 
   it("takes a tenth of the Pawn's pool at the end of each turn", () => {

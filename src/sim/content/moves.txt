@@ -54,7 +54,7 @@ move eclipse "Eclipse"
     hit target 170% magic
 
 move cinder-spit "Cinder Spit"
-  type sun
+  type firework
   costs 35 mana
   aim any enemy
   text "Spits a cinder at an enemy for [damage] damage."
@@ -64,7 +64,7 @@ move cinder-spit "Cinder Spit"
     hit target 120% magic
 
 move flame-burst "Flame Burst"
-  type sun
+  type firework
   costs 55 mana
   cooldown 2
   starts on cooldown 1
@@ -96,7 +96,7 @@ move riptide "Riptide"
     hit target 160% magic
 
 move leaf-flick "Leaf Flick"
-  type moss
+  type spring
   costs 30 mana
   aim any enemy
   text "Flicks a leaf at an enemy for [damage] damage."
@@ -106,7 +106,7 @@ move leaf-flick "Leaf Flick"
     hit target 110% magic
 
 move vine-lash "Vine Lash"
-  type moss
+  type spring
   costs 40 mana
   cooldown 1
   aim any enemy
@@ -198,7 +198,7 @@ move jackpot "Jackpot"
     hit target 190% strength
 
 move ember "Ember"
-  type sun
+  type firework
   costs 30 mana
   cooldown 1
   aim any enemy
@@ -231,7 +231,7 @@ move fury "Fury"
     inflict rage on target
 
 move brace-up "Brace Up"
-  type moss
+  type spring
   costs 30 mana
   cooldown 2
   aim any ally "Shield"
@@ -252,7 +252,7 @@ move scatter-shot "Scatter Shot"
     throw as lob to target
     hit target 80% magic
 
-move rally "Rally"
+move pie-heal "Pie Heal"
   type sugar
   costs 55 mana
   cooldown 3
@@ -320,7 +320,7 @@ move blood-pact "Blood Pact"
     take 25% hp from target, deal it to target2
 
 move tithe "Tithe"
-  type moss
+  type spring
   costs 35 mana
   cooldown 2
   aim self "Give up"
@@ -331,7 +331,7 @@ move tithe "Tithe"
     take 20% hp from target, heal target2 with it
 
 move call-swarm "Call Swarm"
-  type moss
+  type spring
   costs 60 mana
   cooldown 4
   starts on cooldown 2
@@ -407,7 +407,7 @@ move black "Black"
     inflict in-the-black on target
 
 move red "Red"
-  type fortuna, sun
+  type fortuna, firework
   costs 30 mana
   aim any enemy
   text "Deals [damage] damage to one enemy and leaves them [status:in-the-red|burning] for [damage:in-the-red] damage a turn for 3 turns."
@@ -418,7 +418,7 @@ move red "Red"
     inflict in-the-red on target
 
 move green "Green"
-  type fortuna, moss
+  type fortuna, spring
   costs 80 mana
   aim all enemies "The whole line"
   text "Deals [damage] damage to all enemies and leaves them [status:in-the-green|in debt], reducing their defense by [scaling:2] for 3 turns."
@@ -486,7 +486,7 @@ move pawn-mend "Pawn Mend"
     heal target 12% of their max hp
 
 move sunfall "Sunfall"
-  type sun
+  type firework
   costs 100 mana
   cooldown 2
   starts on cooldown 1
@@ -610,7 +610,7 @@ move time-machine "Time Machine"
     show timemachine as landing on traveller
 
 move fire-scratch "Fire Scratch"
-  type sun
+  type firework
   costs 15 mana
   aim any enemy
   text "Scratches an enemy for [damage] damage."
@@ -620,7 +620,7 @@ move fire-scratch "Fire Scratch"
     hit target 100% strength
 
 move burn-slash "Burn Slash"
-  type sun
+  type firework
   costs 30 mana
   aim any enemy
   text "Slashes an enemy for [damage] damage. The user gains [status:burning-edge|Burning Edge], increasing their strength by [scaling:2]. Stacks up to 3 times. Lost on switching out."
@@ -700,7 +700,7 @@ move moon-shot "Moon Shot"
     hit target 100% magic
 
 move multiply-wounds "Multiply Wounds"
-  type sun
+  type firework
   costs 80 mana
   aim all enemies
   text "Leaves all enemies [status:multiplied|Multiplied], making their negative statuses 50% more effective. Stays through switching out."
@@ -798,3 +798,92 @@ move mass "Mass"
     show itself as ghost on caster
     wait 0.3 seconds
     inflict massive on caster
+
+# Obera's. A cheap bolt, a light that softens a side, a wake-up for an ally,
+# and the bomb it saves its mana for.
+move mote "Mote"
+  type spring
+  costs 10 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy."
+  cast:
+    caster focus
+    throw mote as bolt to target
+    hit target 80% magic
+
+move faefire "Faefire"
+  type spring, firework
+  costs 20 mana
+  cooldown 3
+  aim all enemies "Light up"
+  text "Takes 5% mana off all enemies and leaves them [status:faefire|lit], taking 20% more damage from everything until they switch out."
+  cast:
+    caster focus
+    show faefire as ghost on target
+    sap 5 mana from target
+    inflict faefire on target
+
+move innervate "Innervate"
+  type spring
+  costs 50 mana
+  cooldown 3
+  aim any ally "Wake"
+  text "Gives an ally 15% mana and heals them for [heal]."
+  cast:
+    caster focus
+    throw innervate as toss to target
+    give target 15 mana
+    heal target 40% of caster magic, sound heal
+
+move fairy-bomb "Fairy Bomb"
+  type spring
+  costs 80 mana
+  aim all enemies "Bomb"
+  text "Deals [damage] damage to all enemies."
+  cast:
+    caster focus
+    throw "fairy bomb" as lob to target
+    show "fairy bomb explode" as burst on target
+    hit target 120% magic
+
+# What a Fae Retainer fights with.
+move stab "Stab"
+  type plain
+  costs 20 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy."
+  cast:
+    caster lunge
+    hit target 110% strength
+
+move rally "Rally"
+  type spring
+  costs 40 mana
+  cooldown 5
+  aim any ally "Rally"
+  text "An ally becomes [status:rallied|rallied], gaining 20% strength and 20% magic until they switch out. Doesn't stack."
+  cast:
+    caster focus
+    throw rally as toss to target
+    inflict rallied on target
+
+move rotten-slice "Rotten Slice"
+  type flux
+  costs 50 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy, and takes [damage:2] more off them."
+  cast:
+    caster blink
+    show rottenslicedrip as burst on target
+    hit target 50% strength, as flux physical
+    damage target 30% of their max hp, as flux magic, counts as attack
+
+move groveborn-eviscerate "Groveborn Eviscerate"
+  type spring
+  costs 100 mana
+  aim any enemy
+  text "Deals [damage] damage to one enemy."
+  cast:
+    caster shake
+    throw "graveborn eviscerate" as drop to target
+    hit target 300% strength, as spring physical

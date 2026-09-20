@@ -55,7 +55,7 @@ describe("the templates a new record starts from", () => {
 
 /** A palette example put into a record that gives it what it needs around it. */
 function around(group: RefGroup, example: string, file: ScriptFile): string | null {
-  const moveHead = ["move t \"T\"", "  type sun", "  costs 10 mana"];
+  const moveHead = ["move t \"T\"", "  type firework", "  costs 10 mana"];
   const cast = (steps: string[]): string => [...moveHead, "  aim any enemy", "  aim any ally as target2", "  cast:", ...steps.map((s) => `    ${s}`)].join("\n");
   const carried = (kind: "status" | "passive", lines: string[]): string =>
     [`${kind} t "T"`, ...(kind === "status" ? ["  bad"] : []), ...lines.map((l) => `  ${l}`)].join("\n");
@@ -134,13 +134,13 @@ describe("a new line", () => {
     const draft = blankSpecies();
     Object.assign(draft, {
       name: "Testoba", id: "testoba", art: "testoba", primaryAbility: "swift", secondaryPool: ["brawn"],
-      moves: ["crush", "slam"], blurb: "  A test.  ", type2: "sun",
+      moves: ["crush", "slam"], blurb: "  A test.  ", type2: "firework",
     });
     const sp = speciesRecord(draft);
     expect(checkSpecies(sp)).toEqual([]);
     expect(sp.moves).toEqual(["crush", "slam"]);
     expect(sp.blurb).toBe("A test.");
-    expect(sp.type2).toBe("sun");
+    expect(sp.type2).toBe("firework");
     expect("hyperAbility" in sp).toBe(false);
     expect("starter" in sp).toBe(false);
     expect("baby" in sp).toBe(false);

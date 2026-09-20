@@ -55,15 +55,15 @@ describe("stats", () => {
 
 describe("battle", () => {
   it("type chart matches the design table", () => {
-    expect(effectiveness("moon", "sun")).toBe(2);
-    expect(effectiveness("moss", "moon")).toBe(2);
-    expect(effectiveness("sun", "moss")).toBe(2);
-    expect(effectiveness("flux", "moss")).toBe(2);
+    expect(effectiveness("moon", "firework")).toBe(2);
+    expect(effectiveness("spring", "moon")).toBe(2);
+    expect(effectiveness("firework", "spring")).toBe(2);
+    expect(effectiveness("flux", "spring")).toBe(2);
     expect(effectiveness("mystic", "flux")).toBe(2);
     expect(effectiveness("sugar", "cipher")).toBe(2);
     expect(effectiveness("cipher", "mystic")).toBe(2);
     expect(effectiveness("fortuna", "sugar")).toBe(2);
-    expect(effectiveness("moon", "moss")).toBe(0.5);
+    expect(effectiveness("moon", "spring")).toBe(0.5);
     expect(effectiveness("flux", "sugar")).toBe(0.5);
     expect(effectiveness("fortuna", "cipher")).toBe(0.5);
   });
@@ -175,7 +175,7 @@ describe("battle", () => {
     ]);
     const mag = combatantStats(st.teams[0][0]!).mag;
     const res = combatantStats(st.teams[1][0]!).res;
-    // 1.2 scale, STAB 1.5, super effective 2, Sun Heart 1.25, mitigated by
+    // 1.2 scale, STAB 1.5, super effective 2, Firework Heart 1.25, mitigated by
     // res, halved by block. Obera mends a little at end of turn, so the hit
     // is read off its own event rather than off the HP left standing.
     const raw = ((mag * 1.2 * 1.5 * 2 * 1.25) / (1 + res / 100)) * 0.5;

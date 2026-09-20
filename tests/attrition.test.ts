@@ -21,7 +21,7 @@ const owned = (s: ScobaInstance, owner: "A" | "B"): ScobaInstance => ({ ...s, ow
 function stalled(turn: number, opts: { wild?: boolean } = {}): BattleState {
   const me = owned(wild("plib", 30, "s1"), "A");
   me.moves = [];
-  const foe = wild("obera", 30, "s2");
+  const foe = wild("pieble", 30, "s2");
   foe.moves = [];
   const st = startBattle("attrition", [me], [foe], { slots: 1, wild: opts.wild ?? true, owners: ["A", null] });
   st.turn = turn;

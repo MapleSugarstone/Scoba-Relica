@@ -140,7 +140,10 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
       return line([`damage ${who(s.to, names)} ${share(d.basis, d.frac, names)}${flat}`, ...opts].join(", "));
     }
     case "heal":
-      return line(`heal ${who(s.to, names)} ${share(s.basis, s.frac, names)}${s.sound !== undefined ? `, sound ${bare(s.sound)}` : ""}`);
+      return line(`heal ${who(s.to, names)} ${s.power ? "power" : share(s.basis, s.frac, names)}`
+        + `${s.sound !== undefined ? `, sound ${bare(s.sound)}` : ""}`);
+    case "plant":
+      return line(`plant ${s.status} under ${who(s.under, names)}`);
     case "inflict":
       return line(`inflict ${s.status} on ${who(s.on, names)}`
         + `${s.turns !== undefined ? `, for ${num(s.turns)} turn${s.turns === 1 ? "" : "s"}` : ""}`);
@@ -171,7 +174,10 @@ function stepLines(s: Step, names: Names, depth: number): string[] {
       return line([`summon ${s.species} ${at}`, ...opts].join(", "));
     }
     case "grant-item": return line(`find ${num(s.count)} ${s.item}`);
-    case "mana": return line(`give ${who(s.on, names)} ${num(s.amount)} mana${s.second ? ", second bar" : ""}`);
+    case "mana":
+      return s.amount < 0
+        ? line(`sap ${num(-s.amount)} mana from ${who(s.on, names)}`)
+        : line(`give ${who(s.on, names)} ${num(s.amount)} mana${s.second ? ", second bar" : ""}`);
     case "field": return line(`lay ${s.field} over ${FIELD_SCOPE_WORDS.write[s.scope]}`);
     case "draw-card":
       return line(["draw a card", ...s.changes.map((c) => `swap ${c.from} for ${c.to} ${pct(c.chance)} of the time`)].join(", "));
@@ -317,6 +323,8 @@ export function writeStatus(s: StatusDef): string {
   out.push(`${INDENT}${s.polarity}`);
   if (s.text !== undefined) out.push(`${INDENT}text ${quote(s.text)}`);
   if (s.icon !== undefined) out.push(`${INDENT}icon ${bare(s.icon)}`);
+  if (s.planted !== undefined) out.push(`${INDENT}planted ${bare(s.planted)}`);
+  if (s.lit !== undefined) out.push(`${INDENT}lit ${s.lit}`);
   if (s.sound !== undefined) out.push(`${INDENT}sound ${bare(s.sound)}`);
   if (s.duration !== null) out.push(`${INDENT}lasts ${num(s.duration)} turn${s.duration === 1 ? "" : "s"}`);
   if (s.charges !== null) out.push(`${INDENT}charges ${num(s.charges)}`);

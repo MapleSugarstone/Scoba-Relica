@@ -190,6 +190,8 @@ export interface Combatant {
   statuses: StatusInstance[];
   /** Called in mid-battle rather than brought from the party. */
   summoned?: boolean;
+  /** The turn it was called on, so its first turn is fought on the mana it arrived with. */
+  calledOn?: number;
   /**
    * Standing on a Pawn slot. It fights like anything else on the field and is
    * aimed at like anything else, but it never switches, never fills a Scoba
@@ -321,6 +323,12 @@ export interface BattleState {
    */
   fields: [FieldInstance | null, FieldInstance | null];
   /**
+   * What is growing on the marks. A patch is planted on a mark rather than on
+   * a Scoba, so it stays where it is when the Scoba standing on it switches
+   * out or falls, and it reaches whoever is standing there when it goes off.
+   */
+  ground: Patch[];
+  /**
    * EZ mode. Kept on the state rather than spent at the opening, because a
    * Pawn called mid-battle has to be given the same leg-up as the Scoba that
    * called it: without it the court stays at a quarter of everyone's size.
@@ -400,6 +408,17 @@ export function slotOf(owner: OwnerId): 0 | 1 {
 /** A mark on the field: a Scoba slot below `SCOBA_SLOTS`, a Pawn slot above. */
 export type Slot = number;
 
+/**
+ * Something growing on one mark. It holds a status instance, which is what
+ * carries the number it snapshotted as it was planted and who planted it, so
+ * a patch keeps working at full strength after that Scoba has left the field.
+ */
+export interface Patch {
+  side: 0 | 1;
+  slot: Slot;
+  status: StatusInstance;
+}
+
 export type Choice =
   | { kind: "spell"; side: 0 | 1; slot: Slot; moveId: string; picks: (TargetRef | null)[] }
   | { kind: "attack"; side: 0 | 1; slot: Slot; picks: (TargetRef | null)[] }
@@ -459,6 +478,8 @@ export interface BattleEvent {
    * called it rattles once rather than twice.
    */
   field?: { id: string | null; sides: (0 | 1)[] };
+  /** A patch planted on a mark, or taken off it once `id` is null. */
+  ground?: { id: string | null; side: 0 | 1; slot: Slot };
   /**
    * The card being thrown or dealt, as it looks, and what the hand stands at
    * once it is dealt.
@@ -628,6 +649,7 @@ export function startBattle(
     slotOwner: opts.owners ?? ["*", "*"],
     items: [{}, {}],
     fields: [null, null],
+    ground: [],
     opening: [],
     ez: opts.ez === true,
     winner: -1,
@@ -2114,7 +2136,10 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
         return true;
       }
       for (const ref of group) {
-        const amount = basisValue(ctx, step.basis, ref, run.source) * step.frac * (run.scale ?? 1);
+        // What the status or the patch running it snapshotted, where it heals by that.
+        const amount = step.power
+          ? (run.status?.inst.power ?? 0) * (run.scale ?? 1)
+          : basisValue(ctx, step.basis, ref, run.source) * step.frac * (run.scale ?? 1);
         heal(ctx, ref, run.cast ? Math.floor(amount) : amount, {
           ...(run.cast ? { source: run.self, moveId: run.cast.move.id } : {}),
           ...(step.sound !== undefined ? { sound: step.sound } : {}),
@@ -2249,16 +2274,22 @@ function runStep(ctx: Ctx, run: Run, step: Step): boolean {
         if (!c) continue;
         const bar = manaBar(ctx.st, c, step.second === true);
         const before = bar.mana;
-        bar.mana = Math.min(MAX_MANA, bar.mana + manaAt(step.amount, run.scale ?? 1));
+        // A negative amount is mana taken off, which stops at an empty bar.
+        bar.mana = Math.max(0, Math.min(MAX_MANA, bar.mana + manaAt(step.amount, run.scale ?? 1)));
         if (bar.mana === before) continue;
         ctx.events.push({
-          text: `${displayName(c.scoba)} is brimming.`,
+          text: bar.mana < before
+            ? `${displayName(c.scoba)} is drained.`
+            : `${displayName(c.scoba)} is brimming.`,
           kind: "status", at: ref, mana: bar.mana, ...barsAt(ctx.st, ref),
         });
       }
       return true;
     case "field":
       setField(ctx, fieldScope(run.self, step.scope), step.field, run.self);
+      return true;
+    case "plant":
+      for (const ref of whoRefs(ctx, run, step.under)) plant(ctx, ref, step.status, run.source ?? run.self);
       return true;
     case "deal-card":
       if (!run.card) return true;
@@ -2346,6 +2377,85 @@ function fieldScope(holderRef: TargetRef, scope: FieldScope): (0 | 1)[] {
  * them. Sides that end up under the same field are reported as one event, so
  * the Scoba that called it rattles once however many sides it covered.
  */
+/** Which mark a Scoba is standing on, or null for one that is not on the field. */
+function markOf(st: BattleState, ref: TargetRef): Slot | null {
+  const at = st.active[ref.side].indexOf(ref.index);
+  return at >= 0 ? at : null;
+}
+
+/**
+ * Puts a patch on the mark a Scoba is standing on. It is planted rather than
+ * carried: what it does, it does to whoever is standing there when it goes
+ * off, and it measures itself off whoever planted it as it goes down, so that
+ * Scoba leaving the field does not weaken it.
+ */
+function plant(ctx: Ctx, ref: TargetRef, statusId: string, from: TargetRef | null): void {
+  const st = ctx.st;
+  const def = STATUSES[statusId];
+  const slot = markOf(st, ref);
+  if (!def || slot === null) return;
+  let power: number | undefined;
+  if (def.power) {
+    power = def.power.basis ? basisValue(ctx, def.power.basis, ref, from) * def.power.frac : 0;
+    const source = from ? combatantAt(st, from) : null;
+    if (def.power.flatAtCeiling && source) power += (def.power.flatAtCeiling * source.scoba.level) / MAX_LEVEL;
+  }
+  const inst = newStatus(statusId, from ?? undefined, power, st.turn);
+  if (!inst) return;
+  // One patch to a mark: a second planting of the same thing stands it up fresh.
+  st.ground = st.ground.filter((p) => !(p.side === ref.side && p.slot === slot));
+  st.ground.push({ side: ref.side, slot, status: inst });
+  ctx.events.push({
+    text: `${def.name} grows under ${displayName(combatantAt(st, ref)!.scoba)}.`,
+    kind: "status",
+    at: ref,
+    by: from ?? undefined,
+    ground: { id: statusId, side: ref.side, slot },
+  });
+}
+
+/**
+ * Runs the patches down a turn: each one reaches whoever is standing on its
+ * mark, and then loses a turn of its own. A mark nobody is standing on still
+ * counts the turn down, the same way a field does.
+ */
+function tickGround(ctx: Ctx): void {
+  const st = ctx.st;
+  for (const patch of [...st.ground]) {
+    const index = st.active[patch.side][patch.slot] ?? -1;
+    const on = index >= 0 ? { side: patch.side, index } : null;
+    const holder = on ? combatantAt(st, on) : null;
+    if (on && holder && !holder.fainted) runPatch(ctx, patch, on);
+    if (patch.status.turnsLeft < 0) continue;
+    patch.status.turnsLeft -= 1;
+    if (patch.status.turnsLeft > 0) continue;
+    st.ground = st.ground.filter((p) => p !== patch);
+    ctx.events.push({
+      text: `The ${STATUSES[patch.status.id]?.name ?? patch.status.id} fades.`,
+      kind: "status",
+      ground: { id: null, side: patch.side, slot: patch.slot },
+    });
+  }
+}
+
+/** What a patch does, run on whoever is standing on it as though they carried it. */
+function runPatch(ctx: Ctx, patch: Patch, holderRef: TargetRef): void {
+  const def = STATUSES[patch.status.id];
+  if (!def) return;
+  const blocks = [
+    { trigger: def.trigger, steps: def.effects.filter((e): e is Step => !isContinuous(e.kind)) },
+    ...(def.also ?? []),
+  ];
+  for (const block of blocks) {
+    if (!triggerFits(block.trigger, { on: "turn-end" })) continue;
+    runSteps(ctx, {
+      record: def.id, self: holderRef, source: patch.status.from ?? null, other: null,
+      groups: [], alive: aliveNow(ctx.st), picked: null, raised: null, card: null, draws: 0,
+      status: { def, inst: patch.status }, cast: null,
+    }, block.steps);
+  }
+}
+
 function setField(
   ctx: Ctx,
   sides: (0 | 1)[],
@@ -2559,6 +2669,7 @@ function summon(ctx: Ctx, callerRef: TargetRef, step: SummonStep, copiedRef: Tar
   if (copy) copyMarks(c, copy.from, copy.except);
   spendJourney(ctx.st, c);
   c.summoned = true;
+  c.calledOn = ctx.st.turn;
   const index = ctx.st.teams[side].length;
   ctx.st.teams[side].push(c);
   ctx.events.push({ text: `${displayName(scoba)} answers the call!`, kind: "switch" });
@@ -2644,6 +2755,7 @@ function summonPawn(
   if (copy) copyMarks(c, copy.from, copy.except);
   spendJourney(ctx.st, c);
   c.summoned = true;
+  c.calledOn = ctx.st.turn;
   c.pawn = true;
   if (st.ez && side === 0) grantEz(c);
   const index = st.teams[side].length;
@@ -2705,6 +2817,7 @@ function raisePawn(
   if (!c) return null;
   spendJourney(ctx.st, c);
   c.summoned = true;
+  c.calledOn = ctx.st.turn;
   c.pawn = true;
   if (st.ez && side === 0) grantEz(c);
   const index = st.teams[side].length;
@@ -3470,6 +3583,9 @@ function endOfTurn(ctx: Ctx): void {
   forEachStanding(st, (ref) => {
     const c = combatantAt(st, ref);
     if (!c || c.fainted) return;
+    // One called up this turn fights its first turn on the mana it arrived
+    // with, rather than on that and the turn's as well.
+    if (c.calledOn === st.turn) return;
     // A fusion gains its turn's mana in its first bar like anyone gains it in
     // their one. What fills the second is its passive's business.
     const bar = fusionHalves(st, c)[0] ?? c;
@@ -3493,6 +3609,7 @@ function endOfTurn(ctx: Ctx): void {
     }
   }
   tickFields(ctx);
+  tickGround(ctx);
   // A status that ran out can have been what was making others stronger.
   refreshWorth(st);
 }
@@ -3844,6 +3961,7 @@ export function stateHash(st: BattleState): string {
     `o${st.outcome}`,
     `s${st.slotOwner[0] ?? "-"}${st.slotOwner[1] ?? "-"}`,
   ];
+  parts.push(`g${st.ground.map((p) => `${p.side}.${p.slot}:${p.status.id}:${p.status.turnsLeft}`).sort().join(",")}`);
   for (const side of [0, 1] as const) {
     const f = st.fields[side];
     parts.push(`f${f ? `${f.id}:${f.turnsLeft}` : "-"}`);

@@ -5,7 +5,7 @@
 // tell is whether an id it names exists in another, so that is checked here once
 // every file is in. The lines are still JSON, and a misspelled key in JSON is
 // valid JSON that silently does nothing, so each line is walked against a schema.
-import { ABILITIES, MOVES, SPECIES, type MovementStyle } from "../species";
+import { ABILITIES, MOVES, ROSTER_ROLES, SPECIES, type MovementStyle } from "../species";
 import { FIELDS, STATUSES } from "../status";
 import { STAT_NAMES, TYPES } from "../types";
 import { brokenRefs } from "../script/content";
@@ -80,6 +80,8 @@ const SPECIES_FIELDS: Fields = {
   baby: opt(bool),
   hyperAbility: opt(abilityRef),
   cry: opt(str),
+  // Design bookkeeping the game never reads: see claude-notes/roster-coverage.md.
+  role: opt(oneOf(ROSTER_ROLES)),
   blurb: opt(str),
   starter: opt(bool),
   special: opt(bool),

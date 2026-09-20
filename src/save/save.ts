@@ -2,7 +2,7 @@ import type { ScobaInstance } from "../sim/scoba";
 import { MAX_LEVEL, maxHp } from "../sim/scoba";
 import { rebuildScoba, storedScoba } from "../sim/rebuild";
 import { MOVES, RETIRED_SPECIES, SPECIES, speciesMoves } from "../sim/species";
-import { BABY_BUDGET, BASE_GENES, STAT_BUDGET, STAT_NAMES, capStats, statTotal, type Stats } from "../sim/types";
+import { BABY_BUDGET, BASE_GENES, STAT_BUDGET, STAT_NAMES, capStats, statTotal, type ElementType, type Stats } from "../sim/types";
 import type { CareState } from "../sim/care";
 import type { Companionship } from "../sim/companionship";
 import { DEFAULT_LOOK, type Look } from "../engine/recolor";
@@ -24,7 +24,7 @@ export interface CharacterDef {
 }
 
 export interface SaveData {
-  version: 15;
+  version: 16;
   createdAt: number;
   updatedAt: number;
   worldSeed: string;
@@ -455,7 +455,18 @@ export function migrate(data: unknown): SaveData | null {
     }
     d.version = 15;
   }
-  if (d.version !== 15) return null;
+  if (d.version === 15) {
+    // v15 -> v16: the Sun element is now Firework and Moss is Spring. A Scoba
+    // carries an element of its own where it was raised or bred into one.
+    const renamed: Record<string, string> = { sun: "firework", moss: "spring" };
+    for (const s of [...d.party, ...d.box]) {
+      const was = s as ScobaInstance & { type1?: string; type2?: string };
+      if (was.type1 && renamed[was.type1]) was.type1 = renamed[was.type1] as ElementType;
+      if (was.type2 && renamed[was.type2]) was.type2 = renamed[was.type2] as ElementType;
+    }
+    d.version = 16;
+  }
+  if (d.version !== 16) return null;
   const out = d as unknown as SaveData;
   if (!out.sentinels || typeof out.sentinels !== "object") out.sentinels = {};
   // The save keeps what each Scoba is, and its moves, stats and passive are

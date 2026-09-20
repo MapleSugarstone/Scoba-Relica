@@ -2,10 +2,10 @@
 # The language this file is written in is described in docs/move-script.md.
 
 field sunblessed "Sunblessed"
-  icon sun
+  icon firework
   lasts 5 turns
   tint #e7a03c
   begins "Sunlight pours over the field."
   ends "The sunlight fades."
   while standing:
-    sun moves x1.25
+    firework moves x1.25

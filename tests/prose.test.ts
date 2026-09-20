@@ -360,7 +360,7 @@ describe("a mark's own numbers", () => {
   it("names a field the same way it names a mark", () => {
     const part = parseProse("[status:sunblessed]", {})[0];
     expect(part).toMatchObject({ label: "Sunblessed" });
-    expect(part && part.kind === "token" ? part.detail : "").toContain("Sun");
+    expect(part && part.kind === "token" ? part.detail : "").toContain("Firework");
   });
 });
 
@@ -483,7 +483,7 @@ describe("a written line", () => {
     expect(details("[status:cold]")[0]).toBe(
       parseProse("[status:cold]", { move: coldWave }).find((p) => p.kind === "token")!.detail,
     );
-    expect(details("[status:in-the-red]")[0]).toContain("Sun");
+    expect(details("[status:in-the-red]")[0]).toContain("Firework");
   });
 
   it("leaves a bracket it does not understand exactly as it was typed", () => {

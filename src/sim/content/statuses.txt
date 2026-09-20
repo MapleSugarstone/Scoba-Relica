@@ -10,11 +10,11 @@ status ez "EZ Mode"
 
 status fire "Fire"
   bad
-  icon sun
+  icon firework
   lasts 3 turns
   stacks
   when a turn ends:
-    damage holder 15% of source magic, as sun magic, fixed when applied
+    damage holder 15% of source magic, as firework magic, fixed when applied
 
 status fragile "Fragile"
   bad
@@ -142,7 +142,7 @@ status in-the-red "In the Red"
   lasts 3 turns
   stacks up to 3
   when a turn ends:
-    damage holder 20% of source strength + 50 at max level, as sun magic, fixed when applied
+    damage holder 20% of source strength + 50 at max level, as firework magic, fixed when applied
 
 status in-the-green "In the Green"
   bad
@@ -234,7 +234,7 @@ status seared "Seared"
   lasts 2 turns
   stacks up to 5
   when a turn ends:
-    damage holder 40% of source magic + 40 at max level, as sun magic, fixed when applied
+    damage holder 40% of source magic + 40 at max level, as firework magic, fixed when applied
 
 status multiplied "Multiplied"
   bad
@@ -298,3 +298,31 @@ status massive "Massive"
   lost on switching out
   while carried:
     all stats x2
+
+# Obera's. The grove it plants on a mark, the fae light Faefire leaves, and
+# what a Fae Retainer's Rally gives.
+status grove-patch "Grove"
+  good
+  icon grove
+  planted grove
+  lasts 5 turns
+  power 5% of source magic
+  when a turn ends:
+    show groveheal as glow on holder
+    heal holder power
+
+status faefire "Faefire"
+  bad
+  icon faefire
+  lit #d9553f
+  lost on switching out
+  while carried:
+    takes x1.2 from everything
+
+status rallied "Rallied"
+  good
+  icon rally
+  lost on switching out
+  while carried:
+    strength x1.2
+    magic x1.2

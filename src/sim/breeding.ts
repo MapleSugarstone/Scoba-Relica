@@ -1,6 +1,6 @@
 import type { ScobaInstance, Tint } from "./scoba";
 import { costOf, freshUid, makeWild, maxHp, sireOf, unnaturalMoves, MAX_MANA, SHINY_CHANCE } from "./scoba";
-import { SPECIES, babyOf, firstFormOf, sameLine, type Species } from "./species";
+import { SPECIES, babyOf, firstFormOf, sameLine, speciesMoves, type Species } from "./species";
 import { EYE_KEY, greyOf, hexToRgb, hueOf, hueShift } from "../engine/recolor";
 import { rescaleLine } from "./scoba";
 import { BABY_SCALE, STAT_NAMES, capStats, type Stats } from "./types";
@@ -83,8 +83,11 @@ export function childGenes(mom: ScobaInstance, dad: ScobaInstance): Stats {
  */
 export function inheritableFrom(mom: ScobaInstance, dad: ScobaInstance): string[] {
   const child = childSpeciesOf(mom);
+  // Nothing the child's own form already learns: a line whose baby is built on
+  // another kit would otherwise be handed a second copy of one of its four.
+  const own = new Set(speciesMoves(SPECIES[child] ?? SPECIES[mom.speciesId]!));
   return dad.moves.filter((m) =>
-    !mom.moves.includes(m) && costOf(child, m) <= MAX_MANA);
+    !mom.moves.includes(m) && !own.has(m) && costOf(child, m) <= MAX_MANA);
 }
 
 /** The species a pairing with this mother hatches, which is her line's first form. */
@@ -146,7 +149,12 @@ export function breed(
     return baby;
   }
 
-  const moves = [...mom.moves];
+  // What the child hatches knowing is its own form's set rather than its
+  // mother's, since a line whose baby is built on another kit does not learn
+  // the same four. The mother's list is still what a slot is chosen from,
+  // because that is the set the player is choosing to give up.
+  const own = speciesMoves(childSp);
+  const moves = own.length > 0 ? [...own] : [...mom.moves];
   const newFromDad = inheritableFrom(mom, dad);
   let inherited: { move: string; slot: number } | undefined;
   if (newFromDad.length > 0) {
@@ -155,7 +163,7 @@ export function breed(
     // can be is limited to one when the mother already works a move herself.
     const droppable = droppableFrom(mom);
     const drop = swap && droppable.includes(swap.drop) ? swap.drop : pick(rng, droppable);
-    const slot = moves.indexOf(drop);
+    const slot = Math.min(Math.max(0, mom.moves.indexOf(drop)), moves.length - 1);
     moves[slot] = swap && newFromDad.includes(swap.take) ? swap.take : pick(rng, newFromDad);
     inherited = { move: moves[slot]!, slot };
   }

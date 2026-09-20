@@ -23,7 +23,7 @@ function field(): BattleState {
   const st = startBattle(
     "fusion",
     [wild("addiza", 12, "A"), wild("poki", 12, "B"), wild("plib", 12, "A"), wild("plib", 12, "B")],
-    [wild("obera", 30), wild("obera", 30)],
+    [wild("pieble", 30), wild("pieble", 30)],
     { slots: 2, owners: ["A", "B"] },
   );
   for (const c of st.teams[0]) c.mana = 100;
@@ -75,7 +75,7 @@ describe("fusion", () => {
     resolveTurn(st, [{ kind: "hyper", side: 0, slot: 0 }, { kind: "hyper", side: 0, slot: 1 }, ...brace]);
     const f = body(st);
     expect(f.scoba.level).toBe(a.level + b.level);
-    expect(scobaTypes(f.scoba)).toEqual(["moon", "sun"]);
+    expect(scobaTypes(f.scoba)).toEqual(["moon", "firework"]);
     const [la, lb] = [hyperLine(a), hyperLine(b)];
     for (const name of ["str", "def", "res", "mag"] as const) {
       expect(f.fusion!.line[name]).toBe(Math.floor(FUSION_SHARE * (la[name] + lb[name])));
@@ -97,7 +97,7 @@ describe("fusion", () => {
     const st = startBattle(
       "fusion",
       [wild("addiza", 12, "A"), poki, wild("plib", 12, "A"), wild("plib", 12, "B")],
-      [wild("obera", 30), wild("obera", 30)],
+      [wild("pieble", 30), wild("pieble", 30)],
       { slots: 2, owners: ["A", "B"] },
     );
     for (const c of st.teams[0]) c.mana = 100;

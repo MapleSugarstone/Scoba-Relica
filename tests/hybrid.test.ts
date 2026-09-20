@@ -75,7 +75,7 @@ describe("saves from before hybrids", () => {
   it("marks everything bred under the old rules a hybrid, and drops the breed count", () => {
     const old = { version: 14, party: [scoba(0), scoba(1)], box: [scoba(2)], sentinels: {} };
     const save = migrate(old);
-    expect(save?.version).toBe(15);
+    expect(save?.version).toBe(16);
     const [wild, once] = save!.party;
     expect(wild!.hybrid).toBeUndefined();
     expect(once!.hybrid).toBe(true);

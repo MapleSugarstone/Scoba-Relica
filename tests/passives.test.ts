@@ -149,7 +149,7 @@ describe("Cactunny", () => {
     }
   });
 
-  it("turns one Sun hit aside, and only one", () => {
+  it("turns one Firework hit aside, and only one", () => {
     const st = duel("grima", "cactunny", ["cinder-spit"]);
     const foe = st.teams[1][0]!;
     const full = foe.hp;
@@ -165,15 +165,15 @@ describe("Cactunny", () => {
 describe("two-type Scobas", () => {
   it("multiplies the chart against both halves", () => {
     const cactunny = SPECIES["cactunny"]!;
-    // Moss/Sun: Flux is strong into Moss and weak into Sun, so they cancel.
+    // Spring/Firework: Flux is strong into Spring and weak into Firework, so they cancel.
     expect(effectivenessAgainst("flux", cactunny)).toBe(1);
-    // Sun into Moss is 2, into Sun is 0.5.
-    expect(effectivenessAgainst("sun", cactunny)).toBe(1);
-    // Moon into Moss is 0.5, into Sun is 2.
+    // Firework into Spring is 2, into Firework is 0.5.
+    expect(effectivenessAgainst("firework", cactunny)).toBe(1);
+    // Moon into Spring is 0.5, into Firework is 2.
     expect(effectivenessAgainst("moon", cactunny)).toBe(1);
     // Plain is flat everywhere, so Meepa defends as pure Moon.
     const meepa = SPECIES["meepa"]!;
-    expect(effectivenessAgainst("moss", meepa)).toBe(2);
+    expect(effectivenessAgainst("spring", meepa)).toBe(2);
     expect(typeLabel(meepa)).toBe("Moon/Plain");
   });
 

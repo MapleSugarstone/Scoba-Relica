@@ -187,11 +187,11 @@ and it can have steps that run when something happens.
 ```
 status fire "Fire"
   bad
-  icon sun
+  icon firework
   lasts 3 turns
   stacks
   when a turn ends:
-    damage holder 15% of source magic, as sun magic, fixed when applied
+    damage holder 15% of source magic, as firework magic, fixed when applied
 ```
 
 ```
@@ -210,6 +210,8 @@ status slowed "Slowed"
 | `good` or `bad` | Yes | Which half of a cleanse removes it. |
 | `text "<words>"` | No | The line a player reads. With none, the game builds a sentence from what the status does, which is enough for all but a mark that only says something else is coming. |
 | `icon <name>` | No | The sigil it is shown as, by file name in `assets/Sigils`. With none, or with a name that has no file, it shows the placeholder sigil. |
+| `lit <color>` | No | The colour its holder's line art is drawn in while it carries the status, in place of the black every drawing is outlined in. It is how a status shows on the Scoba itself rather than only on its card. |
+| `planted <art>` | No | Art drawn on the mark it is planted under, by file name in `assets/Powers`. A status with this line is a patch of ground rather than something a Scoba carries. See [`plant`](#statuses-and-fields). |
 | `sound <name>` | No | A sound that plays as it lands, by file name in `assets/Sounds`. |
 | `lasts <n> turns` | No | How many turns it stands. Leave it out and it stands until something takes it off. |
 | `charges <n>` | No | How many times it can go off: its `when` steps running is one, and a `blocks <element> hits` effect catching a hit is one. When the charges run out, it is gone. Leave it out for no limit. |
@@ -315,7 +317,7 @@ carrying the other's, so whichever of the two goes Hyper second fuses them:
 ```
 passive flame-blade "Flame Blade"
   fuses with ultimate-addition into equalizea
-  when it lands sun physical:
+  when it lands firework physical:
     inflict seared on other
   when it takes the field:
     inflict ultimate-multiplication on holder
@@ -374,13 +376,13 @@ carries a field, so it cannot be cleansed and it survives every switch and faint
 
 ```
 field sunblessed "Sunblessed"
-  icon sun
+  icon firework
   lasts 5 turns
   tint #e7a03c
   begins "Sunlight pours over the field."
   ends "The sunlight fades."
   while standing:
-    sun moves x1.25
+    firework moves x1.25
 ```
 
 | Line | Required | What it does |
@@ -667,8 +669,8 @@ vulnerability and blocking still apply. The category is `physical`, `magic` or
 `true`, and `as true` alone means Plain true damage.
 
 ```
-damage holder 15% of source magic, as sun magic, fixed when applied
-damage holder 20% of source strength + 50 at max level, as sun magic, fixed when applied
+damage holder 15% of source magic, as firework magic, fixed when applied
+damage holder 20% of source strength + 50 at max level, as firework magic, fixed when applied
 damage holder 10% of their max hp, as true, counts as attack
 ```
 
@@ -695,6 +697,9 @@ heal holder 6.25% of their max hp
 **`take <share> hp from <who>, deal it to <who>`** takes that share of the current
 HP of each Scoba in the first group as true damage, then splits the total evenly
 across the second group as true damage that sets off hits.
+
+**`heal <who> power`** heals by the number the status or the patch running the
+step snapshotted as it landed, in place of a share of a stat.
 
 **`take <share> hp from <who>, heal <who> with it`** does the same, and splits the
 total across the second group as healing.
@@ -772,6 +777,33 @@ its passives are carried as.
 lay sunblessed over both sides
 ```
 
+**`plant <status> under <who>`** grows a patch on the mark each Scoba in
+`<who>` is standing on. The patch is on the ground rather than on the Scoba: it
+stays where it is when that Scoba switches out or falls, and what it does, it
+does to whoever is standing on the mark when it goes off. One patch to a mark,
+so planting again stands a fresh one up in place of the old.
+
+A patch is an ordinary status with a `planted <art>` line, which is both what
+says it is a patch and the art drawn on the mark. It measures its `power` off
+whoever planted it as it goes down, so that Scoba leaving the field does not
+weaken it, it counts its own `lasts` down at the end of each turn, and whoever
+is standing on it reads it as a sigil for as long as they stand there.
+
+```
+plant grove-patch under ally scobas
+```
+
+```
+status grove-patch "Grove"
+  good
+  icon grove
+  planted grove
+  lasts 5 turns
+  power 5% of source magic
+  when a turn ends:
+    heal holder power
+```
+
 ### Other steps
 
 **`raise <who> as a pawn at <share> level, as <element> <element>`** puts a
@@ -813,6 +845,9 @@ if raised stands:
 
 **`find <n> <item>`** gives the side of the one running the step that many of an
 item for the rest of the battle.
+
+**`sap <n> mana from <who>`** takes that much mana off each Scoba in `<who>`,
+down to an empty bar and no further.
 
 **`give <who> <n> mana`** adds mana to each Scoba in `<who>`, up to 100. A
 fusion has two mana bars, and the mana goes to whichever holds less. Write
@@ -1021,7 +1056,7 @@ A `when` block names one trigger.
 | `when it lands magic:` | The same, for magical damage. |
 | `when it lands physical:` | The same, for physical damage. |
 | `when it lands a spell:` | The same, for a `hit` step in a move rather than a basic attack. |
-| `when it lands <element>:` | The same, for damage of that element. Add `physical` or `magic` for only that category of it, like `when it lands sun physical:`. |
+| `when it lands <element>:` | The same, for damage of that element. Add `physical` or `magic` for only that category of it, like `when it lands firework physical:`. |
 | `when it kills:` | The holder's attack makes a Scoba faint. |
 | `when it faints:` | The holder faints. |
 | `when an ally faints:` | A Scoba on the holder's team faints. |

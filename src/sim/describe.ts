@@ -371,10 +371,25 @@ function fired(e: StatusEffect, def: StatusDef, who: Subject, opts: StatusOpts):
     }
     case "heal": {
       const exact = opts.amount?.(e);
-      return exact !== undefined ? `heals ${exact}` : `heals ${healAmount(e.basis, e.frac, who)}`;
+      if (exact !== undefined) return `heals ${exact}`;
+      // A patch heals by what it snapshotted as it was planted, which is what its own power line says.
+      if (e.power) {
+        const p = def.power;
+        return p?.basis !== undefined
+          ? `heals for ${pct(p.frac)} of ${powerOf(p.basis, who)}`
+          : "heals for what it holds";
+      }
+      return `heals ${healAmount(e.basis, e.frac, who)}`;
+    }
+    case "plant": {
+      const inner = (opts.statuses ?? STATUSES)[e.status];
+      return `grows ${inner?.name ?? e.status} under ${scopeOf(e.under).noun || "itself"}`;
     }
     case "summon": return summons(e, who);
-    case "mana": return `gains ${e.amount}% mana${e.second ? " in its second mana bar" : ""}`;
+    case "mana":
+      return e.amount < 0
+        ? `loses ${-e.amount}% mana`
+        : `gains ${e.amount}% mana${e.second ? " in its second mana bar" : ""}`;
     case "inflict": {
       const table = opts.statuses ?? STATUSES;
       const inner = table[e.status];
@@ -626,7 +641,17 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       const of = e.basis === "source-mag" ? `the caster's ${stat("mag")}`
         : e.basis === "source-str" ? `the caster's ${stat("str")}`
           : `${t.their} max HP`;
-      return [{ text: `Heals ${t.noun ? `${t.noun} ` : ""}for ${pct(e.frac)} of ${of}.`, triggered: false }];
+      const amount = e.power ? "what it holds" : `${pct(e.frac)} of ${of}`;
+      return [{ text: `Heals ${t.noun ? `${t.noun} ` : ""}for ${amount}.`, triggered: false }];
+    }
+    case "plant": {
+      const def = (opts.statuses ?? STATUSES)[e.status];
+      const t = who(e.under);
+      const dur = def?.duration ? ` for ${turns(def.duration)}` : "";
+      return [{
+        text: `Grows ${def?.name ?? e.status} on the ground under ${t.noun || "itself"}${dur}.`,
+        triggered: false,
+      }];
     }
     case "inflict": {
       const def = (opts.statuses ?? STATUSES)[e.status];
@@ -657,7 +682,13 @@ function stepPieces(e: Step, move: Move, who: (w: Who) => Subject, opts: StatusO
       }];
     case "mana": {
       const bar = e.second ? " in its second mana bar" : "";
-      return [{ text: `Gives ${who(e.on).noun || "itself"} ${e.amount}% mana${bar}.`, triggered: false }];
+      const t = who(e.on).noun || "itself";
+      return [{
+        text: e.amount < 0
+          ? `Takes ${-e.amount}% mana off ${t}.`
+          : `Gives ${t} ${e.amount}% mana${bar}.`,
+        triggered: false,
+      }];
     }
     case "field": {
       const f = FIELDS[e.field];

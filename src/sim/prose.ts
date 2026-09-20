@@ -377,9 +377,14 @@ function markToken(of: "damage" | "heal", id: string, at: ProseFor, nth = 1): Pa
   if (!def || !effect) {
     return { kind: "token", label: id, detail: `No ${of} on a mark called ${id}.` };
   }
-  const frac = effect.kind === "damage" ? effect.damage.frac : effect.kind === "heal" ? effect.frac : 0;
-  const basis = effect.kind === "damage" ? effect.damage.basis : effect.kind === "heal" ? effect.basis : "source-str";
-  const flat = effect.kind === "damage" ? effect.damage.flatAtCeiling ?? 0 : 0;
+  // A heal by `power` is the mark's own power line rather than a share written
+  // on the step, which is where a patch keeps what it snapshotted.
+  const byPower = effect.kind === "heal" && effect.power === true ? def.power : undefined;
+  const frac = byPower ? byPower.frac
+    : effect.kind === "damage" ? effect.damage.frac : effect.kind === "heal" ? effect.frac : 0;
+  const basis = byPower?.basis
+    ?? (effect.kind === "damage" ? effect.damage.basis : effect.kind === "heal" ? effect.basis : "source-str");
+  const flat = byPower?.flatAtCeiling ?? (effect.kind === "damage" ? effect.damage.flatAtCeiling ?? 0 : 0);
   const off = basis === "source-str" ? "str" : basis === "source-mag" ? "mag" : null;
   const element = effect.kind === "damage" ? effect.damage.element : null;
   const match = element && effect.kind === "damage" && effect.damage.category !== "true"

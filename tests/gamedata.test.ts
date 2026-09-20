@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkAll, checkSpecies } from "../src/sim/content/validate";
-import { SPECIES, STARTER_IDS } from "../src/sim/species";
+import { ROSTER_ROLES, SPECIES, STARTER_IDS } from "../src/sim/species";
+import { isLine } from "../src/dev/coverage";
 
 /** A copy of a record to break, so the table it came from is left alone. */
 const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -12,6 +13,19 @@ describe("the game data files", () => {
     // Every line, and every id every script names, checked against what exists.
     const found = checkAll();
     expect(found.map((f) => `${f.kind}/${f.id}: ${says(f.problems)}`)).toEqual([]);
+  });
+
+  // Design bookkeeping rather than anything the game reads, but it is the one
+  // field nothing else would catch: see claude-notes/roster-coverage.md.
+  it("say what every line is for in a team", () => {
+    const missing = Object.values(SPECIES)
+      .filter((sp) => isLine(sp) && sp.role === undefined)
+      .map((sp) => sp.id);
+    expect(missing).toEqual([]);
+    const wrong = Object.values(SPECIES)
+      .filter((sp) => sp.role !== undefined && !ROSTER_ROLES.includes(sp.role))
+      .map((sp) => sp.id);
+    expect(wrong).toEqual([]);
   });
 
   it("still offer the starters in the order they were written", () => {

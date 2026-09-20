@@ -173,6 +173,27 @@ export function artNameFor(sp: Species, tags: readonly string[]): string | null 
   return sp.sprite.forms?.[key] ?? sp.sprite.art;
 }
 
+/**
+ * What a line is for in a team. This is the job it does beside four others,
+ * rather than the shape of its stat line, which `claude-notes/making-scobas.md`
+ * calls its archetype: a Tank stat line can be built as a guardian or as a
+ * bruiser, and the roster needs both.
+ */
+export type RosterRole =
+  | "tank"
+  | "bruiser"
+  | "assassin"
+  | "burst"
+  | "control"
+  | "enchanter"
+  | "guardian"
+  | "summoner"
+  | "normie";
+
+export const ROSTER_ROLES: RosterRole[] = [
+  "tank", "bruiser", "assassin", "burst", "control", "enchanter", "guardian", "summoner", "normie",
+];
+
 export interface Species {
   id: string;
   name: string;
@@ -206,6 +227,13 @@ export interface Species {
   hyperAbility?: string;
   /** A drawn sample it calls with, by file name in `assets/Sounds`. */
   cry?: string;
+  /**
+   * What the line is for in a team, as design bookkeeping. Never shown to a
+   * player and never read by the battle: it is what `npm run coverage` counts,
+   * so the roster can be kept honest as it grows. See
+   * `claude-notes/roster-coverage.md`.
+   */
+  role?: RosterRole;
   /** Blurb for the starter picker. */
   blurb?: string;
   /** One per primary type; offered at the start of a new game. */

@@ -2,6 +2,7 @@
   {
     "id": "cresce",
     "name": "Cresce",
+    "role": "control",
     "type": "moon",
     "genes": {
       "hp": 145,
@@ -34,7 +35,8 @@
   {
     "id": "flarea",
     "name": "Flarea",
-    "type": "sun",
+    "role": "bruiser",
+    "type": "firework",
     "genes": {
       "hp": 120,
       "str": 85,
@@ -66,6 +68,7 @@
   {
     "id": "grima",
     "name": "Grima",
+    "role": "assassin",
     "type": "flux",
     "genes": {
       "hp": 110,
@@ -96,21 +99,21 @@
     "starter": true
   },
   {
-    "id": "obera",
-    "name": "Obera",
-    "type": "moss",
+    "id": "faelae",
+    "name": "Faelae",
+    "role": "tank",
+    "type": "spring",
     "genes": {
-      "hp": 180,
-      "str": 70,
-      "def": 105,
-      "res": 80,
-      "mag": 40,
-      "spd": 25
+      "hp": 108,
+      "str": 42,
+      "def": 63,
+      "res": 48,
+      "mag": 24,
+      "spd": 15
     },
     "primaryAbility": "rooted",
     "secondaryPool": [
-      "moss-heart",
-      "thick-coat"
+      "faeblade"
     ],
     "moves": [
       "brace-up",
@@ -122,15 +125,81 @@
     ],
     "sprite": {
       "kind": "art",
-      "art": "obera"
+      "art": "faelae"
     },
     "movement": "hover",
-    "blurb": "Obera is able to grow verdant moss wherever it flies. Bugs often start moving in circles when its near.",
-    "starter": true
+    "blurb": "Faelae grows soft green wherever it flies. Bugs often start moving in circles when it is near.",
+    "starter": true,
+    "baby": true,
+    "evolvesTo": "obera"
+  },
+  {
+    "id": "obera",
+    "name": "Obera",
+    "role": "enchanter",
+    "type": "spring",
+    "genes": {
+      "hp": 130,
+      "str": 0,
+      "def": 90,
+      "res": 120,
+      "mag": 120,
+      "spd": 40
+    },
+    "primaryAbility": "grove",
+    "secondaryPool": [
+      "faeblade"
+    ],
+    "hyperAbility": "fae-court",
+    "moves": [
+      "mote",
+      "faefire",
+      "innervate",
+      "fairy-bomb"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "obera",
+      "forms": {
+        "hyper": "hyper-obera"
+      }
+    },
+    "movement": "hover",
+    "blurb": "Obera keeps a grove wherever it stands, and a court that answers when it calls."
+  },
+  {
+    "id": "fae-retainer",
+    "name": "Fae Retainer",
+    "type": "spring",
+    "genes": {
+      "hp": 150,
+      "str": 200,
+      "def": 150,
+      "res": 50,
+      "mag": 0,
+      "spd": 50
+    },
+    "primaryAbility": "fae-bound",
+    "secondaryPool": [],
+    "moves": [
+      "stab",
+      "rally",
+      "rotten-slice",
+      "groveborn-eviscerate"
+    ],
+    "sprite": {
+      "kind": "art",
+      "art": "fae retainer"
+    },
+    "movement": "scamper",
+    "pawn": true,
+    "autonomous": true,
+    "blurb": "Whatever an Obera knows, its Retainers know too."
   },
   {
     "id": "clikkit",
     "name": "Clikkit",
+    "role": "control",
     "type": "cipher",
     "genes": {
       "hp": 140,
@@ -164,6 +233,7 @@
   {
     "id": "unwind",
     "name": "Unwind",
+    "role": "control",
     "type": "cipher",
     "type2": "fortuna",
     "genes": {
@@ -199,6 +269,7 @@
   {
     "id": "wispen",
     "name": "Wispen",
+    "role": "burst",
     "type": "mystic",
     "genes": {
       "hp": 95,
@@ -232,6 +303,7 @@
   {
     "id": "pieble",
     "name": "Pieble",
+    "role": "tank",
     "type": "sugar",
     "genes": {
       "hp": 195,
@@ -251,7 +323,7 @@
       "crush",
       "sugar-rush",
       "gumsnap",
-      "rally",
+      "pie-heal",
       "slam"
     ],
     "sprite": {
@@ -265,6 +337,7 @@
   {
     "id": "roulle",
     "name": "Roulle",
+    "role": "bruiser",
     "type": "fortuna",
     "genes": {
       "hp": 120,
@@ -297,6 +370,7 @@
   {
     "id": "plib",
     "name": "Plib",
+    "role": "bruiser",
     "type": "plain",
     "genes": {
       "hp": 150,
@@ -329,6 +403,7 @@
   {
     "id": "catsquito",
     "name": "Catsquito",
+    "role": "assassin",
     "type": "plain",
     "genes": {
       "hp": 95,
@@ -358,6 +433,7 @@
   {
     "id": "meepa",
     "name": "Meepa",
+    "role": "control",
     "type": "moon",
     "type2": "plain",
     "genes": {
@@ -388,6 +464,7 @@
   {
     "id": "corali",
     "name": "Corali",
+    "role": "control",
     "type": "moon",
     "type2": "flux",
     "genes": {
@@ -422,8 +499,9 @@
   {
     "id": "cactunny",
     "name": "Cactunny",
-    "type": "moss",
-    "type2": "sun",
+    "role": "guardian",
+    "type": "spring",
+    "type2": "firework",
     "genes": {
       "hp": 165,
       "str": 75,
@@ -452,6 +530,7 @@
   {
     "id": "allin",
     "name": "Allin",
+    "role": "bruiser",
     "type": "fortuna",
     "genes": {
       "hp": 200,
@@ -485,6 +564,7 @@
   {
     "id": "aulium",
     "name": "Aulium",
+    "role": "normie",
     "type": "fortuna",
     "genes": {
       "hp": 135,
@@ -516,6 +596,7 @@
   {
     "id": "cottlequeen",
     "name": "Cottlequeen",
+    "role": "summoner",
     "type": "fortuna",
     "genes": {
       "hp": 155,
@@ -573,6 +654,7 @@
   {
     "id": "sqwoop",
     "name": "Sqwoop",
+    "role": "control",
     "type": "sugar",
     "type2": "moon",
     "genes": {
@@ -609,6 +691,7 @@
   {
     "id": "octoshake",
     "name": "Octoshake",
+    "role": "control",
     "type": "sugar",
     "type2": "moon",
     "genes": {
@@ -646,6 +729,7 @@
   {
     "id": "addiza",
     "name": "Addiza",
+    "role": "enchanter",
     "type": "moon",
     "genes": {
       "hp": 200,
@@ -679,7 +763,8 @@
   {
     "id": "poki",
     "name": "Poki",
-    "type": "sun",
+    "role": "bruiser",
+    "type": "firework",
     "genes": {
       "hp": 200,
       "str": 200,
@@ -713,7 +798,7 @@
     "id": "equalizea",
     "name": "Equalizea",
     "type": "moon",
-    "type2": "sun",
+    "type2": "firework",
     "genes": {
       "hp": 0,
       "str": 0,
@@ -736,6 +821,7 @@
   {
     "id": "grinkle-pylon",
     "name": "Grinkle Pylon",
+    "role": "summoner",
     "type": "plain",
     "genes": {
       "hp": 400,
@@ -797,6 +883,7 @@
   {
     "id": "relica",
     "name": "Relica",
+    "role": "normie",
     "type": "plain",
     "genes": {
       "hp": 120,

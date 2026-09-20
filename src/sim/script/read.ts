@@ -288,7 +288,7 @@ function readShare(c: Clause, scope: Scope): { basis: Basis; frac: number } {
 
 const STEP_STARTS = [
   "throw", "show", "sound", "flash", "wait", "say", "hit", "damage", "heal", "inflict", "clear", "cleanse", "copy", "raise", "undo", "rewind", "travel",
-  "take", "summon", "find", "give", "lay", "draw", "deal", "if", "refund", "pick", "change",
+  "take", "sap", "summon", "find", "give", "lay", "plant", "draw", "deal", "if", "refund", "pick", "change",
 ];
 
 function readSteps(lines: Line[], scope: Scope): Step[] {
@@ -365,14 +365,18 @@ function readStep(line: Line, scope: Scope): Step {
     case "hit": return readHit(line, scope);
     case "damage": return readDamage(line, scope);
     case "heal": {
-      const usage = "heal <who> <share> of <whose> <stat>, sound <name>";
+      const usage = "heal <who> <share> of <whose> <stat> | heal <who> power, sound <name>";
       noBlock(line, usage);
       const c = clause(line, 0, usage);
       c.expect("heal");
       const to = readWho(c, scope);
-      const { basis, frac } = readShare(c, scope);
+      // What a status or a patch of ground snapshotted, the way a stat reads it.
+      const fromPower = c.take("power");
+      const { basis, frac } = fromPower ? { basis: "holder-max-hp" as Basis, frac: 0 } : readShare(c, scope);
       c.done();
-      const step: Step = { kind: "heal", to, basis, frac };
+      const step: Step = fromPower
+        ? { kind: "heal", to, basis, frac, power: true }
+        : { kind: "heal", to, basis, frac };
       for (let i = 1; i < line.clauses.length; i++) {
         const o = clause(line, i, usage);
         o.expect("sound");
@@ -623,6 +627,29 @@ function readStep(line: Line, scope: Scope): Step {
         o.done();
       }
       return step;
+    }
+    case "sap": {
+      const usage = "sap <n> mana from <who>";
+      noBlock(line, usage);
+      const c = single(line, usage);
+      c.expect("sap");
+      const amount = c.count("how much mana");
+      c.expect("mana from");
+      const off = readWho(c, scope);
+      c.done();
+      return { kind: "mana", on: off, amount: -amount };
+    }
+    case "plant": {
+      const usage = "plant <status> under <who>";
+      noBlock(line, usage);
+      const c = single(line, usage);
+      c.expect("plant");
+      const status = c.id("the patch");
+      scope.refs.push({ table: "statuses", id: status, line: line.no });
+      c.expect("under");
+      const under = readWho(c, scope);
+      c.done();
+      return { kind: "plant", status, under };
     }
     case "lay": {
       const usage = "lay <field> over <its side|the enemy side|both sides>";
@@ -1366,7 +1393,7 @@ function snapshots(steps: Step[]): number {
 function readStatus(head: Line, refs: Ref[]): StatusDef {
   const { id, name } = header(head, "status");
   const known = [
-    "good", "bad", "text", "icon", "sound", "lasts", "charges", "stacks", "lost on switching out",
+    "good", "bad", "text", "icon", "planted", "lit", "sound", "lasts", "charges", "stacks", "lost on switching out",
     "shows a hand of cards", "grows", "power", "no sigil", "always as written", "while carried", "when",
   ];
   const scope: Scope = { record: id, kind: "status", aims: new Map(), rewrites: 0, drawn: false, picked: false, refs };
@@ -1402,6 +1429,16 @@ function readStatus(head: Line, refs: Ref[]): StatusDef {
       const c = plain("icon <art>");
       c.expect("icon");
       icon = c.token("the icon");
+      c.done();
+    } else if (c0.sees("planted")) {
+      const c = plain("planted <art>");
+      c.expect("planted");
+      def.planted = c.token("the art it is drawn as on the ground");
+      c.done();
+    } else if (c0.sees("lit")) {
+      const c = plain("lit <color>");
+      c.expect("lit");
+      def.lit = c.color("the colour its holder's line art takes");
       c.done();
     } else if (c0.sees("sound")) {
       const c = plain("sound <name>");

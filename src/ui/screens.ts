@@ -1150,7 +1150,7 @@ function buildSave(localSlot: SlotId, localDef: CharacterDef, otherDef: Characte
   theirs.owner = other;
   markMet(theirs, otherDef.name, now);
   return {
-    version: 15,
+    version: 16,
     createdAt: now,
     updatedAt: now,
     worldSeed,

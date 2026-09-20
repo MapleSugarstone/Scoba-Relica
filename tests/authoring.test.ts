@@ -127,7 +127,7 @@ const VIGIL = [
 
 const VIGIL_CALL = [
   "move probe-vigil-call \"Probe Vigil Call\"",
-  "  type moss",
+  "  type spring",
   "  costs 10 mana",
   "  aim any ally \"Steady\"",
   "  cast:",
@@ -137,16 +137,16 @@ const VIGIL_CALL = [
 const EMBER = [
   "status probe-ember \"Probe Ember\"",
   "  bad",
-  "  icon sun",
+  "  icon firework",
   "  lasts 3 turns",
   "  when a turn ends:",
-  "    damage holder 5% of their max hp, as sun magic",
-  "    damage holder 20% of source magic, as sun magic, fixed when applied",
+  "    damage holder 5% of their max hp, as firework magic",
+  "    damage holder 20% of source magic, as firework magic, fixed when applied",
 ].join("\n");
 
 const EMBER_CALL = [
   "move probe-ember-call \"Probe Ember Call\"",
-  "  type sun",
+  "  type firework",
   "  costs 10 mana",
   "  aim any enemy",
   "  cast:",
@@ -178,12 +178,12 @@ const GLOOM = [
   "  while standing:",
   "    moon moves x1.5",
   "    takes x1.5 from moon",
-  "    immune to moss",
+  "    immune to spring",
 ].join("\n");
 
 const TITHE = [
   "move probe-tithe \"Probe Tithe\"",
-  "  type moss",
+  "  type spring",
   "  costs 20 mana",
   "  aim any ally \"Draw from\" as donor",
   "  aim any ally \"Give it to\" as mender",
@@ -251,7 +251,7 @@ const MOONLIGHT = [
 
 const THORN = [
   "move probe-thorn \"Probe Thorn\"",
-  "  type moss",
+  "  type spring",
   "  costs 15 mana",
   "  aim any enemy",
   "  cast:",
@@ -341,7 +341,7 @@ describe("a move with two named aim groups", () => {
   it("draws HP out of one group and puts it into the other", () => {
     install(TITHE, "move");
     const st = duel(
-      [mine("plib", "t1", ["probe-tithe"]), mine("obera", "t2", ["crush"])],
+      [mine("plib", "t1", ["probe-tithe"]), mine("pieble", "t2", ["crush"])],
       [wild("grima", 20, "t3")],
       2,
     );
@@ -368,7 +368,7 @@ describe("a move with two named aim groups", () => {
   it("refuses a name that already means something", () => {
     const read = readScript([
       "move probe-clash \"Clash\"",
-      "  type sun",
+      "  type firework",
       "  costs 10 mana",
       "  aim any enemy as target2",
       "  aim any ally",
@@ -531,8 +531,8 @@ describe("a status that deals damage every turn", () => {
     // a mark lands like a move does: the caster's own element where it shares
     // one, then the chart against whoever is carrying it.
     const res = mitigation(combatantStats(foe).res);
-    const syn = scobaTypes(me.scoba).includes("sun") ? 1.5 : 1;
-    const eff = typesEffectiveness(["sun"], scobaTypes(foe.scoba));
+    const syn = scobaTypes(me.scoba).includes("firework") ? 1.5 : 1;
+    const eff = typesEffectiveness(["firework"], scobaTypes(foe.scoba));
     const lands = (power: number): number => Math.max(1, Math.floor(power * syn * eff * res));
     const events = resolveTurn(st, [{ kind: "block", side: 0, slot: 0 }]);
     expect(before - foe.hp).toBe(lands(max * 0.05) + lands(mag * 0.2));
@@ -619,7 +619,7 @@ describe("a status watching for low HP", () => {
     install(GUARD, "status");
     install(BLESS, "move");
     const st = duel(
-      [mine("plib", "h1", ["probe-bless"]), mine("obera", "h2", ["crush"])],
+      [mine("plib", "h1", ["probe-bless"]), mine("pieble", "h2", ["crush"])],
       [wild("grima", 20, "h3")],
       2,
     );
@@ -689,7 +689,7 @@ describe("the steps that call things up and hand things out", () => {
   it("summons, fills mana and writes its line", () => {
     install(RALLY, "move");
     const st = duel(
-      [mine("plib", "r1", ["probe-rally"]), mine("obera", "r2", ["crush"])],
+      [mine("plib", "r1", ["probe-rally"]), mine("pieble", "r2", ["crush"])],
       [wild("grima", 20, "r3")],
       2,
     );
@@ -776,7 +776,7 @@ describe("what the reader refuses", () => {
     readScript(text, kind).problems[0]?.says ?? "";
   const cast = (steps: string): string => [
     "move probe-bad \"Bad\"",
-    "  type sun",
+    "  type firework",
     "  costs 10 mana",
     "  aim any enemy",
     "  cast:",
@@ -803,7 +803,7 @@ describe("what the reader refuses", () => {
       "  bad",
       "  power 40% of source magic",
       "  when a turn ends:",
-      "    damage holder 15% of source magic, as sun magic, fixed when applied",
+      "    damage holder 15% of source magic, as firework magic, fixed when applied",
     ].join("\n"), "status")).toContain("measures one number as it lands");
   });
 
@@ -876,7 +876,7 @@ describe("the shape of a file", () => {
   it("catches a comma with nothing on one side of it", () => {
     expect(says([
       "move probe-bad \"Bad\"",
-      "  type sun",
+      "  type firework",
       "  costs 10 mana",
       "  aim any enemy",
       "  cast:",
@@ -887,7 +887,7 @@ describe("the shape of a file", () => {
   it("wants an id bare rather than in quotes", () => {
     expect(says([
       "move probe-bad \"Bad\"",
-      "  type sun",
+      "  type firework",
       "  costs 10 mana",
       "  aim any enemy",
       "  cast:",
@@ -917,20 +917,20 @@ describe("what the writer writes back", () => {
   it("keeps a category the hit named, even where the stat implies it", () => {
     const read = readScript([
       "move probe-cat \"Cat\"",
-      "  type sun",
+      "  type firework",
       "  costs 10 mana",
       "  aim any enemy",
       "  cast:",
-      "    hit target 100% strength, as sun physical",
+      "    hit target 100% strength, as firework physical",
     ].join("\n"), "move");
     expect(read.problems).toEqual([]);
-    expect(writeMove(read.moves[0]!)).toContain("hit target 100% strength, as sun physical");
+    expect(writeMove(read.moves[0]!)).toContain("hit target 100% strength, as firework physical");
   });
 
   it("keeps an if inside an if", () => {
     const text = [
       "move probe-nest \"Nest\"",
-      "  type sun",
+      "  type firework",
       "  costs 10 mana",
       "  aim any enemy",
       "  aim any ally",
@@ -951,7 +951,7 @@ describe("what the writer writes back", () => {
   it("counts one turn and one second in the singular", () => {
     const read = readScript([
       "move probe-one \"One\"",
-      "  type sun",
+      "  type firework",
       "  costs 10 mana",
       "  aim any enemy",
       "  cast:",

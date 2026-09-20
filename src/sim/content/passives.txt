@@ -31,7 +31,7 @@ passive hearty "Hearty"
   while carried:
     hp x1.15
 
-passive moss-skin "Moss Skin"
+passive moss-skin "Spring Skin"
   text "At the end of each turn, heal for [heal:moss-skin]."
   when a turn ends:
     heal holder 6.25% of their max hp
@@ -41,20 +41,20 @@ passive old-soul "Old Soul"
   while carried:
     magic x1.15
 
-passive sun-heart "Sun Heart"
-  text "Sun type abilities are 25% more effective."
+passive sun-heart "Firework Heart"
+  text "Firework type abilities are 25% more effective."
   while carried:
-    sun moves x1.25
+    firework moves x1.25
 
 passive flux-heart "Flux Heart"
   text "Flux type abilities are 25% more effective."
   while carried:
     flux moves x1.25
 
-passive moss-heart "Moss Heart"
-  text "Moss type abilities are 25% more effective."
+passive moss-heart "Spring Heart"
+  text "Spring type abilities are 25% more effective."
   while carried:
-    moss moves x1.25
+    spring moves x1.25
 
 passive moonlit "Moonlit"
   text "Moon type abilities are 25% more effective."
@@ -122,17 +122,17 @@ passive moonwell "Moonwell"
   when the battle starts:
     give holder 10 mana
 
-passive sun-bloom "Sun Bloom"
-  text "On entry, place both sides under [status:sunblessed|a blessed sun], making Sun type abilities 25% more effective for 5 turns. Once per battle."
+passive sun-bloom "Firework Bloom"
+  text "On entry, place both sides under [status:sunblessed|a blessed firework], making Firework type abilities 25% more effective for 5 turns. Once per battle."
   once per battle
   when it takes the field:
     lay sunblessed over both sides
 
-passive sun-ward "Sun Ward"
-  text "Blocks the first Sun type hit each battle."
+passive sun-ward "Firework Ward"
+  text "Blocks the first Firework type hit each battle."
   once per battle
   while carried:
-    blocks sun hits
+    blocks firework hits
 
 passive cottle-court "Cottle Court"
   text "On entry, summon a Cottlecorn at the same level. Once per battle."
@@ -273,10 +273,10 @@ passive sum "Sum"
 # and fuses with an ally carrying the other's, so whichever of the two takes the
 # field in Hyper-Mode second is the one that fuses them.
 passive flame-blade "Flame Blade"
-  text "Sun physical abilities leave the enemy [status:seared|Seared] for [damage:seared] damage a turn for 2 turns. Stacks up to 5 times. On entry, gains [status:ultimate-multiplication|Ultimate Multiplication]. If an ally Scoba has Ultimate Addition, fuses with them into Equalizea. Equalizea picks 2 abilities a turn and has 2 HP bars and 2 mana bars. It can't block or switch out."
+  text "Firework physical abilities leave the enemy [status:seared|Seared] for [damage:seared] damage a turn for 2 turns. Stacks up to 5 times. On entry, gains [status:ultimate-multiplication|Ultimate Multiplication]. If an ally Scoba has Ultimate Addition, fuses with them into Equalizea. Equalizea picks 2 abilities a turn and has 2 HP bars and 2 mana bars. It can't block or switch out."
   icon flameblade
   fuses with ultimate-addition into equalizea
-  when it lands sun physical:
+  when it lands firework physical:
     inflict seared on other
   when it takes the field:
     inflict ultimate-multiplication on holder
@@ -317,3 +317,30 @@ passive double-spawn "Double Spawn"
 # What a Grinkling is, beyond whatever it was copied from.
 passive grinkle-piece "Grinkle Piece"
   text "Has every ability and status of the Grinkle Pylon that spawned it."
+
+# Obera's. What it leaves on the ground, what its blade does, and the two it
+# calls up in Hyper-Mode.
+passive grove "Grove"
+  text "On entry, grows a [status:grove-patch|Grove] on the ground under every ally Scoba. A Grove stands for 5 turns and heals whoever stands on it for [heal:grove-patch] at the end of each turn."
+  icon grove
+  when it takes the field:
+    sound confirm
+    plant grove-patch under ally scobas
+
+passive faeblade "Faeblade"
+  text "Basic attacks deal [damage:faeblade] more Spring magic damage and take 5% mana off the enemy."
+  icon faeblade
+  when it makes a basic attack:
+    show faeblade as burst on other
+    damage other 30% of source magic, as spring magic, counts as attack
+    sap 5 mana from other
+
+passive fae-court "Fae Court"
+  text "On entry, calls up two Fae Retainers at half its level. Each wears its second passive."
+  when it takes the field:
+    summon fae-retainer at 50% level
+    summon fae-retainer at 50% level
+
+# What a Fae Retainer is, beyond the second passive it wears.
+passive fae-bound "Fae-Bound"
+  text "Wears the second passive of the Obera that called it."

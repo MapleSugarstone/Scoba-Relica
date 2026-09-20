@@ -107,7 +107,7 @@ describe("spending Aetus", () => {
 
 describe("the roster", () => {
   const saveWith = (party: ScobaInstance[], box: ScobaInstance[] = []): SaveData => ({
-    version: 15, createdAt: 0, updatedAt: 0, worldSeed: "w", localSlot: "A",
+    version: 16, createdAt: 0, updatedAt: 0, worldSeed: "w", localSlot: "A",
     partnerJoined: false,
     characters: {} as SaveData["characters"],
     party, box, bag: {}, money: 0, aetus: 0,

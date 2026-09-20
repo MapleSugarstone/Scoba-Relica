@@ -247,9 +247,12 @@ export type Step =
   }
   /** A set amount, with no chart and no armor. */
   | { kind: "damage"; to: Who; damage: StatusDamage; sound?: string }
-  | { kind: "heal"; to: Who; basis: Basis; frac: number; sound?: string }
+  /** `power` heals what the status or the patch running it snapshotted, in place of the share. */
+  | { kind: "heal"; to: Who; basis: Basis; frac: number; power?: true; sound?: string }
   /** `turns` overrides how long the status stands. */
   | { kind: "inflict"; status: string; on: Who; turns?: number }
+  /** Puts a status on the ground under each of `under`, where it stands on its own. */
+  | { kind: "plant"; status: string; under: Who }
   | { kind: "cleanse"; on: Who; polarity: StatusPolarity }
   /** Copies every status the first of `from` carries onto each of `to`. */
   | { kind: "copy-marks"; from: Who; to: Who }
@@ -505,6 +508,19 @@ export interface StatusDef {
   innate?: boolean;
   /** The sigil it is shown as, by file name in `assets/Sigils`. */
   icon?: string;
+  /**
+   * Drawn on the mark it is planted under, by file name in `assets/Powers`.
+   * A status with one is a patch of ground rather than something a Scoba
+   * carries: `plant` puts it on a mark, it stands there for its own duration,
+   * and it reaches whoever is standing on that mark when it goes off.
+   */
+  planted?: string;
+  /**
+   * What the holder's line art is drawn in while it carries this, as a hex
+   * colour. The black outline holds every drawing together, so lighting it is
+   * how a status shows on the Scoba itself rather than only on its card.
+   */
+  lit?: string;
   /** A drawn sample for it landing, by file name in `assets/Sounds`. */
   sound?: string;
   /** Its stacks are a hand of cards, drawn over the holder's head. */

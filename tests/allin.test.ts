@@ -156,20 +156,20 @@ describe("the colours", () => {
     expect(MOVES["black"]!.type2).toBe("flux");
   });
 
-  it("Red burns for Sun over three turns and leads with Fortuna", () => {
+  it("Red burns for Firework over three turns and leads with Fortuna", () => {
     expect(MOVES["red"]!.type).toBe("fortuna");
-    expect(MOVES["red"]!.type2).toBe("sun");
+    expect(MOVES["red"]!.type2).toBe("firework");
     const burn = STATUSES["in-the-red"]!;
     expect(burn.duration).toBe(3);
     const dmg = burn.effects.find((e) => e.kind === "damage");
-    expect(dmg?.kind === "damage" && dmg.damage.element).toBe("sun");
+    expect(dmg?.kind === "damage" && dmg.damage.element).toBe("firework");
     expect(dmg?.kind === "damage" && dmg.damage.flatAtCeiling).toBe(50);
   });
 
   it("Green reaches the whole line and reads Defense as well as Strength", () => {
     const move = MOVES["green"]!;
     expect(move.type).toBe("fortuna");
-    expect(move.type2).toBe("moss");
+    expect(move.type2).toBe("spring");
     expect(move.manaCost).toBe(80);
     expect(firstStep(move, "hit")?.scaling).toEqual([{ stat: "str", scale: 1 }, { stat: "def", scale: 1 }]);
     expect(move.targets[0]!.mode).toBe("enemy-team");

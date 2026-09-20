@@ -42,10 +42,10 @@ describe("validateScoba", () => {
   it("takes a move off any other line on a hybrid, since any two lines make one", () => {
     const s = makeWild("obera", 20, rngFrom("e"));
     s.hybrid = true;
-    s.moves = ["leaf-flick", "flame-burst"]; // a Sun spell on a Moss line
+    s.moves = ["mote", "flame-burst"]; // a Firework spell on a Spring line
     expect(validateScoba(s)).toEqual([]);
     // Nothing anybody can learn is still nothing.
-    s.moves = ["leaf-flick", "hackmove"];
+    s.moves = ["mote", "hackmove"];
     expect(validateScoba(s).join()).toMatch(/unknown move/);
   });
 
@@ -75,7 +75,7 @@ describe("validateScoba", () => {
     s.hybrid = true;
     expect(validateScoba(s).join()).toMatch(/ability/);
     const t = makeWild("plib", 10, rngFrom("j"));
-    t.secondaryAbility = "moss-heart"; // Obera's pool, so a hybrid can have it
+    t.secondaryAbility = "faeblade"; // Obera's pool, so a hybrid can have it
     expect(validateScoba(t).join()).toMatch(/ability/);
     t.hybrid = true;
     expect(validateScoba(t)).toEqual([]);

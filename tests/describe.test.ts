@@ -6,7 +6,7 @@ import { ABILITIES, MOVES, type Move } from "../src/sim/species";
 import { STATUSES, type StatusDef } from "../src/sim/status";
 
 const move = (over: Partial<Move>): Move => ({
-  id: "test", name: "Test", type: "sun", kind: "magical", scale: 1, manaCost: 30, cooldown: 0, startCooldown: 0,
+  id: "test", name: "Test", type: "firework", kind: "magical", scale: 1, manaCost: 30, cooldown: 0, startCooldown: 0,
   targets: [{ mode: "any-enemy" }], cast: [],
   ...over,
 });
@@ -33,7 +33,7 @@ describe("the rule, on the shapes it was written from", () => {
       ],
     });
     expect(describeMove(m, { statuses: table })).toBe(
-      "Deals 100% Sun magic damage to all enemies. Then heals all allies for 10% of their max HP. (30% mana)",
+      "Deals 100% Firework magic damage to all enemies. Then heals all allies for 10% of their max HP. (30% mana)",
     );
   });
 
@@ -86,7 +86,7 @@ describe("the moves in the game", () => {
   it("names the target once and refers back to it", () => {
     expect(line("crush")).toBe("Deals 110% Plain physical damage to an enemy. (30% mana)");
     expect(line("ember")).toBe(
-      "Deals 70% Sun magic damage to an enemy. At the end of each turn, it takes 15% Sun magic damage for 3 turns. Stacks. (30% mana, cooldown 1)",
+      "Deals 70% Firework magic damage to an enemy. At the end of each turn, it takes 15% Firework magic damage for 3 turns. Stacks. (30% mana, cooldown 1)",
     );
     expect(line("hairline")).toBe(
       "Deals 80% Cipher magic damage to an enemy. Then gives it Defense -10%, Resistance -10% for 2 turns. Lost on switching out. (35% mana, cooldown 2)",
@@ -95,7 +95,7 @@ describe("the moves in the game", () => {
 
   it("reads a whole side as all of them", () => {
     expect(line("scatter-shot")).toBe("Deals 80% Flux magic damage to all enemies. (50% mana, cooldown 2, first ready on turn 2)");
-    expect(line("rally")).toBe("Heals all allies for 25% of their max HP. (55% mana, cooldown 3, first ready on turn 2)");
+    expect(line("pie-heal")).toBe("Heals all allies for 25% of their max HP. (55% mana, cooldown 3, first ready on turn 2)");
   });
 
   it("gives and gains what a status grants", () => {
@@ -131,8 +131,8 @@ describe("the moves in the game", () => {
 describe("statuses, passives and fields", () => {
   it("reads a standing effect bare and a fired one off its trigger", () => {
     expect(describeStatus("rage")).toBe("Strength +25% per stack, up to 6 stacks. Lost on switching out.");
-    expect(describeStatus("fire")).toBe("At the end of each turn, takes 15% Sun magic damage for 3 turns. Stacks.");
-    expect(describeStatus("fire", { duration: false })).toBe("At the end of each turn, takes 15% Sun magic damage. Stacks.");
+    expect(describeStatus("fire")).toBe("At the end of each turn, takes 15% Firework magic damage for 3 turns. Stacks.");
+    expect(describeStatus("fire", { duration: false })).toBe("At the end of each turn, takes 15% Firework magic damage. Stacks.");
     expect(describeStatus("second-wind")).toBe("When below 50% HP, heals for 10% of its max HP, once a battle.");
     expect(describeStatus("moonward")).toBe("Takes no Moon damage for 2 turns.");
     expect(describeStatus("spite")).toBe("On fainting, passes its statuses to whoever struck it down.");
@@ -146,11 +146,11 @@ describe("statuses, passives and fields", () => {
       "On blocking, gains Speed +10% of Magic per stack, up to 6 stacks until it switches out.",
     );
     expect(describeAbility("sun-bloom")).toBe(
-      "On entering the field, gives both sides Sun moves +25% for 5 turns, once a battle.",
+      "On entering the field, gives both sides Firework moves +25% for 5 turns, once a battle.",
     );
     expect(describeAbility("rooted")).toBe("Defense +10%. At the end of each turn, heals for 6% of its max HP.");
     expect(describeAbility("thirst")).toBe("On a basic attack, heals for 100% Magic.");
-    expect(describeAbility("sun-ward")).toBe("Absorbs one Sun hit a battle.");
+    expect(describeAbility("sun-ward")).toBe("Absorbs one Firework hit a battle.");
   });
 
   it("describes every passive and status without a hole", () => {
@@ -162,6 +162,6 @@ describe("statuses, passives and fields", () => {
       expect(text, id).toMatch(/^[A-Z].*\.$/);
       expect(text, id).not.toMatch(/undefined|NaN/);
     }
-    expect(describeField("sunblessed")).toBe("Sun moves +25%.");
+    expect(describeField("sunblessed")).toBe("Firework moves +25%.");
   });
 });
