@@ -4,6 +4,7 @@ import {
   padById, pads, resizeMap, setCollisionAt, setTerrainAt, teleportTarget, terrainAt,
 } from "../src/game/content";
 import { COLS, ROWS, islandLayout } from "../src/game/islands";
+import bundled from "../src/game/content/world.json";
 import { SUB_FULL, TILE } from "../src/engine/tilemap";
 import type { Art } from "../src/engine/assets";
 
@@ -171,9 +172,32 @@ describe("normalizeContent", () => {
     });
     expect(c.npcs.map((n) => n.id)).toEqual(["a", "t"]);
     expect(c.npcs[1]!.trainer?.team).toEqual([{ species: "plib", level: 3 }]);
+    expect(c.npcs[0]!.service).toBeUndefined();
     expect(c.quests).toHaveLength(1);
     expect(c.quests[0]!.steps).toHaveLength(3);
     expect(c.quests[0]!.steps[1]).toEqual({ kind: "reach", map: "m", x: 10, y: 20, r: 24, label: "" });
+  });
+
+  it("keeps the place an NPC opens, and only one it knows", () => {
+    const c = normalizeContent({
+      maps: [{ id: "m", terrain: ["ww", "ww"] }],
+      npcs: [
+        { id: "hut", map: "m", x: 1, y: 2, service: "hobbies" },
+        { id: "odd", map: "m", x: 1, y: 2, service: "whatever" },
+      ],
+      quests: [],
+    });
+    expect(c.npcs[0]!.service).toBe("hobbies");
+    expect(c.npcs[1]!.service).toBeUndefined();
+  });
+
+  it("ships a Hobbyist beside the spawn, and the sparring partner away from it", () => {
+    const world = normalizeContent(bundled);
+    const hut = world.npcs.find((n) => n.id === "hobby-hut");
+    expect(hut?.service).toBe("hobbies");
+    expect(hut?.stands).toBe("spawn");
+    expect(hut?.lines.length).toBeGreaterThan(0);
+    expect(world.npcs.find((n) => n.id === "sparring-partner")?.stands).toBe("away");
   });
 
   it("keeps cell data only where it names a real kind", () => {

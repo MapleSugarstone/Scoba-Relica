@@ -34,6 +34,24 @@
         "beaten": []
       },
       "stands": "away"
+    },
+    {
+      "id": "hobby-hut",
+      "name": "Hobbyist",
+      "map": "",
+      "x": 0,
+      "y": 0,
+      "skin": {
+        "kind": "villager",
+        "look": {}
+      },
+      "lines": [
+        "Everyone here is busy with something. What is yours busy with?",
+        "Bring me one and we will find it a pastime."
+      ],
+      "wander": 0,
+      "stands": "spawn",
+      "service": "hobbies"
     }
   ],
   "quests": []

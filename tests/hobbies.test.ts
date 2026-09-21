@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { HOBBIES, HOBBY_IDS, hobbyDoing } from "../src/sim/status";
+import { describeHobby } from "../src/sim/describe";
 import {
   MAX_LEVEL, TEAS_MAX, TEA_AT_CEILING, makeWild, statsAt, teaWorth, type ScobaInstance,
 } from "../src/sim/scoba";
+import {
+  CUP_POINTS, DROP_MAX, DROP_MIN, cupFor, cupFull, cupPoints, emptyCups, fitsCup, leafId, leafName,
+  leavesOnHand, readLeaf, rollLeaves, servedTeas, type Leaf,
+} from "../src/sim/tea";
 import { rngFrom } from "../src/sim/rng";
 import { STAT_NAMES, type StatName, type Stats } from "../src/sim/types";
 import { HOBBY_MARK, hobbyFor, sparringScoba, teasFor } from "../src/sim/kit";
@@ -64,6 +69,24 @@ describe("hobbies", () => {
     expect(got.hp).toBe(bare.hp);
   });
 
+  it("says what taking one up would do, for the hut to read out", () => {
+    expect(describeHobby("crochet")).toBe("Strength +50%, Defense -25%.");
+    expect(describeHobby("hylic")).toBe("Strength +35%, Defense +35%, Strength +15, Defense +15, Resistance -20%.");
+    expect(describeHobby("unmotivated")).toBe("Changes nothing.");
+    expect(describeHobby("not-a-hobby")).toBe("");
+    for (const id of HOBBY_IDS) expect(describeHobby(id), id).not.toBe("");
+  });
+
+  it("is taken up by writing it on the Scoba, and drops whatever it did before", () => {
+    const sc = withHobby("crochet");
+    const before = statsAt(sc, false);
+    const after = statsAt({ ...sc, hobby: "weights" }, false);
+    // What the hut shows: only the stats that actually move, each one read off
+    // the Scoba rather than off the hobby.
+    const moved = STAT_NAMES.filter((name) => before[name] !== after[name]);
+    expect(moved).toEqual(["str", "def", "mag"]);
+  });
+
   it("hands one out to every Scoba that is made", () => {
     for (const seed of ["a", "b", "c", "d"]) {
       const sc = makeWild("plib", 12, rngFrom(seed));
@@ -102,6 +125,79 @@ describe("teas", () => {
     const both = statsAt({ ...withHobby("crochet"), teas: ["str"] }, false);
     // The hobby takes the line, the tea goes on top of what it left.
     expect(both.str).toBe(Math.floor(bare.str * 1.5) + 15);
+  });
+});
+
+describe("Teeleevs and the pot", () => {
+  const leaf = (stat: StatName, rank: number): Leaf => ({ stat, rank });
+
+  it("reads a leaf back off the key it is counted under", () => {
+    expect(leafId("str", 2)).toBe("leaf-str-2");
+    expect(readLeaf("leaf-str-2")).toEqual({ stat: "str", rank: 2 });
+    expect(leafName(leaf("mag", 3))).toBe("Magic Teeleev III");
+    expect(readLeaf("leaf-str-4")).toBeNull();
+    expect(readLeaf("leaf-nope-1")).toBeNull();
+    expect(readLeaf("snare")).toBeNull();
+  });
+
+  it("fills a cup with three points of one stat, and nothing else", () => {
+    const cups = emptyCups();
+    expect(cups).toHaveLength(TEAS_MAX);
+    // A rank 3 is a cup on its own.
+    expect(cupFor(cups, leaf("str", 3))).toBe(0);
+    cups[0] = { stat: "str", leaves: [leaf("str", 3)] };
+    expect(cupFull(cups[0]!)).toBe(true);
+    // A rank 2 and a rank 1 of the same stat fill the next one.
+    expect(cupFor(cups, leaf("mag", 2))).toBe(1);
+    cups[1] = { stat: "mag", leaves: [leaf("mag", 2)] };
+    expect(fitsCup(cups[1]!, leaf("mag", 1))).toBe(true);
+    // Not another stat, and not more than it takes.
+    expect(fitsCup(cups[1]!, leaf("str", 1))).toBe(false);
+    expect(fitsCup(cups[1]!, leaf("mag", 2))).toBe(false);
+    cups[1]!.leaves.push(leaf("mag", 1));
+    expect(cupPoints(cups[1]!)).toBe(CUP_POINTS);
+    // Only the full cups are served, and they are what the Scoba ends up with.
+    cups[2] = { stat: "spd", leaves: [leaf("spd", 1)] };
+    expect(servedTeas(cups)).toEqual(["str", "mag"]);
+  });
+
+  it("gathers leaves of one stat into the cup already brewing it", () => {
+    const cups = emptyCups();
+    cups[0] = { stat: "def", leaves: [leaf("def", 1)] };
+    expect(cupFor(cups, leaf("def", 1))).toBe(0);
+    // One that will not fit the cup it belongs to opens the next one.
+    cups[0] = { stat: "def", leaves: [leaf("def", 2)] };
+    expect(cupFor(cups, leaf("def", 2))).toBe(1);
+  });
+
+  it("hands over one to three leaves a fight, rolled off the battle's own seed", () => {
+    for (const seed of ["a", "b", "c", "d", "e"]) {
+      const got = rollLeaves(rngFrom(seed));
+      expect(got.length, seed).toBeGreaterThanOrEqual(DROP_MIN);
+      expect(got.length, seed).toBeLessThanOrEqual(DROP_MAX);
+      for (const one of got) {
+        expect(STAT_NAMES, seed).toContain(one.stat);
+        expect([1, 2, 3], seed).toContain(one.rank);
+      }
+      // The same seed is the same handful, so a replay of a fight pays the same.
+      expect(rollLeaves(rngFrom(seed))).toEqual(got);
+    }
+  });
+
+  it("rolls the ranks about as often as the odds say", () => {
+    const rng = rngFrom("odds");
+    const counts = [0, 0, 0];
+    for (let i = 0; i < 400; i++) for (const one of rollLeaves(rng)) counts[one.rank - 1]! += 1;
+    const total = counts.reduce((a, b) => a + b, 0);
+    expect(counts[0]! / total).toBeGreaterThan(0.4);
+    expect(counts[1]! / total).toBeGreaterThan(0.25);
+    expect(counts[2]! / total).toBeLessThan(0.25);
+  });
+
+  it("counts what is on hand and leaves out what is not", () => {
+    const held = leavesOnHand({ "leaf-str-1": 2, "leaf-mag-3": 1, "leaf-spd-2": 0, snare: 5 });
+    expect(held.map((h) => [h.leaf.stat, h.leaf.rank, h.count]))
+      .toEqual([["str", 1, 2], ["mag", 3, 1]]);
   });
 });
 

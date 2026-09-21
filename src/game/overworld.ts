@@ -36,6 +36,8 @@ export interface OverworldHooks {
   decidesCompanionship?(): boolean;
   onWildBattle(wild: ScobaInstance, at: { x: number; y: number }): void;
   onOpenNest(): void;
+  /** The hobby hut, where a Scoba takes up what it does with its time. */
+  onOpenHobbies(): void;
   onTrainerBattle(npc: NpcDef, result: (won: boolean) => void): void;
   /**
    * Where the other player is, when someone is playing them. Null means nobody
@@ -1507,7 +1509,10 @@ export class Overworld {
       this.ui.openDialog(shown.map((text) => ({ who: npc.name, text })), onDone);
     };
     const action = npcAction(this.content, this.save, npc);
-    if (action.kind === "chat") {
+    if (action.kind === "chat" && npc.service === "hobbies") {
+      // Their own place opens once they have said their piece.
+      say(action.lines, () => this.hooks.onOpenHobbies());
+    } else if (action.kind === "chat") {
       say(action.lines);
     } else if (action.kind === "quest-talk") {
       say(action.lines, () => {

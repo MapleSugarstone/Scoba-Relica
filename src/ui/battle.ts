@@ -61,6 +61,7 @@ import { fitWindow } from "./fit";
 import { startReplay, stopReplay, takeReplay } from "../sim/replay";
 import { enemyChoices, pawnChoices } from "../sim/ai";
 import { PeerAnswers, PeerChoices, type BattleNet, type NetBattle } from "../net/battlelink";
+import { leafId, leafName, rollLeaves } from "../sim/tea";
 import { rngFrom } from "../sim/rng";
 import { kitted } from "../sim/kit";
 import { gainXp, MAX_LEVEL, maxHp, moveName, scobaTypes, settleCaught, type ScobaInstance } from "../sim/scoba";
@@ -1475,11 +1476,18 @@ function runBattle(
       pick({ ...a.action, picks: a.picks } as Choice);
       return;
     }
-    if (aimOptions().length === 0) {
+    const options = aimOptions();
+    if (options.length === 0) {
       // Nothing legal to aim at, so the move is put back rather than fizzled.
       aiming = null;
       ui.toast("Nothing to aim that at.");
       render();
+      return;
+    }
+    // One legal target is no decision. Asking about it is a press that can
+    // only be answered one way, so it is taken and the round moves on.
+    if (options.length === 1) {
+      choose(options[0]!);
       return;
     }
     render();
@@ -1918,6 +1926,12 @@ function runBattle(
       }
       say(answer);
     };
+    // One Scoba to pick is no decision, so it is answered rather than asked,
+    // the same way a move with one legal target aims itself.
+    if (q.kind !== "act" && q.options.length === 1) {
+      const only: Answer = { pick: q.options[0]! };
+      return new Promise((say) => tell(say)(only));
+    }
     // A move that looks ahead: the round is shown first, and then the whole
     // action row opens for whoever cast it.
     if (q.kind === "act") {
@@ -2270,6 +2284,9 @@ function runBattle(
       lines.push(`Prize: ${setup.rewardMoney} coins.`);
     }
     lines.push(payout());
+    const picked = rollLeaves(rngFrom(`${st.seed}:tea:${st.turn}`));
+    for (const leaf of picked) save.bag[leafId(leaf.stat, leaf.rank)] = (save.bag[leafId(leaf.stat, leaf.rank)] ?? 0) + 1;
+    lines.push(`Found ${picked.map(leafName).join(", ")}.`);
     syncHp();
     const title = setup.trainerName ? `${setup.trainerName} is defeated!` : "You win!";
     showResults(title, lines, "win");

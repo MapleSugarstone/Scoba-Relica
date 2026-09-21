@@ -10,17 +10,19 @@ import type { Art } from "../engine/assets";
 import { sfx } from "../engine/sfx";
 import { displayName } from "../sim/battle";
 import { face, openBrowser, openScobaCard, speciesFace } from "./browser";
+import { openTeaPot, teaRow } from "./tea";
 import { typeIcon, typeIcons } from "./typeicon";
 import { devMode } from "../version";
 import {
   EVOLVE_COST,
+  evolvePrice,
   LEVEL_COST,
   evolve,
   evolveError,
   levelUp,
   levelUpError,
 } from "../sim/growth";
-import { BABY_EVOLVE_LEVEL, MAX_LEVEL, makeWild, maxHp, speciesName, type ScobaInstance } from "../sim/scoba";
+import { MAX_LEVEL, makeWild, maxHp, speciesName, type ScobaInstance } from "../sim/scoba";
 import { MOVES, SPECIES, evolutionOf, moveTypes, rosterSpecies, typeLabel, typesOf } from "../sim/species";
 import { rngFrom } from "../sim/rng";
 import type { SaveData, SlotId } from "../save/save";
@@ -210,11 +212,13 @@ export function openBox(ui: UI, art: Art, save: SaveData, hooks: RosterHooks): v
       ops.appendChild(add);
       ops.appendChild(drop);
       strip.appendChild(ops);
-      if (!mine) {
-        strip.appendChild(el("div", "dim bxLendNote", partyPick && !partyPick.lentBy
+      // The line is always there, said or not, so swinging the strip round to
+      // the other character does not push the screen down a row.
+      strip.appendChild(el("div", "dim bxLendNote", mine
+        ? ""
+        : partyPick && !partyPick.lentBy
           ? `${displayName(partyPick)} is ${save.characters[stripOwner].name}'s own.`
           : `Lend from your box. Everything you lend comes home when ${save.characters[stripOwner].name} logs in.`));
-      }
       return strip;
     },
   });
@@ -319,8 +323,7 @@ function openSpawn(ui: UI, art: Art, save: SaveData, onChange: () => void, onBac
     spawn.addEventListener("click", () => {
       const sp = chosen ? SPECIES[chosen] : undefined;
       if (!sp) return;
-      const asked = readLevel();
-      const lv = sp.baby ? Math.min(asked, BABY_EVOLVE_LEVEL - 1) : asked;
+      const lv = readLevel();
       const made = makeWild(sp.id, lv, rngFrom(`${save.worldSeed}:spawn:${Date.now().toString(36)}:${spawned++}`));
       if (spawnWith.shiny) made.shiny = true;
       else delete made.shiny;
@@ -329,9 +332,7 @@ function openSpawn(ui: UI, art: Art, save: SaveData, onChange: () => void, onBac
       save.box.push(made);
       sfx.confirm();
       onChange();
-      ui.toast(lv === asked
-        ? `${displayName(made)} is in your box at Lv ${lv}.`
-        : `${displayName(made)} is in your box at Lv ${lv}. A baby grows up at Lv ${BABY_EVOLVE_LEVEL}.`);
+      ui.toast(`${displayName(made)} is in your box at Lv ${lv}.`);
     });
 
     const back = el("button", "pill", "Back");
@@ -457,6 +458,9 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
       moves.appendChild(row);
     }
     card.appendChild(moves);
+    // What it is drinking, which is part of the stat line it walks in with.
+    const teas = teaRow(art, m);
+    if (teas) card.appendChild(teas);
 
     card.addEventListener("click", () => {
       sfx.tap();
@@ -505,15 +509,25 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
     const evolveWhy = m ? evolveError(m, onHand(save)) : null;
     const ops = el("div", "ptOps");
     ops.appendChild(sideButton(`Level up · ${LEVEL_COST}`, m && !levelWhy && !theirs ? () => buyLevel(m) : null));
-    ops.appendChild(sideButton(`Evolve · ${EVOLVE_COST}`, m && !evolveWhy && !theirs ? () => buyEvolve(m) : null));
+    // A baby grows up for nothing, so the button says a price only where there
+    // is one to pay.
+    const price = m ? evolvePrice(m) : EVOLVE_COST;
+    ops.appendChild(sideButton(price > 0 ? `Evolve · ${price}` : "Evolve", m && !evolveWhy && !theirs ? () => buyEvolve(m) : null));
+    ops.appendChild(sideButton("Tea", m && !theirs
+      ? () => openTeaPot(ui, art, save, m, () => { hooks.onChange(); render(); })
+      : null));
     ops.appendChild(sideButton("Rename", m && !theirs ? () => renameScreen(m) : null));
     ops.appendChild(sideButton("Info", m ? () => openScobaCard(ui, art, m, render) : null));
     side.appendChild(ops);
 
+    // Whose it is answers for every button at once, so it stands on its own:
+    // the line has room for two reasons and no more.
     const notes: string[] = [];
     if (m && theirs) notes.push(`${save.characters[owner].name} raises this one.`);
-    if (levelWhy) notes.push(levelWhy);
-    if (evolveWhy) notes.push(evolveWhy);
+    else {
+      if (levelWhy) notes.push(levelWhy);
+      if (evolveWhy) notes.push(evolveWhy);
+    }
     side.appendChild(el("div", "ptNote", notes.join(" ")));
     side.appendChild(sideButton("Back", hooks.onBack));
     return side;
@@ -533,7 +547,7 @@ export function openParty(ui: UI, art: Art, save: SaveData, hooks: RosterHooks):
     if (evolveError(m, onHand(save))) return;
     const was = displayName(m);
     const into = evolutionOf(SPECIES[m.speciesId]!);
-    if (!devMode()) save.aetus -= EVOLVE_COST;
+    if (!devMode()) save.aetus -= evolvePrice(m);
     evolve(m);
     sfx.confirm();
     hooks.onChange();

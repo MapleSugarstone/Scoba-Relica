@@ -14,6 +14,7 @@ import {
 } from "./ui/screens";
 import { battleStage, netBattle, openTrainerBattle, openWildBattle, type ActiveBattle } from "./ui/battle";
 import { openBreeding } from "./ui/breeding";
+import { openHobbies } from "./ui/hobbies";
 import { openBox, openParty, type RosterHooks } from "./ui/roster";
 import { openBounceGame } from "./ui/minigame";
 import { SPECIAL, SPECIES } from "./sim/species";
@@ -438,6 +439,7 @@ function buildGame(save: SaveData): void {
       });
     },
     onOpenNest: () => openBreeding(ui, art!, save, () => scene?.refreshCompanions()),
+    onOpenHobbies: () => openHobbies(ui, art!, save, () => scene?.refreshCompanions()),
     onTrainerBattle: (npc, result) => {
       const trainer = npc.trainer;
       if (!trainer) return;

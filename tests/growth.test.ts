@@ -7,7 +7,7 @@ import {
   levelUp,
   levelUpError,
 } from "../src/sim/growth";
-import { MAX_LEVEL, gainXp, makeWild, maxHp, settleCaught, type ScobaInstance } from "../src/sim/scoba";
+import { EVOLVE_LEVEL, MAX_LEVEL, gainXp, makeWild, maxHp, settleCaught, type ScobaInstance } from "../src/sim/scoba";
 import { SPECIES, speciesMoves, type Species } from "../src/sim/species";
 import { rngFrom } from "../src/sim/rng";
 import {
@@ -80,14 +80,18 @@ describe("spending Aetus", () => {
     SPECIES[next.id] = next;
     SPECIES[base.id] = { ...base, evolvesTo: next.id };
     try {
-      const s = wild("catsquito", 4, "a4");
+      // Under the level it says so, whatever is on hand. Catsquito is no baby,
+      // so at the level it is the Aetus that decides.
+      const young = wild("catsquito", 4, "a4");
+      expect(evolveError(young, 9999)).toMatch(/level 15/);
+      const s = wild("catsquito", EVOLVE_LEVEL, "a4");
       s.nickname = "Bitey";
       expect(evolveError(s, EVOLVE_COST - 1)).toMatch(/Costs/);
       expect(evolveError(s, EVOLVE_COST)).toBeNull();
       evolve(s);
       expect(s.speciesId).toBe(next.id);
       expect(s.nickname).toBe("Bitey");
-      expect(s.level).toBe(4);
+      expect(s.level).toBe(EVOLVE_LEVEL);
       // A wild one is exactly its species' line, so it grows into exactly the
       // next form's line.
       expect(s.genes).toEqual(next.genes);

@@ -4,7 +4,7 @@
 // player spends on one that was not. Both stop at the same ceiling, so buying
 // levels catches a Scoba up rather than pushing it past anything.
 import type { ScobaInstance } from "./scoba";
-import { BABY_EVOLVE_LEVEL, MAX_LEVEL, evolve, raiseLevel } from "./scoba";
+import { EVOLVE_LEVEL, MAX_LEVEL, evolve, raiseLevel } from "./scoba";
 import { SPECIES, evolutionOf, stageOf } from "./species";
 
 export const AETUS_PER_WILD = 100;
@@ -22,16 +22,25 @@ export function levelUpError(s: ScobaInstance, aetus: number): string | null {
   return null;
 }
 
-/** Why this Scoba cannot evolve right now, or null if it can. */
+/**
+ * Why this Scoba cannot evolve right now, or null if it can. Growing up is
+ * the player's call rather than something that happens on the way past a
+ * level: reaching the level is what puts the button within reach.
+ */
 export function evolveError(s: ScobaInstance, aetus: number): string | null {
   const sp = SPECIES[s.speciesId];
   if (!sp) return "Unknown species.";
   if (!evolutionOf(sp)) return "Nothing to evolve into yet.";
-  // A baby grows out of itself on reaching the level, so there is nothing to
-  // buy: making it purchasable would be a second way out of a baby form.
-  if (sp.baby) return `Grows up on its own at level ${BABY_EVOLVE_LEVEL}.`;
-  if (aetus < EVOLVE_COST) return `Costs ${EVOLVE_COST} Aetus.`;
+  if (s.level < EVOLVE_LEVEL) return `Ready at level ${EVOLVE_LEVEL}.`;
+  // A baby grows out of its own form, which costs nothing: the level is the
+  // whole of what it asks for. Anything else is bought.
+  if (!sp.baby && aetus < EVOLVE_COST) return `Costs ${EVOLVE_COST} Aetus.`;
   return null;
+}
+
+/** What evolving this Scoba takes out of the Aetus on hand. */
+export function evolvePrice(s: ScobaInstance): number {
+  return SPECIES[s.speciesId]?.baby ? 0 : EVOLVE_COST;
 }
 
 export { evolve };

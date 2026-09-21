@@ -23,6 +23,12 @@ export interface Art {
   powers: Record<string, HTMLCanvasElement | HTMLImageElement>;
   /** Island tile art, keyed by lower-cased file name. */
   tiles: Record<string, HTMLImageElement>;
+  /**
+   * Teacups, keyed the same way and cropped the same way a power is: a cup is
+   * drawn on the same canvas a Scoba is, so what says how big it is is the
+   * drawing rather than the file.
+   */
+  teas: Record<string, HTMLCanvasElement | HTMLImageElement>;
 }
 
 // Scoba art comes straight from `assets/Scobas`, same as the doll layers: drop
@@ -49,6 +55,10 @@ const TILE_FILES = import.meta.glob("../../assets/Tiles/*.png", {
   eager: true, query: "?url", import: "default",
 }) as Record<string, string>;
 
+const TEA_FILES = import.meta.glob("../../assets/Tea/*.png", {
+  eager: true, query: "?url", import: "default",
+}) as Record<string, string>;
+
 function byFileName(files: Record<string, string>): { name: string; url: string }[] {
   return Object.entries(files).map(([path, url]) => ({
     name: path.split("/").pop()!.replace(/\.png$/i, "").toLowerCase(),
@@ -61,20 +71,23 @@ const PAWN_URLS = byFileName(PAWN_FILES);
 const ACCESSORY_URLS = byFileName(ACCESSORY_FILES);
 const POWER_URLS = byFileName(POWER_FILES);
 const TILE_URLS = byFileName(TILE_FILES);
+const TEA_URLS = byFileName(TEA_FILES);
 
 export async function loadArt(): Promise<Art> {
-  const [doll, drawn, called, worn, thrown, tiled] = await Promise.all([
+  const [doll, drawn, called, worn, thrown, tiled, poured] = await Promise.all([
     loadPaperdoll(),
     Promise.all(SCOBA_URLS.map((s) => loadImage(s.url))),
     Promise.all(PAWN_URLS.map((p) => loadImage(p.url))),
     Promise.all(ACCESSORY_URLS.map((a) => loadImage(a.url))),
     Promise.all(POWER_URLS.map((p) => loadImage(p.url))),
     Promise.all(TILE_URLS.map((t) => loadImage(t.url))),
+    Promise.all(TEA_URLS.map((t) => loadImage(t.url))),
   ]);
   const scobas = Object.fromEntries(SCOBA_URLS.map((s, i) => [s.name, drawn[i]!]));
   const pawns = Object.fromEntries(PAWN_URLS.map((p, i) => [p.name, called[i]!]));
   const accessories = Object.fromEntries(ACCESSORY_URLS.map((a, i) => [a.name, worn[i]!]));
   const powers = Object.fromEntries(POWER_URLS.map((p, i) => [p.name, cropToContent(thrown[i]!)]));
   const tiles = Object.fromEntries(TILE_URLS.map((t, i) => [t.name, tiled[i]!]));
-  return { doll, scobas, pawns, accessories, powers, tiles };
+  const teas = Object.fromEntries(TEA_URLS.map((t, i) => [t.name, cropToContent(poured[i]!)]));
+  return { doll, scobas, pawns, accessories, powers, tiles, teas };
 }

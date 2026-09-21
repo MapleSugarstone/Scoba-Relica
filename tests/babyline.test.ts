@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { babyLineOf, childGenes, hatchesAs } from "../src/sim/breeding";
-import { commonStat, evolve, makeWild, rescaleLine, scaleToLevel, statsAt, MAX_LEVEL, BABY_EVOLVE_LEVEL, raiseLevel } from "../src/sim/scoba";
+import { commonStat, evolve, makeWild, rescaleLine, scaleToLevel, statsAt, MAX_LEVEL, EVOLVE_LEVEL, raiseLevel } from "../src/sim/scoba";
 import { SPECIES, babyOf, type Species } from "../src/sim/species";
 import { STAT_BUDGET, BABY_BUDGET, STAT_CAPS, statTotal, STAT_NAMES, stats } from "../src/sim/types";
+import { evolveError } from "../src/sim/growth";
 import { rngFrom } from "../src/sim/rng";
 
 const rng = () => 0.5;
@@ -125,12 +126,18 @@ describe("the Octoshake line", () => {
     }
   });
 
-  it("grows Sqwoop into Octoshake on reaching the level and not before", () => {
+  it("lets Sqwoop grow into Octoshake at the level, and never on its own", () => {
     const s = makeWild("sqwoop", 1, rngFrom("t"));
-    while (s.level < BABY_EVOLVE_LEVEL - 1) raiseLevel(s);
-    expect(s.speciesId).toBe("sqwoop");
+    while (s.level < EVOLVE_LEVEL - 1) raiseLevel(s);
+    expect(evolveError(s, 0)).toMatch(/level 15/);
     raiseLevel(s);
-    expect(s.level).toBe(BABY_EVOLVE_LEVEL);
+    expect(s.level).toBe(EVOLVE_LEVEL);
+    // Levelling past it changes nothing: growing up is asked for.
+    raiseLevel(s);
+    expect(s.speciesId).toBe("sqwoop");
+    // A baby pays nothing for it, so the level is the whole of the price.
+    expect(evolveError(s, 0)).toBeNull();
+    evolve(s);
     expect(s.speciesId).toBe("octoshake");
     expect(s.genes).toEqual(SPECIES.octoshake!.genes);
   });

@@ -222,8 +222,10 @@ body.touch #actBtn { display: block; }
 .ptRead .dim { color: var(--p-dim); }
 .ptReadName { font-size: 18px; font-family: "Relica 18"; color: var(--p-text); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ptOps { display: flex; flex-direction: column; gap: 4px; }
-/* Why a button is dead, with its room held when there is nothing to say. */
-.ptNote { flex: 1; min-height: 36px; color: var(--p-dim); }
+/* Why a button is dead, with its room held when there is nothing to say: three
+   lines, which is what two reasons come to, so the way back under it sits in
+   one place whatever is picked. */
+.ptNote { flex: 1; min-height: 51px; color: var(--p-dim); }
 /* Bars under 16px stay a plain square frame rather than the stepped one,
    the same rule a battle plate's own bars follow. */
 .hpBar { flex: 1; height: 12px; border: 1.5px solid var(--p-ink); background: var(--p-ground); overflow: hidden; }

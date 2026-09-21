@@ -112,7 +112,7 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
     openBrowser(ui, art, {
       title: `${SPECIAL.name}'s Nest`,
       memory: "nest-mom",
-      hint: "Pick a mother. The child hatches as the first form of her line.",
+      hint: "Pick a mother. The child hatches as her line's first form.",
       empty: "Nothing here can breed yet. Catch a few more.",
       // A parent with nobody to pair with is no parent.
       source: () => eligible().filter((m) => pool().some((d) => d.uid !== m.uid && canBreed(m, d) === null)),
@@ -125,7 +125,7 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
     openBrowser(ui, art, {
       title: `Mother: ${displayName(mom)}`,
       memory: "nest-dad",
-      hint: "Pick a father. From her own line, the child is a plain baby of that line. From another line, it is a hybrid that takes one of his moves, his passive, his element and his colors, and it cannot breed.",
+      hint: "Pick a father. Another line makes a hybrid, which takes after him.",
       empty: "Nobody will pair with her.",
       source: () => pool().filter((d) => d.uid !== mom.uid && canBreed(mom, d) === null),
       onBack: pickMom,
@@ -171,7 +171,9 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
         sfx.back();
         pickDad(mom);
       });
-      s.appendChild(back);
+      const exit = el("div", "backRow");
+      exit.appendChild(back);
+      s.appendChild(exit);
     });
   };
 
@@ -197,7 +199,9 @@ export function openBreeding(ui: UI, art: Art, save: SaveData, onClose: () => vo
         sfx.back();
         pickDrop(mom, dad);
       });
-      s.appendChild(back);
+      const exit = el("div", "backRow");
+      exit.appendChild(back);
+      s.appendChild(exit);
     });
   };
 

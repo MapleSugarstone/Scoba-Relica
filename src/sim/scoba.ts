@@ -162,8 +162,8 @@ export function teaWorth(level: number): number {
   return Math.round((TEA_AT_CEILING * Math.max(1, Math.min(MAX_LEVEL, level))) / MAX_LEVEL);
 }
 
-/** The level a baby form grows out of. Every baby line evolves on reaching it. */
-export const BABY_EVOLVE_LEVEL = 15;
+/** The level an evolution unlocks at. Growing up is asked for, never automatic. */
+export const EVOLVE_LEVEL = 15;
 
 /** How often one turns up shiny. */
 export const SHINY_CHANCE = 1 / 300;
@@ -514,16 +514,15 @@ export function gainXp(s: ScobaInstance, amount: number): LevelUpResult {
 }
 
 /**
- * One level, keeping whatever damage the Scoba was already carrying. A baby
- * that reaches the evolution level grows out of itself on the way up, since
- * growing out of a baby form is what the level is for and nothing is asked.
+ * One level, keeping whatever damage the Scoba was already carrying. Reaching
+ * the evolution level changes nothing on its own: what it does is put the
+ * button in front of the player, who decides whether the Scoba grows up.
  */
 export function raiseLevel(s: ScobaInstance): void {
   if (s.level >= MAX_LEVEL) return;
   const beforeMax = maxHp(s);
   s.level += 1;
   s.hp = Math.min(maxHp(s), s.hp + (maxHp(s) - beforeMax));
-  if (SPECIES[s.speciesId]?.baby && s.level >= BABY_EVOLVE_LEVEL) evolve(s);
 }
 
 /**

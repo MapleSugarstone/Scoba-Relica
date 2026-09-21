@@ -13,6 +13,7 @@ import { critterPortrait, lookOf } from "../game/critters";
 import { displayName } from "../sim/battle";
 import { moveCost, passiveStatuses, scobaTypes, speciesName, statsAt, type ScobaInstance } from "../sim/scoba";
 import { elementPowers, hobbyDoing } from "../sim/status";
+import { teaRow } from "./tea";
 import { MOVES, SPECIES, type Species } from "../sim/species";
 import { scobaText } from "../game/texts";
 import { STAT_LABELS, TYPES, TYPE_COLORS, TYPE_LABELS, type ElementType, type StatName } from "../sim/types";
@@ -187,6 +188,11 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
   const fillFoot = (): void => {
     footWrap.innerHTML = "";
     footWrap.appendChild(cfg.foot(ctx));
+    // The way back sits in the bottom right corner of every screen that has
+    // panels, which is where a hand goes looking for it.
+    const exit = el("div", "bxBackRow");
+    exit.appendChild(button("bxWide", "Back", cfg.onBack));
+    footWrap.appendChild(exit);
   };
 
   // Words and badges only, in a box that holds its height: the picked face is
@@ -196,14 +202,26 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
     readout.innerHTML = "";
     const s = selected();
     if (!s) {
-      readout.appendChild(el("div", "dim", cfg.hint ?? "Pick one."));
+      readout.appendChild(el("div", "dim bxReadHint", cfg.hint ?? "Pick one."));
       return;
     }
+    // The face on its own dark ground with what it is beside it, rather than
+    // under it: the panel is only as tall as the party strip across from it,
+    // and a face stacked over the words does not fit in that.
+    const body = el("div", "bxReadBody");
+    if (SPECIES[s.speciesId]) {
+      const stage = el("div", "bxPortrait bxReadStage");
+      stage.appendChild(face(art, s));
+      body.appendChild(stage);
+    }
+    const words = el("div", "bxReadWords");
     const top = el("div", "bxReadTop");
     top.appendChild(el("span", "bxReadName", displayName(s)));
     top.appendChild(el("span", "dim", `Lv ${s.level}`));
-    readout.appendChild(top);
-    if (SPECIES[s.speciesId]) readout.appendChild(typeIcons(s));
+    words.appendChild(top);
+    if (SPECIES[s.speciesId]) words.appendChild(typeIcons(s));
+    body.appendChild(words);
+    readout.appendChild(body);
   };
 
   const pick = (s: ScobaInstance): void => {
@@ -346,13 +364,12 @@ export function openBrowser(ui: UI, art: Art, cfg: BrowserConfig): void {
       // it, which is the one place under the panels with room for it.
       const info = el("div", "bxPanel bxInfo");
       info.appendChild(readout);
-      const infoOps = el("div", "bxPair");
+      const infoOps = el("div", "bxReadOps");
       info.appendChild(infoOps);
       infoOps.appendChild(button("bxWide", "Info", () => {
         const s = selected();
         if (s) infoScreen(s);
       }));
-      infoOps.appendChild(button("bxWide", "Back", cfg.onBack));
       wrap.appendChild(info);
 
       wrap.appendChild(footWrap);
@@ -387,6 +404,10 @@ export function openScobaCard(ui: UI, art: Art, s: ScobaInstance, onBack: () => 
   if (s.hybrid) kinds.push(el("span", "dim", "Hybrid"));
   const doing = hobbyDoing(s.hobby);
   if (doing !== "") kinds.push(el("span", "dim bxDoing", doing));
+  // What it is drinking, beside what it does with its time: both are part of
+  // the stat line rather than anything it is carrying.
+  const teas = teaRow(art, s);
+  if (teas) kinds.push(teas);
   const [first] = scobaTypes(s);
   openCard(ui, {
     face: face(art, s),

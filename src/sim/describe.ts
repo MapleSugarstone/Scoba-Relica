@@ -9,7 +9,7 @@ import {
   ABILITIES, MOVES, SPECIES, abilityStatuses, allSteps, moveTypes, type Move,
 } from "./species";
 import {
-  FIELDS, STATUSES, statusName,
+  FIELDS, HOBBIES, STATUSES, statusName,
   type Basis, type DamageCategory, type FieldDef, type MoveChange, type StatusDef,
   type StatusEffect, type StatusTrigger, type Step, type Who,
   isContinuous,
@@ -636,6 +636,16 @@ export function describeField(id: string): string {
   const f = FIELDS[id];
   if (!f) return "";
   return `${cap(fieldClauses(f).join(", "))}.`;
+}
+
+/** What taking up a hobby does to a Scoba's stat line. */
+export function describeHobby(id: string): string {
+  const h = HOBBIES[id];
+  if (!h) return "";
+  const said = grants(h.effects);
+  // One that does nothing at all still says so: a card with a blank where the
+  // numbers go reads as a hobby whose numbers failed to load.
+  return said.length === 0 ? "Changes nothing." : `${said.join(", ")}.`;
 }
 
 function movePieces(move: Move, opts: StatusOpts): Piece[] {

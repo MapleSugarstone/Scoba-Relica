@@ -79,8 +79,16 @@ export interface NpcDef {
    * reaching them is a trip rather than a step.
    */
   stands?: "spawn" | "away";
+  /**
+   * A place of their own that opens once they have said their piece: the hobby
+   * hut is one, where you pick a Scoba and pick what it does with its time.
+   */
+  service?: NpcService;
   trainer?: TrainerDef;
 }
+
+/** What an NPC opens besides a chat or a fight. */
+export type NpcService = "hobbies";
 
 export type QuestStep =
   | { kind: "talk"; npcId: string; lines: string[] }
@@ -564,6 +572,7 @@ function normNpc(raw: unknown, fallbackMap: string): NpcDef | null {
     lines: strArr(n["lines"]),
     wander: num(n["wander"], 0),
     ...(stands ? { stands } : {}),
+    ...(n["service"] === "hobbies" ? { service: "hobbies" as const } : {}),
     trainer: trainerRaw && (team.length > 0 || rolled)
       ? {
         team,

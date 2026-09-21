@@ -221,8 +221,8 @@ export interface Species {
   /** The species it becomes when it evolves, if there is one yet. */
   evolvesTo?: string;
   /**
-   * A baby form. It is built on the smaller budget, it grows out of itself on
-   * reaching `BABY_EVOLVE_LEVEL` rather than being bought out of, and it is
+   * A baby form. It is built on the smaller budget, it grows up for nothing
+   * once it reaches `EVOLVE_LEVEL` rather than being bought out of, and it is
    * what its line's children hatch as.
    */
   baby?: boolean;
